@@ -1,0 +1,168 @@
+# 拾课一键部署：docker compose -f deploy/docker-compose.yml --profile dev up --build
+#
+# 默认启动：PostgreSQL、业务服务（内嵌总线 Hub）、2 个推送节点、网关、MQTT Broker、采集、邮件服务、Prometheus、Grafana
+# --profile dev 额外启动：fake_moodle（模拟 Moodle / 学院网站 / 教师页）与 GreenMail（测试邮件服务器）
+
+name: gleaner
+
+x-gleaner: &gleaner
+  build:
+    context: ..
+    dockerfile: server/Dockerfile
+  image: gleaner/server:dev
+  restart: unless-stopped
+  env_file: .env
+  environment: &env
+    GLEANER_DB: postgresql://gleaner:${POSTGRES_PASSWORD:-gleaner}@postgres:5432/gleaner
+    GLEANER_BUS_HOST: core
+    GLEANER_BUS_PORT: "7400"
+    GLEANER_MOODLE_URL: ${GLEANER_MOODLE_URL:-http://fake_moodle:8090}
+    GLEANER_COLLEGE_URL: ${GLEANER_COLLEGE_URL:-http://fake_moodle:8090}
+    GLEANER_MAIL_HOST: ${GLEANER_MAIL_HOST:-greenmail}
+    GLEANER_IMAP_PORT: ${GLEANER_IMAP_PORT:-3143}
+    GLEANER_POP3_PORT: ${GLEANER_POP3_PORT:-3110}
+    GLEANER_SMTP_HOST: ${GLEANER_SMTP_HOST:-greenmail}
+    GLEANER_SMTP_PORT: ${GLEANER_SMTP_PORT:-3025}
+    GLEANER_SMTP_SECURITY: ${GLEANER_SMTP_SECURITY:-none}
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gleaner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gleaner}
+      POSTGRES_DB: gleaner
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gleaner"]
+      interval: 3s
+      retries: 20
+
+  core:
+    <<: *gleaner
+    command: ["core"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: core
+      GLEANER_CORE_PORT: "8081"
+    volumes: [coredata:/data]
+
+  push1:
+    <<: *gleaner
+    command: ["push"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: push-1
+      GLEANER_PUSH_PORT: "8100"
+    depends_on: [core]
+
+  push2:
+    <<: *gleaner
+    command: ["push"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: push-2
+      GLEANER_PUSH_PORT: "8100"
+    depends_on: [core]
+
+  gateway:
+    <<: *gleaner
+    command: ["gateway"]
+    environment:
+      <<: *env
+      GLEANER_GATEWAY_PORT: "8080"
+      GLEANER_GATEWAY_TLS_PORT: ${GLEANER_GATEWAY_TLS_PORT:-0}
+      GLEANER_TLS_CERT: ${GLEANER_TLS_CERT:-}
+      GLEANER_TLS_KEY: ${GLEANER_TLS_KEY:-}
+      GLEANER_CORE_UPSTREAMS: core-1=core:8081
+      GLEANER_PUSH_UPSTREAMS: push-1=push1:8100,push-2=push2:8100
+      GLEANER_STATIC_DIR: /app/web
+      GLEANER_WORKERS: ${GLEANER_WORKERS:-2}
+    ports: ["${GATEWAY_PORT:-8080}:8080", "${GATEWAY_TLS_PORT:-8443}:8443"]
+    volumes: ["${CERTS_DIR:-./certs}:/certs:ro"]
+    depends_on: [core, push1, push2]
+
+  broker:
+    <<: *gleaner
+    command: ["broker"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: broker
+      GLEANER_MQTT_PORT: "1883"
+      GLEANER_MQTT_TLS_PORT: ${GLEANER_MQTT_TLS_PORT:-0}
+      GLEANER_METRICS_PORT: "9101"
+    ports: ["${MQTT_PORT:-1883}:1883", "${MQTT_TLS_PORT:-8883}:8883"]
+    volumes: [brokerdata:/data]
+    depends_on: [core]
+
+  collector:
+    <<: *gleaner
+    command: ["collector"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: collector-1
+      GLEANER_METRICS_PORT: "9102"
+      GLEANER_MIN_INTERVAL: ${GLEANER_MIN_INTERVAL:-60}
+    depends_on: [core]
+
+  mailsvc:
+    <<: *gleaner
+    command: ["mailsvc"]
+    environment:
+      <<: *env
+      GLEANER_NODE_ID: mail-1
+    depends_on: [core]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    volumes: ["./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"]
+    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-gleaner}
+    volumes: ["./grafana/provisioning:/etc/grafana/provisioning:ro", "./grafana/dashboards:/var/lib/grafana/dashboards:ro"]
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    depends_on: [prometheus]
+
+  # ---- dev profile：测试信息源与测试邮件服务器 ----
+  fake_moodle:
+    profiles: [dev]
+    build:
+      context: ..
+      dockerfile: devtools/fake_moodle/Dockerfile
+    environment:
+      FAKE_MOODLE_SMTP_HOST: greenmail
+      FAKE_MOODLE_SMTP_PORT: "3025"
+      FAKE_MOODLE_SESSION_TTL: "3600"
+    ports: ["${FAKE_MOODLE_PORT:-8090}:8090"]
+
+  greenmail:
+    profiles: [dev]
+    image: greenmail/standalone:2.1.0
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled=false
+        -Dgreenmail.users=student:secret@test.local -Dgreenmail.users.login=email -Dgreenmail.verbose
+    ports: ["3025:3025", "3143:3143", "3110:3110"]
+
+  autobahn:
+    profiles: [conformance]
+    image: crossbario/autobahn-testsuite:0.8.2
+    command: ["wstest", "--mode", "fuzzingclient", "--spec", "/config/fuzzingclient.json"]
+    volumes: ["./autobahn:/config", "./autobahn/reports:/reports"]
+    depends_on: [gateway]
+
+volumes:
+  pgdata:
+  coredata:
+  brokerdata:

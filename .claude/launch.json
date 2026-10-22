@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gleaner-dev",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["devtools/dev_all.py", "--seed"],
+      "port": 8080
+    }
+  ]
+}
