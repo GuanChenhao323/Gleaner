@@ -76,7 +76,6 @@ def main() -> None:
             await _dev(cfg, a.pushes)
             return
         if a.service == "gateway":
-            _fork_workers(cfg.workers)
             r = await start_gateway(cfg)
         elif a.service == "core":
             r = await start_core(cfg)
@@ -90,6 +89,9 @@ def main() -> None:
             r = await start_mailsvc(cfg, cfg.node_id)
         await wait_forever(r)
 
+    if a.service == "gateway":
+        # 必须在创建事件循环之前 fork：否则子进程继承父进程的 epoll 实例与循环状态，多 worker 实际不分担负载
+        _fork_workers(cfg.workers)
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
