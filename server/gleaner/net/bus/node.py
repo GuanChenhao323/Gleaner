@@ -39,6 +39,47 @@ def topic_matches(pattern: str, topic: str) -> bool:
     return pattern == topic
 
 
+class TopicSet:
+    """订阅模式集合：精确主题走哈希查找，只有带通配符的模式才逐个匹配。
+
+    推送节点为每个在线用户订阅一个 ``u.<uid>``，5000 个在线用户时线性匹配是每条消息 5000 次比较；
+    压测发现它是全员扇出的瓶颈，改成哈希后单条消息的路由代价与在线人数无关。
+    """
+
+    def __init__(self, patterns: Any = ()) -> None:
+        self.exact: set[str] = set()
+        self.wild: set[str] = set()
+        self.update(patterns)
+
+    def add(self, p: str) -> None:
+        (self.wild if p == "*" or p.endswith(".*") else self.exact).add(p)
+
+    def discard(self, p: str) -> None:
+        self.exact.discard(p)
+        self.wild.discard(p)
+
+    def update(self, ps: Any) -> None:
+        for p in ps:
+            self.add(p)
+
+    def difference_update(self, ps: Any) -> None:
+        for p in ps:
+            self.discard(p)
+
+    def matches(self, topic: str) -> bool:
+        return topic in self.exact or any(topic_matches(p, topic) for p in self.wild)
+
+    def __contains__(self, p: object) -> bool:
+        return p in self.exact or p in self.wild
+
+    def __iter__(self) -> Any:
+        yield from self.exact
+        yield from self.wild
+
+    def __len__(self) -> int:
+        return len(self.exact) + len(self.wild)
+
+
 class _Dedup:
     def __init__(self, size: int = 50000) -> None:
         self._seen: OrderedDict[tuple[str, int], None] = OrderedDict()
@@ -93,7 +134,7 @@ class Member:
     meta: dict[str, Any]
     writer: asyncio.StreamWriter | None
     last_seen: float = field(default_factory=time.monotonic)
-    topics: set[str] = field(default_factory=set)
+    topics: TopicSet = field(default_factory=TopicSet)
     seq: int = 0
     outbox: dict[int, _Pending] = field(default_factory=dict)
     dedup: _Dedup = field(default_factory=_Dedup)
@@ -170,7 +211,7 @@ class BusHub:
                 continue
             if to is not None and node_id != to:
                 continue
-            if any(topic_matches(p, topic) for p in m.topics):
+            if m.topics.matches(topic):
                 self._send_reliable(
                     m,
                     FrameType.PUBLISH,
@@ -249,7 +290,7 @@ class BusHub:
                 m.outbox.clear()
         m.alive = True
         m.last_seen = time.monotonic()
-        m.topics = set(p.get("topics") or [])
+        m.topics = TopicSet(p.get("topics") or [])
         self._write(
             m, BusFrame(FrameType.NODE_JOIN, 0, {"node": self.node_id, "epoch": self.epoch})
         )
@@ -349,8 +390,10 @@ class BusClient:
         self.ack_timeout = ack_timeout
         self.heartbeat_interval = heartbeat_interval
         self.heartbeat_timeout = heartbeat_timeout
-        self.handlers: list[tuple[str, Handler]] = []
-        self.topics: set[str] = set()
+        # 精确主题 → 处理器列表；带通配符的模式单独存放（见 TopicSet）
+        self.handlers: dict[str, list[Handler]] = {}
+        self.wild_handlers: list[tuple[str, Handler]] = []
+        self.topics = TopicSet()
         self.stats = BusStats()
         self.connected = asyncio.Event()
         self._writer: asyncio.StreamWriter | None = None
@@ -364,14 +407,18 @@ class BusClient:
         self.reconnects = 0
 
     def subscribe(self, pattern: str, handler: Handler) -> None:
-        self.handlers.append((pattern, handler))
+        if pattern == "*" or pattern.endswith(".*"):
+            self.wild_handlers.append((pattern, handler))
+        else:
+            self.handlers.setdefault(pattern, []).append(handler)
         if pattern not in self.topics:
             self.topics.add(pattern)
             if self._writer:
                 self._send_reliable(FrameType.SUBSCRIBE, {"topics": [pattern]})
 
     def unsubscribe(self, pattern: str) -> None:
-        self.handlers = [(p, h) for p, h in self.handlers if p != pattern]
+        self.handlers.pop(pattern, None)
+        self.wild_handlers = [(p, h) for p, h in self.wild_handlers if p != pattern]
         if pattern in self.topics:
             self.topics.discard(pattern)
             if self._writer:
@@ -494,9 +541,10 @@ class BusClient:
         if f.type == FrameType.PUBLISH:
             p = f.payload or {}
             topic = str(p.get("topic"))
-            for pattern, h in list(self.handlers):
-                if topic_matches(pattern, topic):
-                    await _call(h, topic, p.get("data"), str(p.get("from", "")))
+            hs = list(self.handlers.get(topic, ()))
+            hs += [h for pat, h in self.wild_handlers if topic_matches(pat, topic)]
+            for h in hs:
+                await _call(h, topic, p.get("data"), str(p.get("from", "")))
 
     async def _heartbeat(self) -> None:
         last_hb = 0.0

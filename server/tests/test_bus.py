@@ -177,3 +177,14 @@ async def test_dedup_on_retransmit():
 def test_crc_is_over_whole_frame():
     raw = BusFrame(FrameType.HEARTBEAT, 3).encode()
     assert struct.unpack("!I", raw[-4:])[0] == zlib.crc32(raw[:-4])
+
+
+def test_topic_set_exact_and_wildcard():
+    from gleaner.net.bus.node import TopicSet
+
+    ts = TopicSet(["u.1", "u.2", "extract.*"])
+    assert ts.matches("u.1") and not ts.matches("u.3")
+    assert ts.matches("extract.moodle") and ts.matches("extract")
+    ts.discard("u.1")
+    ts.add("*")
+    assert ts.matches("anything") and "u.1" not in ts and len(ts) == 3
