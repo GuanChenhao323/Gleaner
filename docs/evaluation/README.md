@@ -57,14 +57,101 @@ TCP 握手次数从 300 降到 4（等于每主机并发上限），吞吐约提
 proposal 目标是“2 核、缓存命中 ≥ 1000 req/s”。这里网关和业务服务挤在一个进程里共用一个 GIL，压测客户端也在同机，结果偏保守；
 compose 部署时它们是独立进程，网关还可以 `GLEANER_WORKERS=N` 多进程（SO_REUSEPORT），待在 Linux 上复测。
 
-## 第二轮：Linux（待安装 WSL 2 + Docker 后补）
+## 第一轮补充：本机多进程集群（2026-10-22）
+
+`devtools/loadtest/cluster.py` 把业务服务（含总线 Hub）、推送节点、网关各开成独立进程，结构与 compose 相同，只是不在容器里。
+压测客户端 `push_bench.py` 经网关建立 WebSocket 连接（每个连接用不同的 X-Forwarded-For，避免同一 IP 被限流），
+然后从总线发布带时间戳的消息。**延迟口径**：总线发布 → 客户端收到，不含业务服务写库。
+
+### 单推送节点 5000 连接与推送延迟（含一次优化）
+
+Windows 上推送节点用 asyncio（IOCP）接入；手写反应器在 Windows 只能用 select，最多 512 个 socket，5000 连接的反应器数据待 Linux epoll 补测。
+每秒随机向 200 个用户推送，持续 20 秒；最后向全部 5000 个在线用户各推一条（“全员扇出”）。
+
+| 版本 | 成功连接 | 失败 | 推送 P50 ms | 推送 P99 ms | 送达 | 全员扇出耗时 s | 推送节点 CPU % | 推送节点内存 MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 优化前 | 5000 | 0 | 4.91 | 21.65 | 4000/4000 | 8.11 | 57.6 | 480 |
+| 优化后 | 5000 | 0 | **1.85** | **20.91** | 4000/4000 | **1.57** | **19.4** | 480 |
+
+- 达到 proposal 目标：单推送节点 ≥ 5000 并发连接，推送延迟 P99 < 1 秒。
+- **压测发现的瓶颈**：推送节点为每个在线用户订阅 `u.<uid>`，总线 Hub 与节点按订阅模式线性匹配，
+  5000 人在线时每条消息要比较 5000 次，全员扇出约 2500 万次比较。改为精确主题哈希查找、只有通配符模式才线性匹配（`net/bus/node.py: TopicSet`）后，
+  扇出耗时降为 1/5，CPU 降为 1/3。原始数据：`results/push_capacity_before_opt.json`、`results/push_capacity.json`。
+
+### 实验 1（初步）：select 与 IOCP
+
+Windows 上没有 epoll，先用手写反应器的 select 与 asyncio 的 IOCP 对比；规模受 select 的 512 上限限制。
+
+| 实现 | 连接数 | 推送 P50 ms | 推送 P99 ms | 全员扇出 s | 推送节点 CPU % | 内存 MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| select（手写反应器） | 100 | 2.04 | 4.17 | 0.11 | 16.1 | 51.7 |
+| IOCP（asyncio） | 100 | 1.97 | 3.78 | 0.06 | 10.0 | 59.3 |
+| select（手写反应器） | 200 | 2.38 | 4.47 | 0.11 | 20.2 | 53.1 |
+| IOCP（asyncio） | 200 | 2.36 | 3.86 | 0.11 | 13.3 | 67.9 |
+| select（手写反应器） | 400 | 2.26 | 4.62 | 0.21 | 19.0 | 56.0 |
+| IOCP（asyncio） | 400 | 2.59 | 3.99 | 0.17 | 17.1 | 84.8 |
+
+400 连接以内两者差距很小（select 的 CPU 高 2–6 个百分点，P99 延迟高约 0.5 ms；内存反而更省）。select 每轮扫描全部连接的 O(n) 代价要到上千连接才明显，
+proposal 要求的 500 → 5000 连接的 select / epoll 曲线需在 Linux 上补测。
+
+### 实验 5（初步）：单节点与三节点
+
+3000 个连接，每秒 200 条推送。三个节点是同一台机器上的三个进程，所以这里主要验证一致性哈希的分布与负载分摊，而不是跨机器扩容。
+
+| 推送节点 | 节点分布 | 推送 P50 ms | 推送 P99 ms | 全员扇出 s | CPU %（合计） | 内存 MB（合计） |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | push-1:3000 | 1.69 | 3.55 | 1.01 | 14.1 | 308 |
+| 3 | 995 / 954 / 1051 | 1.62 | 3.29 | 0.59 | 15.3 | 407 |
+
+一致性哈希（每节点 160 个虚拟节点）把连接分得很均匀，节点间相差不超过 ±5%；全员扇出耗时降低 42%。
+
+### 网关 REST 吞吐（多进程）
+
+| 部署 | 接口 | 吞吐 req/s | P50 ms | P99 ms |
+| --- | --- | --- | --- | --- |
+| 单进程（dev_all） | /api/templates | 950 | 66.5 | 75.3 |
+| 多进程（网关、业务服务分开） | /api/templates | **1334** | 47.3 | 62.6 |
+
+多进程部署达到“≥ 1000 req/s”的目标（Windows 不支持 fork，网关仍是单进程；Linux 上可再开 `GLEANER_WORKERS`）。
+
+### 实验 4 补充：网络中断场景（代替丢包注入）
+
+Windows 没有 `tc netem`，改用故障注入 TCP 代理：订阅端经代理连接 Broker，代理每 6 秒掐断全部连接，并在 2 秒内拒绝重连（模拟手机网络中断）；发布端直连 Broker，每秒 20 条，持续 30 秒，共 10 个订阅者。
+
+| QoS | 网络中断次数 | 送达（去重后） | 送达率 | 重复投递 |
+| --- | --- | --- | --- | --- |
+| 0 | 6 | 3299/6000 | 54.98% | 0 |
+| 1（持久会话） | 6 | 6000/6000 | **100%** | 10 |
+
+QoS 1 加持久会话在断线期间把消息存进离线队列，重连后补发，零丢失；代价是会出现少量重复（带 DUP 标志的重发），客户端必须按消息去重。
+真正的随机丢包会被 TCP 重传掩盖，对 MQTT 来说“连接中断”才是 QoS 差异的主要来源。tc netem 丢包数据待 Linux 补测。
+
+### WebSocket 一致性（精简版，代替 Autobahn）
+
+`devtools/autobahn_lite.py` 用原始 socket 手工构造帧，覆盖 Autobahn 第 1–7 类的 38 个代表性用例（长度编码、分段到达、ping/pong、RSV 位、保留 opcode、分片、
+UTF-8 校验与快速失败、关闭码），对两套实现各跑一遍：
+
+| 实现 | 结果 |
+| --- | --- |
+| asyncio（`websocket_route`，网关等使用） | 38/38 OK |
+| 手写反应器（推送节点使用） | 36/36 OK（2 个二进制回显用例不适用：推送节点只用文本帧） |
+
+逐条结果在 `results/autobahn_lite.json`。正式的 Autobahn Testsuite（500+ 用例）需要 Docker，待补。
+
+### compose 静态检查
+
+`devtools/check_compose.py` 检查构建路径、COPY 源、depends_on、服务间上游地址与端口、Prometheus 抓取目标、挂载文件。
+首次运行发现并修复了 3 个问题：网关缺少 `GLEANER_MQTT_WS_UPSTREAM`（`/mqtt` 会转发回网关自己）、Prometheus 抓 Broker 的端口写错（9101 → 8083）、
+Autobahn 报告目录缺失。现在 18 项检查全部通过。注意 `server/Dockerfile` 会复制 `client/build/web`，构建镜像前要先构建 Flutter Web。
+
+## 第二轮：Linux（待有 WSL 2 / Docker / 云服务器后补）
 
 | 项目 | 命令 | 状态 |
 | --- | --- | --- |
-| docker compose 演示路径 | `docker compose -f deploy/docker-compose.yml --profile dev up --build` | 待运行 |
-| Autobahn 一致性测试 | `docker compose -f deploy/docker-compose.yml --profile conformance run --rm autobahn` | 待运行 |
-| 实验 1：select 与 epoll（推送节点） | `GLEANER_PUSH_SELECTOR=select / epoll` + `ws_load.py` | 待运行（Windows 上 select 最多 512 个 socket，没有 epoll） |
-| 单推送节点 ≥ 5000 连接、推送延迟 P99 | `ws_load.py --users 5000` | 待运行 |
-| 实验 5：单节点与三节点 | compose 中扩展推送节点 | 待运行 |
-| 实验 4 丢包场景 | `tc qdisc add dev lo root netem loss 5%` + `experiments.py mqtt` | 待运行 |
-| 网关 REST 吞吐复测 | `experiments.py rest`（compose 多进程） | 待运行 |
+| docker compose 演示路径 | `docker compose -f deploy/docker-compose.yml --profile dev up --build` | 待运行（已做静态检查） |
+| Autobahn Testsuite | `python devtools/autobahn_echo.py` + `docker compose ... --profile conformance run --rm autobahn` | 待运行（已用精简版初测） |
+| 实验 1：select 与 epoll，500 → 5000 连接 | `python devtools/loadtest/push_bench.py selector --conns 500,1000,2000,5000`（Linux 上自动对比 select 与 epoll） | 待运行（已做 Windows 初测） |
+| 手写反应器 5000 连接 | `push_bench.py capacity --users 5000`（Linux） | 待运行 |
+| 实验 5：跨机器扩容 | 推送节点分布到 2–3 台机器 | 待运行（已做单机多进程初测） |
+| 实验 4：tc netem 丢包 | `tc qdisc add dev lo root netem loss 5%` + `experiments.py mqtt` | 待运行（已用故障注入代理初测） |
+| 网关多 worker 吞吐 | `GLEANER_WORKERS=4` + `experiments.py rest` | 待运行 |

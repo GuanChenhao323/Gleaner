@@ -232,6 +232,127 @@ def mqtt(subs: int, messages: int, rate: float) -> None:
     save("exp4_mqtt_qos", rows, "Broker 独立进程，paho 客户端同机；突发=一次性发布测吞吐，限速=固定速率测端到端延迟；无丢包")
 
 
+class ChaosProxy:
+    """故障注入 TCP 代理（Windows 上代替 tc netem）：周期性掐断全部连接，并在 down 秒内拒绝新连接。"""
+
+    def __init__(self, target_port: int, every: float, down: float) -> None:
+        self.target_port = target_port
+        self.every = every
+        self.down = down
+        self.writers: set[asyncio.StreamWriter] = set()
+        self.outage_until = 0.0
+        self.outages = 0
+        self.loop = asyncio.new_event_loop()
+        self.port = self.loop.run_until_complete(self._start())
+        threading.Thread(target=self.loop.run_forever, daemon=True).start()
+
+    async def _start(self) -> int:
+        srv = await asyncio.start_server(self._on_conn, "127.0.0.1", 0)
+        self.loop.create_task(self._chaos())
+        return srv.sockets[0].getsockname()[1]
+
+    async def _on_conn(self, r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
+        if time.time() < self.outage_until:
+            w.transport.abort()
+            return
+        try:
+            ur, uw = await asyncio.open_connection("127.0.0.1", self.target_port)
+        except OSError:
+            w.transport.abort()
+            return
+        self.writers |= {w, uw}
+
+        async def pipe(a: asyncio.StreamReader, b: asyncio.StreamWriter) -> None:
+            try:
+                while data := await a.read(65536):
+                    b.write(data)
+                    await b.drain()
+            except (ConnectionError, OSError):
+                pass
+            finally:
+                b.transport.abort()
+
+        await asyncio.gather(pipe(r, uw), pipe(ur, w))
+        self.writers -= {w, uw}
+
+    async def _chaos(self) -> None:
+        while True:
+            await asyncio.sleep(self.every)
+            self.outage_until = time.time() + self.down
+            self.outages += 1
+            for w in list(self.writers):
+                w.transport.abort()  # 不发 FIN，模拟网络突然中断
+
+
+def mqtt_chaos(subs: int, rate: float, seconds: float, every: float, down: float) -> None:
+    """网络中断场景：QoS 0 与 QoS 1（持久会话）的送达率。"""
+    import subprocess
+
+    import paho.mqtt.client as paho
+
+    proc = subprocess.Popen([sys.executable, "-c", BROKER_PROC, str(ROOT / "server")], stdout=subprocess.PIPE, text=True)
+    port = int(proc.stdout.readline())  # type: ignore[union-attr]
+    rows = []
+    try:
+        for qos in (0, 1):
+            proxy = ChaosProxy(port, every, down)
+            seen: list[set[int]] = [set() for _ in range(subs)]
+            dup = [0]
+            lock = threading.Lock()
+            clients = []
+            for i in range(subs):
+
+                def on_msg(c: Any, u: Any, m: Any, i: int = i) -> None:
+                    n = int(m.payload.decode().split(":")[0])
+                    with lock:
+                        if n in seen[i]:
+                            dup[0] += 1
+                        seen[i].add(n)
+
+                c = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=f"chaos-{qos}-{i}", clean_session=False)
+                c.on_message = on_msg
+                c.on_connect = lambda cl, u, f, rc, p=None, qos=qos: cl.subscribe("exp/chaos", qos)
+                c.reconnect_delay_set(min_delay=1, max_delay=2)
+                c.connect("127.0.0.1", proxy.port, keepalive=5)
+                c.loop_start()
+                clients.append(c)
+            time.sleep(1.5)
+            pub = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=f"chaos-pub-{qos}")
+            pub.connect("127.0.0.1", port, 60)  # 发布端直连 Broker，只让订阅端经历网络中断
+            pub.loop_start()
+            t0 = time.time()
+            n = int(rate * seconds)
+            for k in range(n):
+                pub.publish("exp/chaos", f"{k}:{time.time()}", qos=qos)
+                time.sleep(max(0.0, t0 + (k + 1) / rate - time.time()))
+            time.sleep(down + 6)  # 网络恢复后留时间补发
+            got = sum(len(x) for x in seen)
+            rows.append(
+                {
+                    "QoS": f"{qos}" + ("（持久会话）" if qos else ""),
+                    "订阅者": subs,
+                    "发布条数": n,
+                    "网络中断次数": proxy.outages,
+                    "每次中断 s": down,
+                    "送达（去重后）": f"{got}/{n * subs}",
+                    "送达率": f"{got / (n * subs):.2%}",
+                    "重复投递": dup[0],
+                }
+            )
+            for c in [*clients, pub]:
+                c.loop_stop()
+                c.disconnect()
+            proxy.loop.call_soon_threadsafe(proxy.loop.stop)
+            time.sleep(0.5)
+    finally:
+        proc.kill()
+    save(
+        "exp4_mqtt_chaos",
+        rows,
+        f"故障注入代理每 {every} s 掐断订阅端全部连接并拒绝重连 {down} s；Windows 上代替 tc netem，丢包按 TCP 层断线体现",
+    )
+
+
 # ---- 网关 REST 吞吐 -----------------------------------------------------------------
 
 
@@ -281,6 +402,12 @@ def main() -> None:
     m.add_argument("--subs", type=int, default=20)
     m.add_argument("--messages", type=int, default=2000)
     m.add_argument("--rate", type=float, default=100, help="限速模式每秒发布条数")
+    mc = sub.add_parser("mqtt-chaos")
+    mc.add_argument("--subs", type=int, default=10)
+    mc.add_argument("--rate", type=float, default=20)
+    mc.add_argument("--seconds", type=float, default=30)
+    mc.add_argument("--every", type=float, default=6)
+    mc.add_argument("--down", type=float, default=2)
     r = sub.add_parser("rest")
     r.add_argument("--url", default="http://localhost:8080")
     r.add_argument("--seconds", type=float, default=10)
@@ -292,6 +419,8 @@ def main() -> None:
         asyncio.run(conditional(a.rounds, a.change_every))
     elif a.cmd == "mqtt":
         mqtt(a.subs, a.messages, a.rate)
+    elif a.cmd == "mqtt-chaos":
+        mqtt_chaos(a.subs, a.rate, a.seconds, a.every, a.down)
     else:
         asyncio.run(rest(a.url, a.seconds, a.concurrency))
 

@@ -24,7 +24,8 @@ client/.idea/
 deploy/.env
 deploy/certs/*
 !deploy/certs/.gitkeep
-deploy/autobahn/reports/
+deploy/autobahn/reports/*
+!deploy/autobahn/reports/.gitkeep
 
 # OS / editors
 .DS_Store

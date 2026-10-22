@@ -5,6 +5,13 @@
 | `ws_load.py` | 单推送节点 ≥ 5000 并发连接；单节点与三节点对比（实验 5） |
 | `select_vs_epoll.py` | 实验 1 的最小对照：独立回显服务器上的 select 与 epoll |
 | `mqtt_load.py` | 实验 4：QoS 0 与 QoS 1 吞吐、丢包下的送达率 |
+| `cluster.py` | 本机多进程集群（业务、N 个推送节点、网关各一个进程），没有 Docker 时代替 compose |
+| `push_bench.py` | `capacity`：单节点 5000 连接与推送延迟；`selector`：实验 1；`scale`：实验 5 |
+| `experiments.py` | `keepalive` 实验 2、`conditional` 实验 3、`mqtt` / `mqtt-chaos` 实验 4、`rest` 网关吞吐 |
+| `../autobahn_lite.py` | 精简版 WebSocket 一致性测试（38 个用例，两套实现） |
+| `../check_compose.py` | docker-compose 静态检查 |
+
+结果统一写入 `docs/evaluation/results/`，汇总见 `docs/evaluation/README.md`。
 
 实验 2（连接池与 keep-alive）、实验 3（条件请求）的数据来自采集引擎自身的指标：
 `gleaner_fetch_total{status="304"}`、`sources.stats.totals`（每个来源的请求数、304 数、字节数），

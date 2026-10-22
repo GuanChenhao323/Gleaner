@@ -12,6 +12,6 @@ scrape_configs:
   - job_name: push
     static_configs: [{targets: ["push1:8100", "push2:8100"]}]
   - job_name: broker
-    static_configs: [{targets: ["broker:9101"]}]
+    static_configs: [{targets: ["broker:8083"]}]
   - job_name: collector
     static_configs: [{targets: ["collector:9102"]}]

@@ -80,6 +80,7 @@ services:
       GLEANER_TLS_KEY: ${GLEANER_TLS_KEY:-}
       GLEANER_CORE_UPSTREAMS: core-1=core:8081
       GLEANER_PUSH_UPSTREAMS: push-1=push1:8100,push-2=push2:8100
+      GLEANER_MQTT_WS_UPSTREAM: broker=broker:8083   # 浏览器版的 MQTT over WebSocket（/mqtt）
       GLEANER_STATIC_DIR: /app/web
       GLEANER_WORKERS: ${GLEANER_WORKERS:-2}
     ports: ["${GATEWAY_PORT:-8080}:8080", "${GATEWAY_TLS_PORT:-8443}:8443"]
@@ -94,7 +95,7 @@ services:
       GLEANER_NODE_ID: broker
       GLEANER_MQTT_PORT: "1883"
       GLEANER_MQTT_TLS_PORT: ${GLEANER_MQTT_TLS_PORT:-0}
-      GLEANER_METRICS_PORT: "9101"
+      GLEANER_MQTT_WS_PORT: "8083"   # /mqtt（WebSocket）与 /metrics、/health 共用这个 HTTP 端口
     ports: ["${MQTT_PORT:-1883}:1883", "${MQTT_TLS_PORT:-8883}:8883"]
     volumes: [brokerdata:/data]
     depends_on: [core]

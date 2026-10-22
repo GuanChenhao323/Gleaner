@@ -19,8 +19,11 @@
 
 ## C. 环境与未验证项（需要有环境的同学协助）
 
-14. **Docker 未安装**：`docker compose up` 未实际启动；PostgreSQL 路径只做了代码适配，测试都跑在 SQLite 上；GreenMail 的启动参数需实测。
-15. **评估数据**：实验 2、3、4（无丢包）与网关 REST 吞吐已在 Windows 上跑出第一轮数据（见 [evaluation/README.md](evaluation/README.md)）；Autobahn、5000 连接、实验 1（select/epoll）、实验 5、丢包注入、Wireshark 抓包需要 Linux，等 WSL 2 + Docker 安装后补。
+14. **Docker / WSL 暂不安装**（2026-10-22 决定先跳过）：用本机多进程集群代替 compose 做了压测，compose 文件做了静态检查（发现并修复 3 处配置错误），
+    但 `docker compose up` 未实际运行；PostgreSQL 路径仍只做了代码适配，测试都跑在 SQLite 上；GreenMail 启动参数未实测。
+15. **评估数据**：已在 Windows 上出初步数据（见 [evaluation/README.md](evaluation/README.md)）：实验 2、3、4（含网络中断场景）、5000 连接与推送延迟、
+    实验 1 的 select 与 IOCP、实验 5 单机三节点、网关多进程吞吐、精简版 WebSocket 一致性测试（38/38）。
+    仍需 Linux：正式 Autobahn、select 与 epoll 的 500 → 5000 曲线、手写反应器 5000 连接、跨机器扩容、tc netem 丢包、Wireshark 抓包。
 16. **Flutter 其他平台**：只构建并验证了 Web。Windows 本机需开启“开发者模式”（插件需要符号链接）才能构建 Android / Windows；
     Android 后台常驻 MQTT（前台服务）未实现；iOS、macOS 未配置。
 17. **中文字体**：Flutter Web 的中文回退字体从 fonts.gstatic.com 下载。若同学网络访问不到会显示方块。是否内置 Noto Sans SC（约 8–10 MB，首次加载变慢）？
