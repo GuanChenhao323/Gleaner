@@ -1,0 +1,63 @@
+# REST API、投递与离线同步
+
+实现：`server/gleaner/core/api.py`、`pipeline.py`、`client/lib/core/store.dart`。
+
+## 1. 鉴权
+
+`POST /api/auth/login` 返回 `{token, user}`，同时设置 HttpOnly Cookie `gl_session`。
+令牌 = `base64url(JSON{uid, tv, exp}).base64url(HMAC-SHA256)`；网关、推送节点用共享密钥本地验证，无需查库。
+`tv`（token_version）递增即可让所有设备下线。
+
+## 2. 接口
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | /api/auth/code | 发送注册验证码（6 位，10 分钟有效，60 秒内只发一次） |
+| POST | /api/auth/register · /login · /logout | 注册（需验证码、同意隐私说明）、登录、退出（`all_devices`） |
+| GET / PUT | /api/me | 资料、免打扰、摘要时间、课程；返回 MQTT 口令 |
+| DELETE | /api/account | 删除账号与全部数据 |
+| GET | /api/feed?cursor=&kind=&filter=&q=&limit= | 收件箱，键集分页（cursor = `排序时间:id`） |
+| GET | /api/sync?cursor= | seq 大于 cursor 的投递，每次最多 500 条 |
+| GET | /api/items/{id} · /versions | 详情（含正文）、修改历史 |
+| PUT | /api/items/{id}/state | 已读 / 收藏 / 待办 / 隐藏 / 修正截止 / 备注（`Idempotency-Key`） |
+| POST | /api/state/batch | 离线操作队列按顺序回放 |
+| POST | /api/items/{id}/feedback | “不重要”：降低来源权重 |
+| GET | /api/deadlines?from=&to= | 日历数据 |
+| GET | /api/courses | 课程主页（作业、通知、教师信息） |
+| GET | /api/templates | 校园模板 |
+| GET / POST | /api/sources | 我的来源（含状态、304 命中率）/ 添加（模板或自定义网址，可 `via_agent`） |
+| POST | /api/sources/preview | 首次采集预览（不保存） |
+| PUT / DELETE | /api/sources/{id} | 权重、静音、名称 / 取消订阅 |
+| POST | /api/sources/{id}/login · /refresh | 登录来源（只保存会话）/ 立即检查 |
+| POST | /api/mail/send | 经已连接邮箱发信（`Idempotency-Key`） |
+| GET | /api/mail/sent | 发信记录 |
+| GET / PUT | /api/dashboard · /api/rules | 看板布局、个性化规则 |
+| * | /api/transfer/... | 扫码传输（见 transfer-and-agent.md） |
+| GET | /api/stats | 运营指标：用户数、日活、人均订阅、不重要比例、打开率 |
+| GET | /health · /metrics | 健康检查、Prometheus 指标 |
+
+错误统一为 `{"error": 代码, "message": 中文说明}`。
+
+## 3. 注册验证码
+
+`POST /api/auth/code {email}` 生成 6 位数字，只保存 `HMAC(secret, email:code)`，经平台发信账号用自研 SMTP 发出。
+有效期 10 分钟；同一邮箱 60 秒内重复请求返回 429 与 `Retry-After`；连续错 5 次作废；注册成功后立即删除（一次性）。
+`GLEANER_REQUIRE_EMAIL_CODE=0` 可关闭校验（仅限测试）。
+
+## 4. 投递序号 seq
+
+每条投递在事务内执行 `UPDATE users SET next_seq = next_seq + 1` 分配用户内单调递增的 seq，写入 `deliveries`。
+- 分数 ≥ 80：WebSocket + MQTT（QoS 1）；40–79：WebSocket；< 40：WebSocket，带 `silent: true` 不提醒。
+- 免打扰时段内非紧急投递带 `silent: true`，客户端不弹提醒。
+- 重要变更至少普通级；距截止不足 7 天升为紧急。
+
+## 5. 客户端同步（离线优先）
+
+1. 启动先读本地 drift 数据库（Web 端 SQLite-WASM，存储在 OPFS / IndexedDB），立即可浏览。
+2. 首次（cursor = 0）分页拉取 `/api/feed`，记下 `sync_cursor`。
+3. WebSocket `hello{last_seq: cursor}`，推送节点补发期间的投递，然后实时推送；收到消息更新本地库与游标，0.4 s 合并 ACK。
+4. 发现 seq 缺口（如背压丢弃）或收到 `resync_hint` 时调用 `/api/sync`。
+5. 个人状态乐观更新：写本地库 + 写入离线操作队列（每个操作一个 UUID 幂等键）→ 在线时立即 PUT；
+   离线时保留，重连 `welcome` 后 `/api/state/batch` 按顺序回放，服务端按幂等键去重，重复提交不会产生副作用。
+6. 冲突：个人状态以最后修改时间为准（客户端带操作时间 `ts`，比服务器上的更旧则不覆盖）；来源内容以服务端最新版本为准。
+7. 断线：指数退避 1 s → 30 s 加抖动重连；界面左下角圆点显示 在线 / 连接中 / 离线（含待同步操作数）。
