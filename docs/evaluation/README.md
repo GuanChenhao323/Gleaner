@@ -43,7 +43,7 @@ TCP 握手次数从 300 降到 4（等于每主机并发上限），吞吐约提
 
 - QoS 1 的突发吞吐约为 QoS 0 的 59%，多出的开销来自 PUBACK 往返与 inflight 窗口（每会话 20 条）。
 - 突发模式的延迟主要是排队时间（2000 条同时进入队列），不代表正常负载；正常负载下 P99 只有几毫秒。
-- 丢包环境下的送达率需要 Linux `tc netem`，待补。
+- 丢包环境下的结果见第二轮“tc netem 丢包”。
 
 ### 网关 REST 吞吐
 
@@ -55,7 +55,7 @@ TCP 握手次数从 300 降到 4（等于每主机并发上限），吞吐约提
 | /api/templates（网关反向代理到业务服务） | 64 | 9546 | 200×9546 | 950 | 66.5 | 75.3 |
 
 proposal 目标是“2 核、缓存命中 ≥ 1000 req/s”。这里网关和业务服务挤在一个进程里共用一个 GIL，压测客户端也在同机，结果偏保守；
-compose 部署时它们是独立进程，网关还可以 `GLEANER_WORKERS=N` 多进程（SO_REUSEPORT），待在 Linux 上复测。
+compose 部署时它们是独立进程，网关还可以 `GLEANER_WORKERS=N` 多进程（SO_REUSEPORT），Linux 数据见第二轮。
 
 ## 第一轮补充：本机多进程集群（2026-10-22）
 
@@ -65,7 +65,7 @@ compose 部署时它们是独立进程，网关还可以 `GLEANER_WORKERS=N` 多
 
 ### 单推送节点 5000 连接与推送延迟（含一次优化）
 
-Windows 上推送节点用 asyncio（IOCP）接入；手写反应器在 Windows 只能用 select，最多 512 个 socket，5000 连接的反应器数据待 Linux epoll 补测。
+Windows 上推送节点用 asyncio（IOCP）接入；手写反应器在 Windows 只能用 select，最多 512 个 socket；5000 连接的反应器（epoll）数据见第二轮。
 每秒随机向 200 个用户推送，持续 20 秒；最后向全部 5000 个在线用户各推一条（“全员扇出”）。
 
 | 版本 | 成功连接 | 失败 | 推送 P50 ms | 推送 P99 ms | 送达 | 全员扇出耗时 s | 推送节点 CPU % | 推送节点内存 MB |
@@ -92,7 +92,7 @@ Windows 上没有 epoll，先用手写反应器的 select 与 asyncio 的 IOCP �
 | IOCP（asyncio） | 400 | 2.59 | 3.99 | 0.17 | 17.1 | 84.8 |
 
 400 连接以内两者差距很小（select 的 CPU 高 2–6 个百分点，P99 延迟高约 0.5 ms；内存反而更省）。select 每轮扫描全部连接的 O(n) 代价要到上千连接才明显，
-proposal 要求的 500 → 5000 连接的 select / epoll 曲线需在 Linux 上补测。
+500 → 5000 连接的 select / epoll 曲线见第二轮。
 
 ### 实验 5（初步）：单节点与三节点
 
@@ -124,7 +124,7 @@ Windows 没有 `tc netem`，改用故障注入 TCP 代理：订阅端经代理�
 | 1（持久会话） | 6 | 6000/6000 | **100%** | 10 |
 
 QoS 1 加持久会话在断线期间把消息存进离线队列，重连后补发，零丢失；代价是会出现少量重复（带 DUP 标志的重发），客户端必须按消息去重。
-真正的随机丢包会被 TCP 重传掩盖，对 MQTT 来说“连接中断”才是 QoS 差异的主要来源。tc netem 丢包数据待 Linux 补测。
+真正的随机丢包会被 TCP 重传掩盖，对 MQTT 来说“连接中断”才是 QoS 差异的主要来源。tc netem 丢包数据见第二轮。
 
 ### WebSocket 一致性（精简版，代替 Autobahn）
 
@@ -144,14 +144,103 @@ UTF-8 校验与快速失败、关闭码），对两套实现各跑一遍：
 首次运行发现并修复了 3 个问题：网关缺少 `GLEANER_MQTT_WS_UPSTREAM`（`/mqtt` 会转发回网关自己）、Prometheus 抓 Broker 的端口写错（9101 → 8083）、
 Autobahn 报告目录缺失。现在 18 项检查全部通过。注意 `server/Dockerfile` 会复制 `client/build/web`，构建镜像前要先构建 Flutter Web。
 
-## 第二轮：Linux（待有 WSL 2 / Docker / 云服务器后补）
+## 第二轮：Linux（WSL 2，2026-10-22）
 
-| 项目 | 命令 | 状态 |
+环境：同一台机器上的 WSL 2（Ubuntu 26.04、内核 6.18、Python 3.14.4、16 线程、31 GB 内存，镜像网络模式），服务与压测客户端同机。
+服务端测试在 Linux 上同样 148 项全部通过。原始数据是 `results/*_linux.json`。
+
+**WSL 2 镜像网络的三个坑**（会直接影响数据，复现时注意）：
+
+1. 临时端口只有 4096 个（`ip_local_port_range = 44620 48715`）。经网关建 5000 条连接时，网关到推送节点这一跳只有一个目的地址，
+   第 4097 条起报 `EADDRNOTAVAIL`。所以 5000 连接改用 `push_bench.py capacity --direct`：绕过网关直连推送节点，轮流连 127.0.0.1–4（每个目的地址各有一份端口空间）。
+2. 发往 127.0.0.1 的 TCP/UDP 会被策略路由（`ip rule` 表 127）到 `loopback0`，经 Windows 主机绕一圈再回来，`lo` 上的 tc netem 对它无效。
+   丢包实验与 REST 吞吐改走 127.0.0.2（真正的 `lo`），由 `GLEANER_BENCH_HOST` 控制。下面推送类实验仍走 127.0.0.1，select 与 epoll 两边条件一致。
+3. WSL 里设置了系统代理环境变量，requests / websockets 会把 localhost 请求也发给代理，跑测试和压测前要 `unset HTTP_PROXY HTTPS_PROXY`。
+
+### 实验 1：select 与 epoll（手写反应器）
+
+经网关建连，每秒 200 条推送，持续 15 秒。
+
+| 多路复用 | 连接数 | 推送 P50 ms | 推送 P99 ms | 全员扇出 s | 推送节点 CPU % | 内存 MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| select | 250 | 1.66 | 2.29 | 0.10 | 9.7 | 55.4 |
+| epoll | 250 | 1.65 | 2.23 | 0.11 | 8.3 | 55.3 |
+| select | 500 | 1.79 | 2.64 | 0.16 | 12.5 | 58.5 |
+| epoll | 500 | 1.70 | 2.55 | 0.16 | 9.1 | 58.2 |
+| select | 900 | 1.96 | 2.71 | 0.27 | **16.9** | 63.6 |
+| epoll | 900 | 1.71 | 2.51 | 0.29 | **9.8** | 63.5 |
+| select | ≥ 1024 | — | — | — | — | — |
+| epoll | 2000 | 1.73 | 2.45 | 0.65 | 12.3 | 76.1 |
+| epoll | 5000（直连） | 1.40 | 2.13 | 1.54 | 17.5 | 110.2 |
+
+- select 每次调用都要把全部 fd 拷进内核并线性扫描，CPU 随连接数增长：250 → 900 连接从 9.7% 涨到 16.9%（+74%）；
+  epoll 只返回就绪的 fd，同样区间只从 8.3% 涨到 9.8%，到 2000 连接也才 12.3%。
+- select 受 `FD_SETSIZE = 1024` 限制，文件描述符编号超过 1023 时 `select()` 直接报错，900 连接以上无法测试；epoll 到 5000 连接没有这个限制。
+- 推送延迟差别不大（P99 都在 2–3 ms）：每秒 200 条的负载下瓶颈不在多路复用，差距主要体现在 CPU 与规模上限。
+- 5000 那一行来自下面的容量实验（直连），其余经网关。
+
+### 手写反应器 5000 连接
+
+`push_bench.py capacity --users 5000 --direct`，每秒 200 条推送，持续 15 秒，最后全员扇出。
+
+| 推送节点实现 | 成功连接 | 失败 | 握手 P99 ms | 推送 P50 ms | 推送 P99 ms | 送达 | 全员扇出 s | CPU % | 内存 MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| asyncio（标准库 epoll 事件循环） | 5000 | 0 | 1153 | 1.15 | 1.89 | 3000/3000 | 0.64 | 9.5 | 166.1 |
+| 手写反应器（epoll） | 5000 | 0 | **415** | 1.40 | 2.13 | 3000/3000 | 1.54 | 17.5 | **110.2** |
+
+- 手写反应器达到 proposal 目标：单节点 ≥ 5000 并发连接，推送 P99 < 1 秒（实际 2.13 ms）。
+- 手写反应器内存少 34%，建连握手 P99 也更低。推测原因（未做剖析验证）：每连接只有一个 `_Conn` 对象和字节缓冲，没有 asyncio 的 Transport / Protocol / StreamReader / Task；
+  握手在反应器线程里同步完成，不经过任务调度。
+- 全员扇出慢一些、CPU 高一些。推测原因（未做剖析验证）：消息从 asyncio（总线客户端）交给反应器线程要经过 `call_soon_threadsafe` 队列与唤醒 socket，
+  并且帧编码在 Python 层逐连接进行。可优化方向：按批次跨线程投递、扇出时复用同一份编码好的帧。
+
+### 实验 5：单节点与三节点（Linux，手写反应器）
+
+| 推送节点 | 节点分布 | 推送 P50 ms | 推送 P99 ms | 全员扇出 s | CPU %（合计） | 内存 MB（合计） |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | push-1:3000 | 1.64 | 2.28 | 0.98 | 14.2 | 88.1 |
+| 3 | 995 / 954 / 1051 | 1.72 | 2.35 | **0.42** | 16.7 | 190.9 |
+
+三节点全员扇出耗时降低 57%（Windows 初测为 42%）。仍是单机多进程，跨机器扩容待云服务器。
+
+### 实验 4：tc netem 丢包
+
+回环网卡 `tc qdisc add dev lo root netem delay 50ms 10ms loss 5%`，10 个订阅者，突发 500 条 / 限速每秒 50 条，走 127.0.0.2。
+
+| 模式 | QoS | 无注入：送达率 | 无注入：P50 / P99 ms | netem：送达率 | netem：吞吐 msg/s | netem：P50 / P99 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| 突发 | 0 | 100% | 576 / 1087 | 100% | 3870（-8%） | 681 / 1215 |
+| 突发 | 1 | 100% | 1046 / 1985 | 100% | 1197（**-51%**） | 1721 / 3962 |
+| 限速 50 条/s | 0 | 100% | 3.1 / 4.3 | 100% | 498 | 94.9 / **519** |
+| 限速 50 条/s | 1 | 100% | 3.4 / 5.7 | 100% | 474 | 99.1 / **686** |
+
+- 5% 的 IP 层丢包被 TCP 重传完全掩盖，QoS 0 和 QoS 1 送达率都是 100%；代价体现在延迟：P50 ≈ 往返 2 × 50 ms，P99 被重传超时（RTO ≥ 200 ms）拉到 0.5–0.7 s。
+- QoS 1 每条消息多一次 PUBACK 往返，inflight 窗口（20 条）在高 RTT 下很快填满，突发吞吐降一半；QoS 0 只降 8%。
+- 结合第一轮的“网络中断”实验：对 MQTT 而言，QoS 0 丢消息的主要原因是连接中断（送达率 54.98%），而不是随机丢包；
+  QoS 1 加持久会话在两种场景下都做到零丢失。
+
+### 网关多 worker（SO_REUSEPORT）
+
+`devtools/loadtest/rest_workers.py`：压测端 8 个进程 × 16 并发，每个接口 10 秒，业务服务 1 个进程。
+
+| 网关 worker | 接口 | 吞吐 req/s | P50 ms | P99 ms |
+| --- | --- | --- | --- | --- |
+| 1 | /health（只到网关） | 7521 | 16.9 | 21.0 |
+| 4 | /health | **18728**（2.5×） | 6.5 | 12.2 |
+| 1 | /api/templates（代理到业务服务） | 2034 | 62.8 | 71.7 |
+| 4 | /api/templates | **2700** | 47.3 | 53.7 |
+
+- **压测发现并修复的问题**：网关原来在 `asyncio.run()` 内部才 fork 出 worker，子进程继承了父进程正在运行的事件循环与同一个 epoll 实例，
+  4 个 worker 的吞吐和 1 个完全一样。改为在创建事件循环之前 fork（`gleaner/__main__.py`）后，`/health` 提升到 2.5 倍。
+- `/api/templates` 只提升 33%，此时瓶颈在单进程的业务服务；compose 里业务服务也可以多开实例（网关一致性哈希分流）。
+- 两种部署都远超 proposal 目标（2 核、缓存命中 ≥ 1000 req/s）。
+
+### 仍待完成
+
+| 项目 | 原因 | 命令 |
 | --- | --- | --- |
-| docker compose 演示路径 | `docker compose -f deploy/docker-compose.yml --profile dev up --build` | 待运行（已做静态检查） |
-| Autobahn Testsuite | `python devtools/autobahn_echo.py` + `docker compose ... --profile conformance run --rm autobahn` | 待运行（已用精简版初测） |
-| 实验 1：select 与 epoll，500 → 5000 连接 | `python devtools/loadtest/push_bench.py selector --conns 500,1000,2000,5000`（Linux 上自动对比 select 与 epoll） | 待运行（已做 Windows 初测） |
-| 手写反应器 5000 连接 | `push_bench.py capacity --users 5000`（Linux） | 待运行 |
-| 实验 5：跨机器扩容 | 推送节点分布到 2–3 台机器 | 待运行（已做单机多进程初测） |
-| 实验 4：tc netem 丢包 | `tc qdisc add dev lo root netem loss 5%` + `experiments.py mqtt` | 待运行（已用故障注入代理初测） |
-| 网关多 worker 吞吐 | `GLEANER_WORKERS=4` + `experiments.py rest` | 待运行 |
+| docker compose 演示路径 | 未安装 Docker（已做静态检查） | `docker compose -f deploy/docker-compose.yml --profile dev up --build` |
+| 正式 Autobahn Testsuite | 需要 Docker 镜像 `crossbario/autobahn-testsuite`（已用精简版 38 例初测） | `python devtools/autobahn_echo.py` + `docker compose ... --profile conformance run --rm autobahn` |
+| 实验 5：跨机器扩容 | 需要 2–3 台机器（云服务器） | 推送节点分布到不同机器 |
+| Wireshark 抓包 | 需要图形界面手工操作 | 抓 `lo`，过滤 `tcp.port == 18100` 等 |
+| PostgreSQL 路径 | compose 里才有 PostgreSQL，测试只跑 SQLite | 随 compose 一起验证 |

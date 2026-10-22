@@ -42,6 +42,9 @@ class Cluster:
         self.gateway_url = f"http://127.0.0.1:{BASE + 80}"
         self.bus = ("127.0.0.1", BASE + 74)
 
+    def push_port(self, i: int) -> int:
+        return BASE + 100 + i
+
     def _env(self, **kw: str) -> dict[str, str]:
         env = dict(os.environ)
         env.update(

@@ -32,12 +32,16 @@ UID0 = 1_000_000
 
 
 class Clients:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, direct_port: int | None = None) -> None:
         self.ws_url = url.replace("http", "ws", 1) + "/ws"
+        # 直连推送节点时轮流使用 127.0.0.1–4：WSL 镜像网络把临时端口限制在 4096 个，
+        # 每个目的地址各有一份端口空间，分散后单机才能建出 5000 条连接
+        self.direct_port = direct_port
         self.conns: dict[int, Any] = {}
         self.lat: list[float] = []
         self.received = 0
         self.failed = 0
+        self.errors: dict[str, int] = {}
         self.connect_ms: list[float] = []
         self.nodes: dict[str, int] = {}
         self._tasks: list[asyncio.Task[None]] = []
@@ -50,16 +54,19 @@ class Clients:
             tok = security.sign_token({"uid": uid, "tv": 1})
             s = time.perf_counter()
             try:
+                base = f"ws://127.0.0.{1 + i % 4}:{self.direct_port}/ws" if self.direct_port else self.ws_url
                 ws = await connect(
-                    f"{self.ws_url}?token={tok}",
+                    f"{base}?token={tok}",
                     headers={"X-Forwarded-For": f"10.{i // 65536}.{i // 256 % 256}.{i % 256}"},
                     timeout=30,
                 )
                 await ws.send(json.dumps({"type": "hello", "token": tok, "last_seq": 10**9}))
                 welcome = json.loads((await asyncio.wait_for(ws.recv(), 30)).text)
                 self.nodes[welcome["node"]] = self.nodes.get(welcome["node"], 0) + 1
-            except (OSError, TimeoutError, ConnectionClosed, Exception):
+            except (OSError, TimeoutError, ConnectionClosed, Exception) as e:
                 self.failed += 1
+                key = f"{type(e).__name__}: {e}"[:80]
+                self.errors[key] = self.errors.get(key, 0) + 1
                 return
             self.connect_ms.append((time.perf_counter() - s) * 1000)
             self.conns[uid] = ws
@@ -67,6 +74,8 @@ class Clients:
 
         for start in range(0, n, ramp):
             await asyncio.gather(*(one(i) for i in range(start, min(n, start + ramp))))
+        if self.errors:
+            print("建连失败原因:", self.errors, file=sys.stderr)
         return time.perf_counter() - t0
 
     async def _read(self, ws: Any) -> None:
@@ -104,9 +113,11 @@ async def broadcast(bus: BusClient, uids: list[int]) -> None:
         await bus.publish(f"u.{uid}", {"type": "bench", "t": t, "priority": "normal"})
 
 
-async def measure(cluster: Cluster, users: int, ramp: int, rate: float, seconds: float, label: str) -> dict[str, Any]:
+async def measure(
+    cluster: Cluster, users: int, ramp: int, rate: float, seconds: float, label: str, direct: bool = False
+) -> dict[str, Any]:
     push_names = [n for n in cluster.procs if n.startswith("push")]
-    cl = Clients(cluster.gateway_url)
+    cl = Clients(cluster.gateway_url, cluster.push_port(0) if direct else None)
     open_s = await cl.open(users, ramp)
     bus = BusClient("bench", "bench", *cluster.bus)
     bus.start()
@@ -151,15 +162,17 @@ async def measure(cluster: Cluster, users: int, ramp: int, rate: float, seconds:
     return row
 
 
-async def capacity(users: int, ramp: int, rate: float, seconds: float) -> None:
+async def capacity(users: int, ramp: int, rate: float, seconds: float, direct: bool) -> None:
     rows = []
     for io in ("asyncio", "reactor"):
         if io == "reactor" and sys.platform == "win32" and users > 450:
             # Windows 的 select 最多 512 个 socket；手写反应器在 Windows 上只测到这个规模，大规模留给 Linux epoll
             continue
         with Cluster(1, push_io=io) as c:
-            rows.append(await measure(c, users, ramp, rate, seconds, f"单节点 {io}"))
-    save("push_capacity", rows, f"{sys.platform}；经网关建连；延迟口径为总线发布→客户端收到；客户端与服务同机")
+            rows.append(await measure(c, users, ramp, rate, seconds, f"单节点 {io}", direct))
+    path = "直连推送节点（绕过网关）" if direct else "经网关建连"
+    name = "push_capacity_direct" if direct else "push_capacity"
+    save(name, rows, f"{sys.platform}；{path}；延迟口径为总线发布→客户端收到；客户端与服务同机")
 
 
 async def selector_exp(conns: list[int], rate: float, seconds: float) -> None:
@@ -167,10 +180,16 @@ async def selector_exp(conns: list[int], rate: float, seconds: float) -> None:
     modes = [("reactor", "select")] + ([("asyncio", "auto")] if sys.platform == "win32" else [("reactor", "epoll")])
     for n in conns:
         for io, sel in modes:
+            if sel == "select" and sys.platform != "win32" and n > 900:
+                continue  # 文件描述符超过 FD_SETSIZE=1024 后 select() 直接报错
             with Cluster(1, push_io=io, selector=sel) as c:
                 name = "select（手写反应器）" if sel == "select" else ("IOCP（asyncio Proactor）" if io == "asyncio" else "epoll（手写反应器）")
                 rows.append(await measure(c, n, 100, rate, seconds, name))
-    save("exp1_selector", rows, f"{sys.platform}；Windows 上没有 epoll，先以 IOCP 作对照，epoll 数据待 Linux 补测")
+    if sys.platform == "win32":
+        note = "Windows 上没有 epoll，先以 IOCP 作对照"
+    else:
+        note = "select 受 FD_SETSIZE=1024 限制，900 连接以上只测 epoll"
+    save("exp1_selector", rows, f"{sys.platform}；{note}")
 
 
 async def scale(users: int, rate: float, seconds: float, io: str) -> None:
@@ -187,6 +206,7 @@ def main() -> None:
     c = sub.add_parser("capacity")
     c.add_argument("--users", type=int, default=5000)
     c.add_argument("--ramp", type=int, default=250)
+    c.add_argument("--direct", action="store_true", help="绕过网关直连推送节点（WSL 临时端口只有 4096 个时使用）")
     s = sub.add_parser("selector")
     s.add_argument("--conns", default="100,200,400")
     sc = sub.add_parser("scale")
@@ -197,7 +217,7 @@ def main() -> None:
         p.add_argument("--seconds", type=float, default=15)
     a = ap.parse_args()
     if a.cmd == "capacity":
-        asyncio.run(capacity(a.users, a.ramp, a.rate, a.seconds))
+        asyncio.run(capacity(a.users, a.ramp, a.rate, a.seconds, a.direct))
     elif a.cmd == "selector":
         asyncio.run(selector_exp([int(x) for x in a.conns.split(",")], a.rate, a.seconds))
     else:

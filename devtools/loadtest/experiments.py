@@ -43,6 +43,8 @@ def env_info() -> dict[str, Any]:
 
 def save(name: str, rows: list[dict[str, Any]], note: str = "") -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    if sys.platform.startswith("linux"):
+        name += "_linux"  # 与 Windows 数据分开保存
     (OUT / f"{name}.json").write_text(
         json.dumps({"env": env_info(), "note": note, "rows": rows}, ensure_ascii=False, indent=2), "utf-8"
     )
@@ -155,26 +157,31 @@ async def conditional(rounds: int, change_every: int) -> None:
 # ---- 实验 4：MQTT QoS 0 与 QoS 1 -----------------------------------------------------
 
 
+# WSL 镜像网络会把发往 127.0.0.1 的 TCP/UDP 策略路由到 loopback0 经 Windows 回环，
+# lo 上的 tc netem 对它无效；做丢包实验时设 GLEANER_BENCH_HOST=127.0.0.2 走真正的 lo
+BENCH_HOST = os.environ.get("GLEANER_BENCH_HOST", "127.0.0.1")
+
 BROKER_PROC = """
 import asyncio, sys
 sys.path.insert(0, sys.argv[1])
 from gleaner.broker.broker import Broker
 async def main():
     b = Broker()
-    port = await b.start("127.0.0.1", 0)
+    port = await b.start(sys.argv[2], 0)
     print(port, flush=True)
     await asyncio.Event().wait()
 asyncio.run(main())
 """
 
 
-def mqtt(subs: int, messages: int, rate: float) -> None:
+def mqtt(subs: int, messages: int, rate: float, netem: str = "") -> None:
     """Broker 独立进程；先突发发布测吞吐，再按固定速率发布测延迟。"""
     import subprocess
 
     import paho.mqtt.client as paho
 
-    proc = subprocess.Popen([sys.executable, "-c", BROKER_PROC, str(ROOT / "server")], stdout=subprocess.PIPE, text=True)
+    cmd = [sys.executable, "-c", BROKER_PROC, str(ROOT / "server"), BENCH_HOST]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
     port = int(proc.stdout.readline())  # type: ignore[union-attr]
     rows = []
     try:
@@ -193,13 +200,13 @@ def mqtt(subs: int, messages: int, rate: float) -> None:
                 for i in range(subs):
                     c = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=f"exp-{mode}-{qos}-{i}")
                     c.on_message = on_msg
-                    c.connect("127.0.0.1", port, 60)
+                    c.connect(BENCH_HOST, port, 60)
                     c.subscribe("exp/load", qos)
                     c.loop_start()
                     clients.append(c)
                 time.sleep(1.0)
                 pub = paho.Client(paho.CallbackAPIVersion.VERSION2, client_id=f"exp-pub-{mode}-{qos}")
-                pub.connect("127.0.0.1", port, 60)
+                pub.connect(BENCH_HOST, port, 60)
                 pub.loop_start()
                 n = messages if mode == "突发" else min(messages, int(rate * 10))
                 t0 = time.time()
@@ -229,7 +236,9 @@ def mqtt(subs: int, messages: int, rate: float) -> None:
                 time.sleep(0.5)
     finally:
         proc.kill()
-    save("exp4_mqtt_qos", rows, "Broker 独立进程，paho 客户端同机；突发=一次性发布测吞吐，限速=固定速率测端到端延迟；无丢包")
+    cond = f"回环网卡 tc netem {netem}" if netem else "无丢包"
+    note = f"Broker 独立进程，paho 客户端同机；突发=一次性发布测吞吐，限速=固定速率测端到端延迟；{cond}"
+    save("exp4_mqtt_netem" if netem else "exp4_mqtt_qos", rows, note)
 
 
 class ChaosProxy:
@@ -290,7 +299,8 @@ def mqtt_chaos(subs: int, rate: float, seconds: float, every: float, down: float
 
     import paho.mqtt.client as paho
 
-    proc = subprocess.Popen([sys.executable, "-c", BROKER_PROC, str(ROOT / "server")], stdout=subprocess.PIPE, text=True)
+    cmd = [sys.executable, "-c", BROKER_PROC, str(ROOT / "server"), "127.0.0.1"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
     port = int(proc.stdout.readline())  # type: ignore[union-attr]
     rows = []
     try:
@@ -402,6 +412,7 @@ def main() -> None:
     m.add_argument("--subs", type=int, default=20)
     m.add_argument("--messages", type=int, default=2000)
     m.add_argument("--rate", type=float, default=100, help="限速模式每秒发布条数")
+    m.add_argument("--netem", default="", help="已在回环网卡上设置的 netem 参数，只用于结果标注")
     mc = sub.add_parser("mqtt-chaos")
     mc.add_argument("--subs", type=int, default=10)
     mc.add_argument("--rate", type=float, default=20)
@@ -418,7 +429,7 @@ def main() -> None:
     elif a.cmd == "conditional":
         asyncio.run(conditional(a.rounds, a.change_every))
     elif a.cmd == "mqtt":
-        mqtt(a.subs, a.messages, a.rate)
+        mqtt(a.subs, a.messages, a.rate, a.netem)
     elif a.cmd == "mqtt-chaos":
         mqtt_chaos(a.subs, a.rate, a.seconds, a.every, a.down)
     else:
