@@ -20,7 +20,7 @@
 ## C. 环境与未验证项（需要有环境的同学协助）
 
 14. **Docker 未安装**：`docker compose up` 未实际启动；PostgreSQL 路径只做了代码适配，测试都跑在 SQLite 上；GreenMail 的启动参数需实测。
-15. **Autobahn 一致性测试**、**5000 连接压测**、对比实验 1–5、tc netem 故障注入、Wireshark 抓包：脚本和配置已就绪，尚未执行出数据。
+15. **评估数据**：实验 2、3、4（无丢包）与网关 REST 吞吐已在 Windows 上跑出第一轮数据（见 [evaluation/README.md](evaluation/README.md)）；Autobahn、5000 连接、实验 1（select/epoll）、实验 5、丢包注入、Wireshark 抓包需要 Linux，等 WSL 2 + Docker 安装后补。
 16. **Flutter 其他平台**：只构建并验证了 Web。Windows 本机需开启“开发者模式”（插件需要符号链接）才能构建 Android / Windows；
     Android 后台常驻 MQTT（前台服务）未实现；iOS、macOS 未配置。
 17. **中文字体**：Flutter Web 的中文回退字体从 fonts.gstatic.com 下载。若同学网络访问不到会显示方块。是否内置 Noto Sans SC（约 8–10 MB，首次加载变慢）？

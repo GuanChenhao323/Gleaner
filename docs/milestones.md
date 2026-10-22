@@ -15,7 +15,7 @@
 | M6 | 个性化与看板（P1） | 规则打分与分级推送、免打扰、每日摘要、不重要反馈、自定义看板 | 🟡 | `pytest tests/test_core.py`；客户端看板编辑 |
 | M7 | P2 加分项 | 课程与教师信息、大模型摘要（可选）、扫码传输（分块、断点续传、校验）、本地采集代理、自研 DNS | 🟡 | `test_transfer_chunked_resume_and_range`、`test_local_agent_long_connection`、`test_dns.py` |
 | M8 | 部署与运维 | Docker Compose、Prometheus + Grafana 面板与告警、CI、HTTPS / MQTT TLS | ⚠️ | 本机无 Docker，compose 未实际启动；见 open-questions |
-| M9 | 评估 | Autobahn、5000 连接压测、对比实验 1–5、故障注入、Wireshark 抓包 | ⚠️ | 脚本已就绪（devtools/loadtest），尚未执行出数据 |
+| M9 | 评估 | Autobahn、5000 连接压测、对比实验 1–5、故障注入、Wireshark 抓包 | ⚠️ | 第一轮（Windows）：实验 2、3、4 与 REST 吞吐已出数据，见 docs/evaluation；Linux 项待补 |
 | M10 | 上线与用户 | 云服务器、域名证书、内测、≥ 50 名真实用户、SUS 问卷 | ⏳ | — |
 
 ## 当前测试基线（2026-10-22）
