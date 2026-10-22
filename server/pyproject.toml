@@ -1,0 +1,78 @@
+[project]
+name = "gleaner"
+version = "0.1.0"
+description = "Gleaner（拾课）服务端：自研多协议信息接入与推送网关"
+requires-python = ">=3.12"
+dependencies = [
+  "msgpack>=1.0",
+  "feedparser>=6.0",
+  "beautifulsoup4>=4.12",
+  "lxml>=5.0",
+  "psycopg[binary]>=3.1",
+  "cryptography>=42",
+  "argon2-cffi>=23.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.5",
+  # 仅用于 tests/ 中的互通性对照，server/gleaner 禁止导入
+  "paho-mqtt>=2.0",
+  "websockets>=12",
+  "requests>=2.31",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gleaner*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "TID", "ANN", "RUF"]
+ignore = ["ANN401", "RUF001", "RUF002", "RUF003", "E501", "TID252"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "TID251", "B011"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"requests".msg = "server/ 禁止使用现成 HTTP 库，用 gleaner.net.http"
+"httpx".msg = "禁止"
+"aiohttp".msg = "禁止"
+"urllib3".msg = "禁止"
+"h11".msg = "禁止"
+"http.client".msg = "禁止"
+"http.server".msg = "禁止"
+"urllib.request".msg = "禁止"
+"socketserver".msg = "禁止"
+"websockets".msg = "禁止"
+"wsproto".msg = "禁止"
+"tornado".msg = "禁止"
+"fastapi".msg = "禁止"
+"flask".msg = "禁止"
+"django".msg = "禁止"
+"starlette".msg = "禁止"
+"uvicorn".msg = "禁止"
+"gunicorn".msg = "禁止"
+"paho".msg = "禁止"
+"gmqtt".msg = "禁止"
+"amqtt".msg = "禁止"
+"imaplib".msg = "禁止"
+"smtplib".msg = "禁止"
+"poplib".msg = "禁止"
+"aiosmtplib".msg = "禁止"
+"aioimaplib".msg = "禁止"
+"dns".msg = "禁止（dnspython）"
+"prometheus_client".msg = "禁止"

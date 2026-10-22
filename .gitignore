@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+server/data/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Flutter
+client/.dart_tool/
+client/build/
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+client/**/ephemeral/
+client/.idea/
+*.iml
+
+# Deploy secrets
+deploy/.env
+deploy/certs/*
+!deploy/certs/.gitkeep
+deploy/autobahn/reports/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
