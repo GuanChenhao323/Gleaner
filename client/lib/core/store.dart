@@ -112,12 +112,16 @@ class FeedStore extends Notifier<FeedState> {
       debugPrint('cache load failed: $e');
     }
     // 2) 网络：首次全量拉取；之后由 WebSocket hello 带 last_seq 补发
-    if (state.cursor == 0 || state.items.isEmpty) {
-      await refreshAll();
-    } else {
-      state = state.copyWith(loading: false);
+    try {
+      if (state.cursor == 0 || state.items.isEmpty) {
+        await refreshAll();
+      } else {
+        state = state.copyWith(loading: false);
+      }
+    } finally {
+      // 本地缓存不可用（例如浏览器禁止 Worker / IndexedDB）时也要建立实时连接
+      _connect();
     }
-    _connect();
   }
 
   Future<void> refreshAll() async {
@@ -138,8 +142,10 @@ class FeedStore extends Notifier<FeedState> {
       final merged = {...state.items}..removeWhere((k, v) => !all.containsKey(k) && !v.deleted);
       merged.addAll(all);
       state = state.copyWith(items: merged, cursor: syncCursor, loading: false, lastSync: DateTime.now(), clearError: true);
-      await _db.saveItems(all.values.map((i) => i.toJson()));
-      await _db.setKv('cursor', '$syncCursor');
+      await _cache(() async {
+        await _db.saveItems(all.values.map((i) => i.toJson()));
+        await _db.setKv('cursor', '$syncCursor');
+      });
     } on ApiException catch (e) {
       state = state.copyWith(loading: false, error: e.message);
       if (e.status == 401) await ref.read(sessionProvider.notifier).signOut();
@@ -227,7 +233,7 @@ class FeedStore extends Notifier<FeedState> {
       final old = state.items[id];
       final it = old == null ? Item.fromJson(incoming) : old.merge(incoming);
       state = state.copyWith(items: {...state.items, id: it});
-      _db.saveItems([it.toJson()]);
+      _cache(() => _db.saveItems([it.toJson()]));
       final live = m['replay'] != true && m['silent'] != true;
       if (live && (m['priority'] == 'urgent' || m['type'] == 'reminder' || m['important'] == true)) {
         final title = m['type'] == 'reminder' ? '截止提醒' : m['type'] == 'change' ? '重要变更' : '新事项';
@@ -247,7 +253,7 @@ class FeedStore extends Notifier<FeedState> {
     }
     if (seq > state.cursor) {
       state = state.copyWith(cursor: seq);
-      _db.setKv('cursor', '$seq');
+      _cache(() => _db.setKv('cursor', '$seq'));
       _pendingAck = max(_pendingAck, seq);
       _ackTimer ??= Timer(const Duration(milliseconds: 400), () {
         _ackTimer = null;
@@ -284,7 +290,7 @@ class FeedStore extends Notifier<FeedState> {
         final c = r['cursor'] as int;
         if (c > state.cursor) {
           state = state.copyWith(cursor: c);
-          await _db.setKv('cursor', '$c');
+          await _cache(() => _db.setKv('cursor', '$c'));
         }
         more = r['has_more'] == true;
       }
@@ -300,17 +306,31 @@ class FeedStore extends Notifier<FeedState> {
     if (it != null && m['state'] is Map) {
       final next = it.withState(ItemState.fromJson(Map<String, dynamic>.from(m['state'] as Map)));
       state = state.copyWith(items: {...state.items, id: next});
-      _db.saveItems([next.toJson()]);
+      _cache(() => _db.saveItems([next.toJson()]));
     }
     final op = m['op_id'];
     if (op is String) {
-      _db.dequeue([op]).then((_) => _refreshPendingCount());
+      _cache(() => _db.dequeue([op])).then((_) => _refreshPendingCount());
     }
   }
 
   Future<void> _refreshPendingCount() async {
-    final n = (await _db.pending()).length;
-    if (n != state.pending) state = state.copyWith(pending: n);
+    try {
+      final n = (await _db.pending()).length;
+      if (n != state.pending) state = state.copyWith(pending: n);
+    } catch (_) {}
+  }
+
+  /// 本地缓存（drift）写入：失败只影响离线浏览，不能打断在线流程。
+  /// 例如浏览器禁止 Worker / IndexedDB 时，实时连接与操作照常进行。返回是否成功。
+  Future<bool> _cache(Future<void> Function() write) async {
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      debugPrint('local cache unavailable: $e');
+      return false;
+    }
   }
 
   // ---- 个人状态：乐观更新 + 离线队列 ----
@@ -328,13 +348,14 @@ class FeedStore extends Notifier<FeedState> {
     state = state.copyWith(items: {...state.items, item.id: next});
     final opId = _uuid.v4();
     final op = {...patch, 'item_id': item.id, 'op_id': opId, 'ts': DateTime.now().millisecondsSinceEpoch / 1000};
-    await _db.saveItems([next.toJson()]);
-    await _db.enqueue(opId, item.id, op);
-    state = state.copyWith(pending: state.pending + 1);
-    if (state.conn == Conn.online) {
+    await _cache(() => _db.saveItems([next.toJson()]));
+    final queued = await _cache(() => _db.enqueue(opId, item.id, op));
+    if (queued) state = state.copyWith(pending: state.pending + 1);
+    // 队列写不进去时（本地数据库不可用）也直接发送，只是断网时无法回放
+    if (state.conn == Conn.online || !queued) {
       try {
         await _api.putState(item.id, op, opId);
-        await _db.dequeue([opId]);
+        if (queued) await _cache(() => _db.dequeue([opId]));
       } on ApiException catch (_) {
         // 离线：留在队列里，联网后回放
       }
@@ -349,7 +370,12 @@ class FeedStore extends Notifier<FeedState> {
   }
 
   Future<void> flushPending() async {
-    final ops = await _db.pending();
+    final List<PendingOp> ops;
+    try {
+      ops = await _db.pending();
+    } catch (_) {
+      return;
+    }
     if (ops.isEmpty) return;
     try {
       final r = await _api.stateBatch(ops.map((o) => Map<String, dynamic>.from(jsonDecode(o.json) as Map)).toList());
@@ -358,7 +384,7 @@ class FeedStore extends Notifier<FeedState> {
         final m = Map<String, dynamic>.from(res as Map);
         if (m['status'] == 200 || m['status'] == 404) done.add(m['op_id'] as String);
       }
-      await _db.dequeue(done);
+      await _cache(() => _db.dequeue(done));
     } on ApiException catch (_) {}
     await _refreshPendingCount();
   }
@@ -373,7 +399,7 @@ class FeedStore extends Notifier<FeedState> {
     final old = state.items[id];
     final merged = old == null ? it : old.merge(it.raw);
     state = state.copyWith(items: {...state.items, id: merged});
-    await _db.saveItems([merged.toJson()]);
+    await _cache(() => _db.saveItems([merged.toJson()]));
     return merged;
   }
 
