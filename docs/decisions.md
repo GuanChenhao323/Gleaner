@@ -15,6 +15,14 @@ open-questions 中由组长拍板的事项记在这里：决定内容、原因�
 | 7 | 大模型 | 默认 OpenAI 兼容接口，接国内服务商；地址、模型、密钥三项齐全才启用，否则规则提取 | `core/summarize.py`、`deploy/.env.example`；测试 `tests/test_summarize.py` |
 | 8 | 摘要邮件 | 增加可选邮件版，默认关闭，用户在设置里打开 | `users.digest_email`、`core/reminders.py`、设置页开关；测试 `test_digest_email_is_opt_in` |
 
+## 2026-10-23 · compose 实测后（组长确认）
+
+| # | 问题 | 决定 | 落地 |
+| --- | --- | --- | --- |
+| 9 | 个人来源的事项归属 | 个人来源（Moodle、个人邮箱）的事项按所有者各存一份，只与本人或公共来源（学院通知、教师页）的事项合并，不会并进别人的事项；公共来源仍全员共享一份。接受同一门课的作业有几个人登录就存几份 | `core/pipeline.py: _scope`（身份键与别名键加 `@<uid>/` 前缀）、`storage/schema.py` 迁移补齐已有数据；测试 `test_personal_sources_are_scoped_per_user`、`test_migration_scopes_existing_personal_keys` |
+
+起因：compose 实测发现第二个同学登录同一个 Moodle 后看不到作业（身份键全局唯一），且按链接合并时个人邮件可能并进别人的事项。
+
 ### 仍需提供的信息
 
 - 平台发信账号（SMTP 服务器、端口、账号、授权码）：验证码、摘要邮件、告警都用它。开发期发到本地假邮件服务器。
