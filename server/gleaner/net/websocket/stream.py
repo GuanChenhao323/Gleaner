@@ -210,10 +210,12 @@ def websocket_route(
     *,
     heartbeat: tuple[float, float] | None = None,
     subprotocols: tuple[str, ...] = (),
+    max_message: int = 4 * 1024 * 1024,
 ) -> Callable[[Request], Awaitable[Response]]:
     """把 ``on_connect(ws, request)`` 包装成 HTTP 处理器：校验握手后返回 101 并接管连接。
 
     ``subprotocols``：服务端支持的子协议，从客户端 Sec-WebSocket-Protocol 中选第一个匹配的回显（§4.2.2）。
+    ``max_message``：单条消息上限，超出以 1009 关闭（§7.4.1）。
     """
 
     async def handler(req: Request) -> Response:
@@ -226,7 +228,9 @@ def websocket_route(
         async def takeover(
             reader: asyncio.StreamReader, writer: asyncio.StreamWriter, leftover: bytes
         ) -> None:
-            ws = WebSocket(reader, writer, is_client=False, leftover=leftover)
+            ws = WebSocket(
+                reader, writer, is_client=False, leftover=leftover, max_message=max_message
+            )
             if heartbeat:
                 ws.start_heartbeat(*heartbeat)
             try:

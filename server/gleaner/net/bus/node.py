@@ -138,6 +138,7 @@ class Member:
     seq: int = 0
     outbox: dict[int, _Pending] = field(default_factory=dict)
     dedup: _Dedup = field(default_factory=_Dedup)
+    epoch: str | None = None  # 节点进程的随机标识；变化说明节点重启过，序号从头开始
     alive: bool = True
     dead_since: float = 0.0
 
@@ -288,6 +289,10 @@ class BusHub:
             m.meta = dict(p.get("meta") or m.meta)
             if p.get("epoch_seen") != self.epoch:
                 m.outbox.clear()
+            if p.get("epoch") != m.epoch:
+                # 同名节点的新进程：它的序号从头开始，旧进程的去重窗口会把新帧（含 SUBSCRIBE）当成重复丢掉
+                m.dedup.clear()
+        m.epoch = p.get("epoch")
         m.alive = True
         m.last_seen = time.monotonic()
         m.topics = TopicSet(p.get("topics") or [])
@@ -400,6 +405,7 @@ class BusClient:
         self._seq = 0
         self._outbox: dict[int, _Pending] = {}
         self._dedup = _Dedup()
+        self.epoch = os.urandom(4).hex()  # 本进程标识，随 NODE_JOIN 发给 Hub
         self._hub_epoch: str | None = None
         self._last_rx = time.monotonic()
         self._run_task: asyncio.Task[None] | None = None
@@ -485,6 +491,7 @@ class BusClient:
                 "role": self.role,
                 "meta": self.meta,
                 "topics": sorted(self.topics),
+                "epoch": self.epoch,
                 "epoch_seen": self._hub_epoch,
             }
             writer.write(BusFrame(FrameType.NODE_JOIN, 0, join).encode())

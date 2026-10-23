@@ -124,8 +124,8 @@ class AgentHub:
         }.get(m.get("status", ""), "failed")
         failed = status != "ok"
         await self.db.execute(
-            """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? THEN ? ELSE last_success_at END,
-               last_error = ?, fail_count = CASE WHEN ? THEN fail_count + 1 ELSE 0 END WHERE id = ?""",
+            """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? = 1 THEN ? ELSE last_success_at END,
+               last_error = ?, fail_count = CASE WHEN ? = 1 THEN fail_count + 1 ELSE 0 END WHERE id = ?""",
             status,
             now,
             int(not failed),

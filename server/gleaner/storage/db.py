@@ -26,6 +26,8 @@ Row = dict[str, Any]
 
 _IN_TX: contextvars.ContextVar[bool] = contextvars.ContextVar("_in_tx", default=False)
 
+_SCHEMA_LOCK = 0x474C5343  # 建表用的 PostgreSQL 咨询锁编号（"GLSC"）
+
 # 没有自增 id 列的表（PostgreSQL 下 INSERT 不加 RETURNING id）
 _NO_ID = {
     "subscriptions",
@@ -91,7 +93,12 @@ class Database:
 
         return psycopg.connect(self.url, autocommit=True, row_factory=dict_row)
 
-    def _get(self) -> Any:
+    def _get(self, reconnect: bool = True) -> Any:
+        if self._conn is not None and reconnect and getattr(self._conn, "closed", False):
+            # PostgreSQL 重启或网络中断后旧连接作废；事务中途不重连，否则后半段语句会落在事务之外。
+            # 失败的那条语句不重试（写操作可能已执行），只保证后续语句恢复。
+            log.warning("database connection lost, reconnecting")
+            self._conn = None
         if self._conn is None:
             self._conn = self._connect()
         return self._conn
@@ -103,19 +110,31 @@ class Database:
     def _init_sync(self) -> None:
         with self._tlock:
             conn = self._get()
-            for ddl in SCHEMA:
+            if self.kind == "postgres":
+                # 多个服务同时启动时并发 CREATE TABLE IF NOT EXISTS 会撞 pg_type 唯一约束，用会话级咨询锁串行化
+                conn.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK,))
+            try:
+                self._create_schema(conn)
+            finally:
                 if self.kind == "postgres":
-                    ddl = (
-                        ddl.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
-                        .replace("REAL", "DOUBLE PRECISION")
-                        .replace("BLOB", "BYTEA")
-                    )
+                    conn.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK,))
+
+    def _create_schema(self, conn: Any) -> None:
+        for ddl in SCHEMA:
+            if self.kind == "postgres":
+                ddl = (
+                    ddl.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+                    .replace("REAL", "DOUBLE PRECISION")
+                    .replace("BLOB", "BYTEA")
+                )
+            conn.execute(ddl)
+        for ddl in MIGRATIONS:
+            if self.kind == "postgres":  # SQLite 不支持 IF NOT EXISTS，只能靠下面的异常跳过
+                ddl = ddl.replace(" ADD COLUMN ", " ADD COLUMN IF NOT EXISTS ")
+            try:
                 conn.execute(ddl)
-            for ddl in MIGRATIONS:
-                try:
-                    conn.execute(ddl)
-                except Exception:  # 列已存在（两种驱动都是自动提交模式，失败不影响后续语句）
-                    log.debug("migration skipped: %s", ddl)
+            except Exception:  # 列已存在（两种驱动都是自动提交模式，失败不影响后续语句）
+                log.debug("migration skipped: %s", ddl)
 
     async def close(self) -> None:
         with self._tlock:
@@ -127,7 +146,7 @@ class Database:
 
     def _exec_sync(self, sql: str, params: Sequence[Any], fetch: str) -> Any:
         with self._tlock:
-            conn = self._get()
+            conn = self._get(reconnect=not _IN_TX.get() or sql == "BEGIN")
             q = _to_pg(sql) if self.kind == "postgres" else sql
             try:
                 cur = conn.execute(q, tuple(params))
@@ -182,7 +201,7 @@ class Database:
 
         def run() -> None:
             with self._tlock:
-                conn = self._get()
+                conn = self._get(reconnect=not _IN_TX.get())
                 if self.kind == "sqlite":
                     conn.executemany(sql, data)
                 else:

@@ -141,7 +141,7 @@ class _Conn:
             self.respond(resp)
             return
         self.write(resp.encode_head())
-        self.ws = WSConnection(is_client=False)
+        self.ws = WSConnection(is_client=False, max_message=self.server.max_message)
         self.peer = ReactorPeer(self.server, self)
         self.server.opened(self.peer, req)
         leftover = self.parser.take_buffer()
@@ -236,8 +236,10 @@ class ReactorWSServer:
         selector: str = "auto",
         heartbeat: tuple[float, float] = (25.0, 60.0),
         handshake_timeout: float = 10.0,
+        max_message: int = 4 * 1024 * 1024,
     ) -> None:
         self.host = host
+        self.max_message = max_message  # 超出以 1009 关闭（RFC 6455 §7.4.1）
         self.port = port
         self.path = path
         self.subprotocols = subprotocols

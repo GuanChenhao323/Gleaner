@@ -17,7 +17,7 @@ from gleaner.services import start_broker, start_collector, start_core, start_ga
 
 
 @pytest.fixture
-async def stack(tmp_path, monkeypatch):
+async def stack(tmp_path, monkeypatch, db_url):
     monkeypatch.setattr(engine, "MIN_INTERVAL", 0.5)
     monkeypatch.setattr(engine, "MAX_INTERVAL", 2.0)
     fm.STATE.__dict__.update(fm.State().__dict__)
@@ -27,7 +27,7 @@ async def stack(tmp_path, monkeypatch):
     monkeypatch.setenv("GLEANER_MOODLE_URL", moodle)
     monkeypatch.setenv("GLEANER_COLLEGE_URL", moodle)
     cfg = Config(
-        db_url=f"sqlite:///{tmp_path / 'e2e.db'}",
+        db_url=db_url("e2e.db"),
         data_dir=str(tmp_path),
         core_port=0,
         bus_port=0,

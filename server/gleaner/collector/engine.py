@@ -139,8 +139,8 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
     ]
     jitter = random.uniform(0.9, 1.1)
     await db.execute(
-        """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? THEN ? ELSE last_success_at END,
-           last_change_at = CASE WHEN ? THEN ? ELSE last_change_at END, last_error = ?, fail_count = CASE WHEN ? THEN fail_count + 1 ELSE 0 END,
+        """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? = 1 THEN ? ELSE last_success_at END,
+           last_change_at = CASE WHEN ? = 1 THEN ? ELSE last_change_at END, last_error = ?, fail_count = CASE WHEN ? = 1 THEN fail_count + 1 ELSE 0 END,
            interval_s = ?, next_fetch_at = ?, content_hash = COALESCE(?, content_hash), stats = ? WHERE id = ?""",
         status,
         now,

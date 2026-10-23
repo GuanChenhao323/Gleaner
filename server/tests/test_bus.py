@@ -188,3 +188,50 @@ def test_topic_set_exact_and_wildcard():
     ts.discard("u.1")
     ts.add("*")
     assert ts.matches("anything") and "u.1" not in ts and len(ts) == 3
+
+
+async def test_restarted_node_is_not_deduplicated_as_old_incarnation():
+    """推送节点重启（同名新进程，序号从头开始）后，Hub 不能把它的新帧当成旧进程的重复帧丢掉。
+
+    compose 实测：重启后的推送节点 SUBSCRIBE u.<uid> 被吞掉，该用户收不到任何推送。
+    """
+    hub = BusHub()
+    port = await hub.start("127.0.0.1", 0)
+    got = []
+    hub.subscribe("x", lambda t, d, s: got.append(d))
+
+    async def incarnation(epoch: str, data: int) -> None:
+        _r, w = await asyncio.open_connection("127.0.0.1", port)
+        join = {"node": "push-1", "role": "push", "epoch": epoch}
+        w.write(BusFrame(FrameType.NODE_JOIN, 0, join).encode())
+        w.write(
+            BusFrame(FrameType.PUBLISH, 1, {"topic": "x", "data": data}, Flags.NEED_ACK).encode()
+        )
+        await w.drain()
+        await asyncio.sleep(0.1)
+        w.transport.abort()  # 进程被杀：不发 NODE_LEAVE
+        await asyncio.sleep(0.05)
+
+    await incarnation("old", 1)
+    await incarnation("new", 2)  # 新进程，同样从 seq 1 开始
+    await incarnation("new", 2)  # 同一进程断线重连后重发：仍按重复帧丢弃
+    assert got == [1, 2] and hub.stats.duplicates == 1
+
+    # 端到端：同名 BusClient 重启后动态订阅的主题能收到消息
+    recv = []
+    for i in range(2):
+        c = BusClient("push-2", "push", "127.0.0.1", port, heartbeat_interval=0.2)
+        c.start()
+        await c.wait_connected()
+        c.subscribe(f"u.{i}", lambda t, d, s: recv.append(d))
+        await asyncio.sleep(0.1)
+        await hub.publish(f"u.{i}", i)
+        for _ in range(50):
+            if len(recv) > i:
+                break
+            await asyncio.sleep(0.02)
+        c._writer.transport.abort()  # type: ignore[union-attr]
+        c._closing = True
+        await c.close()
+    assert recv == [0, 1]
+    await hub.close()

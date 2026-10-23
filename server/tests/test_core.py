@@ -152,8 +152,8 @@ def test_metrics_exposition_format():
     assert "lat_seconds_count 2" in text
 
 
-async def test_transfer_chunked_resume_and_range(tmp_path):
-    db = await Database(f"sqlite:///{tmp_path / 't.db'}").connect()
+async def test_transfer_chunked_resume_and_range(tmp_path, db_url):
+    db = await Database(db_url("t.db")).connect()
     uid = await db.insert(
         "users", {"email": "a@b.c", "password_hash": "x", "created_at": time.time()}
     )
@@ -224,8 +224,8 @@ async def test_transfer_chunked_resume_and_range(tmp_path):
     await db.close()
 
 
-async def test_db_transaction_rollback(tmp_path):
-    db = await Database(f"sqlite:///{tmp_path / 'r.db'}").connect()
+async def test_db_transaction_rollback(db_url):
+    db = await Database(db_url("r.db")).connect()
     uid = await db.insert("users", {"email": "z@b.c", "password_hash": "x", "created_at": 0})
     with pytest.raises(RuntimeError):
         async with db.transaction():
@@ -243,10 +243,10 @@ async def test_db_transaction_rollback(tmp_path):
     await db.close()
 
 
-async def test_low_priority_delivery_is_pushed_silently(tmp_path):
+async def test_low_priority_delivery_is_pushed_silently(tmp_path, db_url):
     from gleaner.core.pipeline import Pipeline
 
-    db = await Database(f"sqlite:///{tmp_path / 'p.db'}").connect()
+    db = await Database(db_url("p.db")).connect()
     uid = await db.insert("users", {"email": "s@b.c", "password_hash": "x", "created_at": 0})
     sid = await db.insert(
         "sources", {"type": "web", "name": "讲座", "endpoint": "http://x/", "created_at": 0}
@@ -277,7 +277,7 @@ async def test_low_priority_delivery_is_pushed_silently(tmp_path):
     await db.close()
 
 
-async def test_digest_email_is_opt_in(tmp_path, monkeypatch):
+async def test_digest_email_is_opt_in(tmp_path, monkeypatch, db_url):
     import datetime as dt
 
     from gleaner.core import reminders
@@ -291,7 +291,7 @@ async def test_digest_email_is_opt_in(tmp_path, monkeypatch):
         return True
 
     monkeypatch.setattr(reminders, "send_platform_mail", fake_send)
-    db = await Database(f"sqlite:///{tmp_path / 'd.db'}").connect()
+    db = await Database(db_url("d.db")).connect()
     for email, opt in (("a@x.com", 1), ("b@x.com", 0)):
         await db.insert(
             "users",
@@ -314,4 +314,146 @@ async def test_digest_email_is_opt_in(tmp_path, monkeypatch):
     assert routed.count("mqtt.publish") == 2
     # 同一天不会重复发送
     assert await reminders.publish_digests(db, Pipeline(db, route), now + 30) == 0
+    await db.close()
+
+
+async def test_personal_sources_are_scoped_per_user(db_url):
+    """两个用户各自登录同一个 Moodle：作业互不覆盖；个人数据只与本人或公共来源合并（compose 实测发现）。"""
+    from gleaner.core.pipeline import Pipeline
+
+    db = await Database(db_url("s.db")).connect()
+
+    async def route(topic, payload):
+        pass
+
+    pipe = Pipeline(db, route)
+
+    async def user_with(email: str, *types: str) -> tuple[int, dict[str, int]]:
+        uid = await db.insert("users", {"email": email, "password_hash": "x", "created_at": 0})
+        out = {}
+        for t in types:
+            sid = await db.insert(
+                "sources",
+                {"type": t, "name": t, "endpoint": "http://m/", "owner_id": uid, "created_at": 0},
+            )
+            await db.execute(
+                "INSERT INTO subscriptions (user_id, source_id, created_at) VALUES (?, ?, 0)",
+                uid,
+                sid,
+            )
+            out[t] = sid
+        return uid, out
+
+    def assign(title: str) -> dict:
+        return {
+            "key": "moodle:m:assign:1001",
+            "kind": "assignment",
+            "title": title,
+            "url": "http://m/mod/assign/view.php?id=1001",
+            "alias_keys": ["url:m/mod/assign/view.php?id=1001"],
+        }
+
+    a, sa = await user_with("a@x.com", "moodle")
+    b, sb = await user_with("b@x.com", "moodle", "imap")
+    shared = await db.insert(
+        "sources", {"type": "web", "name": "学院通知", "endpoint": "http://c/", "created_at": 0}
+    )
+    await db.execute(
+        "INSERT INTO subscriptions (user_id, source_id, created_at) VALUES (?, ?, 0)", b, shared
+    )
+
+    ok = {"status": "ok"}
+    assert (await pipe.ingest({**ok, "source_id": sa["moodle"], "items": [assign("实验一")]}))[
+        "new"
+    ] == 1
+    # 同一个 Moodle 作业，B 用自己的账号采到：应该是 B 自己的一条，而不是被当成 A 那条“未变化”
+    assert (await pipe.ingest({**ok, "source_id": sb["moodle"], "items": [assign("实验一")]}))[
+        "new"
+    ] == 1
+
+    async def visible(uid: int) -> list[str]:
+        rows = await db.fetch(
+            "SELECT i.title FROM items i JOIN subscriptions s ON s.source_id = i.source_id "
+            "AND s.user_id = ? ORDER BY i.id",
+            uid,
+        )
+        return [r["title"] for r in rows]
+
+    assert await visible(a) == ["实验一"] and await visible(b) == ["实验一"]
+
+    # B 的提醒邮件链接到同一作业：合并进 B 自己的那条，不能合并进 A 的
+    mail = {
+        "key": "mail:<m1@m>",
+        "kind": "notice",
+        "title": "作业提醒",
+        "url": "http://m/mod/assign/view.php?id=1001",
+        "alias_keys": ["url:m/mod/assign/view.php?id=1001"],
+    }
+    assert (await pipe.ingest({**ok, "source_id": sb["imap"], "items": [mail]}))["merged"] == 1
+    owner_of_merged = await db.fetchval(
+        "SELECT s.owner_id FROM item_aliases al JOIN items i ON i.id = al.item_id "
+        "JOIN sources s ON s.id = i.source_id WHERE al.source_id = ?",
+        sb["imap"],
+    )
+    assert owner_of_merged == b
+
+    # 个人邮件仍能与公共来源（学院通知）合并
+    notice = {
+        "key": "web:http://c/n/1",
+        "kind": "notice",
+        "title": "讲座通知",
+        "url": "http://c/n/1",
+        "alias_keys": ["url:c/n/1"],
+    }
+    await pipe.ingest({**ok, "source_id": shared, "items": [notice]})
+    mail2 = {**notice, "key": "mail:<m2@m>"}
+    assert (await pipe.ingest({**ok, "source_id": sb["imap"], "items": [mail2]}))["merged"] == 1
+    await db.close()
+
+
+async def test_migration_scopes_existing_personal_keys(db_url):
+    url = db_url("m.db")
+    db = await Database(url).connect()
+    uid = await db.insert("users", {"email": "m@x.com", "password_hash": "x", "created_at": 0})
+    personal = await db.insert(
+        "sources",
+        {"type": "moodle", "name": "m", "endpoint": "http://m/", "owner_id": uid, "created_at": 0},
+    )
+    shared = await db.insert(
+        "sources", {"type": "web", "name": "w", "endpoint": "http://w/", "created_at": 0}
+    )
+    ids = {}
+    for sid, key in ((personal, "moodle:m:assign:1"), (shared, "web:http://w/1")):
+        ids[sid] = await db.insert(
+            "items",
+            {
+                "source_id": sid,
+                "identity_key": key,
+                "kind": "notice",
+                "title": key,
+                "first_seen_at": 0,
+                "updated_at": 0,
+            },
+        )
+        await db.execute(
+            "INSERT INTO item_aliases (alias_key, item_id, source_id, created_at) VALUES (?, ?, ?, 0)",
+            "url:" + key,
+            ids[sid],
+            sid,
+        )
+    await db.close()
+    for _ in range(2):  # 迁移可重复执行
+        db = await Database(url).connect()
+        await db.close()
+    db = await Database(url).connect()
+    keys = {
+        r["source_id"]: r["identity_key"]
+        for r in await db.fetch("SELECT source_id, identity_key FROM items")
+    }
+    aliases = {
+        r["source_id"]: r["alias_key"]
+        for r in await db.fetch("SELECT source_id, alias_key FROM item_aliases")
+    }
+    assert keys == {personal: f"@{uid}/moodle:m:assign:1", shared: "web:http://w/1"}
+    assert aliases == {personal: f"@{uid}/url:moodle:m:assign:1", shared: "url:web:http://w/1"}
     await db.close()

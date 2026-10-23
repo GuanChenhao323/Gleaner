@@ -33,6 +33,31 @@ def dedupe_hash(source_id: int, url: str, title: str) -> str:
     return hashlib.sha1(f"{source_id}|{url}|{title.strip()}".encode()).hexdigest()
 
 
+def owner_prefix(owner_id: int) -> str:
+    """个人来源的身份键与别名键前缀；采集器给出的键本身不会以 @ 开头。"""
+    return f"@{owner_id}/"
+
+
+def _scope(source: dict[str, Any], snap: dict[str, Any]) -> dict[str, Any]:
+    """个人来源（Moodle、个人邮箱）按所有者隔离身份键与别名键：
+
+    两个同学登录同一个 Moodle，作业的 cmid 相同，不加隔离会被当成同一条事项，
+    后登录的人看不到；邮件按链接别名合并时也可能并进别人的事项。公共来源保持全局键，
+    个人来源仍可以按原始别名与公共来源的事项合并（shared_alias_keys）。
+    """
+    owner = source.get("owner_id")
+    if owner is None:
+        return snap
+    p = owner_prefix(int(owner))
+    aliases = snap.get("alias_keys") or []
+    return {
+        **snap,
+        "key": p + snap["key"],
+        "alias_keys": [p + a for a in aliases],
+        "shared_alias_keys": aliases,
+    }
+
+
 def item_public(
     row: dict[str, Any], state: dict[str, Any] | None = None, source: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -127,6 +152,7 @@ class Pipeline:
             return counts
         seen: set[str] = set()
         for snap in msg.get("items", []):
+            snap = _scope(source, snap)
             seen.add(snap["key"])
             kind = await self._upsert(source, snap)
             if kind:
@@ -180,6 +206,17 @@ class Pipeline:
         for alias in snap.get("alias_keys") or []:
             a = await self.db.fetchone(
                 "SELECT item_id FROM item_aliases WHERE alias_key = ?", alias
+            )
+            if a:
+                return await self.db.fetchone(
+                    "SELECT * FROM items WHERE id = ?", a["item_id"]
+                ), True
+        # 个人来源还可以与公共来源（学院通知等）的同一事项合并，但不会匹配到别人的个人事项
+        for alias in snap.get("shared_alias_keys") or []:
+            a = await self.db.fetchone(
+                "SELECT al.item_id FROM item_aliases al JOIN items i ON i.id = al.item_id "
+                "JOIN sources s ON s.id = i.source_id WHERE al.alias_key = ? AND s.owner_id IS NULL",
+                alias,
             )
             if a:
                 return await self.db.fetchone(
