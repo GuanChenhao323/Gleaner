@@ -25,7 +25,7 @@
 | PUBLISH | 1 | `{"topic": str, "data": any, "from"?: str, "to"?: str}` |
 | ACK | 2 | 无；Seq 等于被确认帧的 Seq |
 | HEARTBEAT | 3 | 无或 `{"t": 时间戳}` |
-| NODE_JOIN | 4 | 节点 → Hub：`{"node", "role", "meta", "topics", "epoch_seen"}`；Hub → 节点：`{"node", "epoch"}` |
+| NODE_JOIN | 4 | 节点 → Hub：`{"node", "role", "meta", "topics", "epoch", "epoch_seen"}`；Hub → 节点：`{"node", "epoch"}` |
 | NODE_LEAVE | 5 | `{"node"}` |
 | SUBSCRIBE | 6 | `{"topics": [pattern, ...]}` |
 | UNSUBSCRIBE | 7 | `{"topics": [pattern, ...]}` |
@@ -65,8 +65,12 @@
 - 去重键：`(发送节点, Seq)`，LRU 保存最近 5 万个。
 - 断线重连后，双方重发 outbox 中未确认的帧。
 - Hub 为刚下线的节点保留 outbox `retention`（默认 60 s）：节点在此期间重连即补发，超时清理。
-- Hub 每次启动生成随机 `epoch`；节点在 NODE_JOIN 中带上上次见到的 epoch，不一致说明 Hub 重启过，
+- Hub 每次启动生成随机 `epoch`；节点在 NODE_JOIN 中带上上次见到的 epoch（`epoch_seen`），不一致说明 Hub 重启过，
   双方清空去重表（序号重新开始）。
+- 反过来，每个节点进程启动时也生成自己的 `epoch` 放进 NODE_JOIN。Hub 为下线节点保留成员记录 60 秒（用于补发），
+  同名节点在这段时间内以新进程重新加入时，`epoch` 不同，Hub 清空该成员的去重表；否则新进程从 1 开始的序号
+  会被当成旧进程的重复帧丢弃（compose 实测：重启后的推送节点 SUBSCRIBE 被吞，用户收不到推送）。
+  同一进程断线重连时 `epoch` 不变，去重表保留，重发的帧仍按重复丢弃。
 
 ## 5. 心跳与故障检测
 

@@ -1,0 +1,160 @@
+{
+  "rows": [
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "1 帧（文本 / 二进制）",
+      "OK": 16
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "2 ping / pong",
+      "OK": 11
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "3 保留位",
+      "OK": 5,
+      "NON-STRICT": 2
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "4 保留 opcode",
+      "OK": 6,
+      "NON-STRICT": 4
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "5 分片",
+      "OK": 19,
+      "NON-STRICT": 1
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "6 UTF-8 处理",
+      "OK": 143,
+      "NON-STRICT": 2
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "7 关闭握手",
+      "OK": 34,
+      "INFORMATIONAL": 3
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "9 大消息与性能",
+      "OK": 54
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "10 杂项",
+      "OK": 1
+    },
+    {
+      "实现": "Gleaner-asyncio",
+      "大类": "合计",
+      "OK": 289,
+      "NON-STRICT": 9,
+      "INFORMATIONAL": 3
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "1 帧（文本 / 二进制）",
+      "OK": 8,
+      "FAILED": 8
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "2 ping / pong",
+      "OK": 11
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "3 保留位",
+      "OK": 4,
+      "NON-STRICT": 3
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "4 保留 opcode",
+      "OK": 4,
+      "NON-STRICT": 6
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "5 分片",
+      "OK": 19,
+      "NON-STRICT": 1
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "6 UTF-8 处理",
+      "OK": 143,
+      "NON-STRICT": 2
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "7 关闭握手",
+      "OK": 34,
+      "INFORMATIONAL": 3
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "9 大消息与性能",
+      "OK": 27,
+      "FAILED": 27
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "10 杂项",
+      "OK": 1
+    },
+    {
+      "实现": "Gleaner-reactor",
+      "大类": "合计",
+      "OK": 251,
+      "FAILED": 35,
+      "NON-STRICT": 12,
+      "INFORMATIONAL": 3
+    }
+  ],
+  "failed_cases": {
+    "Gleaner-reactor": [
+      "1.2.1",
+      "1.2.2",
+      "1.2.3",
+      "1.2.4",
+      "1.2.5",
+      "1.2.6",
+      "1.2.7",
+      "1.2.8",
+      "9.2.1",
+      "9.2.2",
+      "9.2.3",
+      "9.2.4",
+      "9.2.5",
+      "9.2.6",
+      "9.4.1",
+      "9.4.2",
+      "9.4.3",
+      "9.4.4",
+      "9.4.5",
+      "9.4.6",
+      "9.4.7",
+      "9.4.8",
+      "9.4.9",
+      "9.6.1",
+      "9.6.2",
+      "9.6.3",
+      "9.6.4",
+      "9.6.5",
+      "9.6.6",
+      "9.8.1",
+      "9.8.2",
+      "9.8.3",
+      "9.8.4",
+      "9.8.5",
+      "9.8.6"
+    ]
+  }
+}

@@ -158,10 +158,10 @@ services:
 
   autobahn:
     profiles: [conformance]
-    image: crossbario/autobahn-testsuite:0.8.2
+    image: crossbario/autobahn-testsuite:25.10.1
     command: ["wstest", "--mode", "fuzzingclient", "--spec", "/config/fuzzingclient.json"]
     volumes: ["./autobahn:/config", "./autobahn/reports:/reports"]
-    depends_on: [gateway]
+    extra_hosts: ["host.docker.internal:host-gateway"]   # Linux Docker Engine 默认没有这个主机名
 
 volumes:
   pgdata:

@@ -94,7 +94,13 @@ OPEN ──send_close──▶ CLOSING ──收到 close──▶ CLOSED
 ## 8. Autobahn 一致性测试
 
 ```bash
-python devtools/autobahn_echo.py
+python devtools/autobahn_echo.py                  # asyncio 版，:9001
+python devtools/autobahn_echo.py --impl reactor   # 手写反应器版，:9002
 docker compose -f deploy/docker-compose.yml --profile conformance run --rm autobahn
+python devtools/autobahn_summary.py               # 汇总到 docs/evaluation/results/autobahn.json
 # 报告：deploy/autobahn/reports/servers/index.html（排除 12.*、13.* permessage-deflate 用例）
 ```
+
+2026-10-22 结果（详见 `docs/evaluation/README.md` 第三轮）：asyncio 版 301 个用例 0 失败；
+手写反应器版只有 35 个二进制回显用例失败（推送节点只用文本帧），文本用例全部通过。
+单条消息上限默认 4 MB（超出以 1009 关闭，§7.4.1），可用 `max_message` 参数调整。

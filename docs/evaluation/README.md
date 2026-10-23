@@ -235,12 +235,68 @@ Autobahn 报告目录缺失。现在 18 项检查全部通过。注意 `server/D
 - `/api/templates` 只提升 33%，此时瓶颈在单进程的业务服务；compose 里业务服务也可以多开实例（网关一致性哈希分流）。
 - 两种部署都远超 proposal 目标（2 核、缓存命中 ≥ 1000 req/s）。
 
+## 第三轮：Docker Compose（WSL 2 里的 Docker Engine 29.9，2026-10-22）
+
+`docker compose -f deploy/docker-compose.yml --profile dev up -d --build` 启动 12 个容器（PostgreSQL、业务服务、2 个推送节点、
+网关 2 worker、Broker、采集、邮件服务、Prometheus、Grafana、fake_moodle、GreenMail），然后 `python devtools/compose_demo.py`
+经发布端口跑一遍演示路径（用 requests / websockets / paho-mqtt / imaplib 做对照客户端）。逐步结果在 `results/compose_demo.json`。
+
+| 步骤 | 结果 |
+| --- | --- |
+| 注册验证码邮件（平台发信 → GreenMail，IMAP 取回） | 通过 |
+| Moodle 模板登录、采集 7 个作业 | 通过 |
+| WebSocket 经网关接入推送节点，hello 补发 | 通过 |
+| 老师把截止提前 2 天 → WebSocket 收到“截止提前”，MQTT 收到 `gleaner/u/<uid>/urgent` | 通过 |
+| `docker compose stop` 该用户所在的推送节点 → 重连到另一节点，补发宕机期间的变化 | 通过（两个方向都测过） |
+| 学校邮箱来源（IMAP 连 GreenMail） | 通过 |
+| Prometheus 6 个抓取目标全部 up、Grafana 正常 | 通过 |
+| 浏览器打开 `http://localhost:8080`，登录后看板与实时连接（`/ws`、`/mqtt`） | 通过 |
+
+同一套环境连续跑多次（多个用户、推送节点反复启停）都通过。
+
+### compose 实测发现并修复的问题
+
+之前测试全部跑在 SQLite、单用户、进程内组合上，下面这些问题只有在真实部署里才会出现：
+
+| # | 现象 | 原因 | 修复 |
+| --- | --- | --- | --- |
+| 1 | 首次启动时某个推送节点崩溃重启 | 多个服务同时 `CREATE TABLE IF NOT EXISTS`，PostgreSQL 并发建表撞 `pg_type` 唯一约束 | 建表加会话级咨询锁（`storage/db.py`）；迁移在 PostgreSQL 上用 `ADD COLUMN IF NOT EXISTS` |
+| 2 | 采集全部失败：`argument of CASE/WHEN must be type boolean` | `CASE WHEN ? THEN`：SQLite 接受 0/1，PostgreSQL 要求布尔 | 改为 `CASE WHEN ? = 1`（两处） |
+| 3 | PostgreSQL 重启后业务服务一直报 `the connection is closed` | 数据库连接断开后从不重连 | 下一条语句自动重连；事务中途不重连，断线那条不自动重试（写操作可能已执行） |
+| 4 | 第二个用户登录同一个 Moodle 后看不到任何作业 | 事项身份键全局唯一（`moodle:<host>:assign:<cmid>`），第二个人的作业被当成第一个人那条“未变化”；按链接合并时还可能把个人邮件并进别人的事项 | 个人来源的身份键与别名键加所有者前缀，只与本人或公共来源的事项合并；迁移补齐已有数据（`core/pipeline.py: _scope`） |
+| 5 | 推送节点重启后，接入它的用户收不到任何推送 | Hub 为下线节点保留去重表 60 秒，新进程的帧序号从 1 开始，SUBSCRIBE 被当成重复帧丢掉 | 节点进程在 NODE_JOIN 中带自己的 `epoch`，变化时 Hub 清空该成员的去重表（`docs/protocols/bus.md` §4） |
+| 6 | 浏览器端一直显示“离线 · 显示缓存内容” | 浏览器本地数据库（drift）不可用时，`refreshAll` 写缓存抛异常，实时连接根本没建立 | 本地缓存读写失败只影响离线浏览；实时连接与操作照常（队列写不进时直接发送） |
+| 7 | 网关多 worker 不生效（第二轮压测发现） | 在事件循环内 fork | 见第二轮“网关多 worker” |
+
+每个问题都补了回归测试。另外新增 `GLEANER_TEST_PG`：设置后，用到数据库的测试改跑 PostgreSQL；`test_core`、`test_e2e`、`test_mail`、`test_storage_pg` 共 40 项在 PostgreSQL 上全部通过。
+
+compose 文件本身的调整：新增 `.dockerignore`（构建上下文从 ~250 MB 降到只含 `server/`、`client/build/web`、`devtools/fake_moodle`）；
+Autobahn 镜像标签 `0.8.2` 在 Docker Hub 不存在，改为 `25.10.1`；Linux Docker Engine 没有 `host.docker.internal`，autobahn 服务加 `extra_hosts`。
+
+### WebSocket 一致性：官方 Autobahn Testsuite
+
+`crossbario/autobahn-testsuite:25.10.1` 的 fuzzingclient 模式，对两套自研实现各跑 301 个用例（排除 12.*、13.* 压缩扩展），
+回显服务器 `devtools/autobahn_echo.py`，汇总脚本 `devtools/autobahn_summary.py`，结果 `results/autobahn.json`
+（完整 HTML 报告在 `deploy/autobahn/reports/servers/`，约 11 MB，不入库）。全程约 2 小时 17 分钟。
+
+| 实现 | OK | NON-STRICT | INFORMATIONAL | FAILED |
+| --- | --- | --- | --- | --- |
+| asyncio 版（`websocket_route`，网关、本地代理等） | 289 | 9 | 3 | **0** |
+| 手写反应器版（推送节点；浏览器 `/ws` 经网关原样转发到这里） | 251 | 12 | 3 | 35（全部是二进制回显，见下） |
+
+- Autobahn 把 NON-STRICT、INFORMATIONAL 视为合规：NON-STRICT 是遇到协议错误时比严格要求更早关闭连接（例如收到保留 opcode 时不先回显之前的消息），
+  INFORMATIONAL 是关闭码等信息性记录。
+- 反应器版的 35 个 FAILED 全部是二进制消息用例（1.2.*、9.2.*、9.4.*、9.6.*、9.8.*）：推送节点只收发文本帧，回显服务器只回显文本。
+  文本类用例（含 9.1、9.3、9.5、9.7 的 16 MB 大消息与分片性能用例）全部通过。
+- 第一次运行时 asyncio 版有 4 个 FAILED（9.1.5、9.1.6、9.2.5、9.2.6，8 MB / 16 MB 消息）：实现的单条消息上限是 4 MB，
+  超出按 §7.4.1 以 1009 关闭，属于设计限制而不是协议错误。现在上限可配置（`websocket_route(max_message=…)`、`ReactorWSServer(max_message=…)`），
+  生产默认仍为 4 MB，回显服务器放宽到 32 MB 后全部通过。
+- 精简版 `autobahn_lite.py`（38 个用例，不需要 Docker）仍保留，用于日常快速回归。
+
 ### 仍待完成
 
-| 项目 | 原因 | 命令 |
-| --- | --- | --- |
-| docker compose 演示路径 | 未安装 Docker（已做静态检查） | `docker compose -f deploy/docker-compose.yml --profile dev up --build` |
-| 正式 Autobahn Testsuite | 需要 Docker 镜像 `crossbario/autobahn-testsuite`（已用精简版 38 例初测） | `python devtools/autobahn_echo.py` + `docker compose ... --profile conformance run --rm autobahn` |
-| 实验 5：跨机器扩容 | 需要 2–3 台机器（云服务器） | 推送节点分布到不同机器 |
-| Wireshark 抓包 | 需要图形界面手工操作 | 抓 `lo`，过滤 `tcp.port == 18100` 等 |
-| PostgreSQL 路径 | compose 里才有 PostgreSQL，测试只跑 SQLite | 随 compose 一起验证 |
+| 项目 | 原因 |
+| --- | --- |
+| 实验 5：跨机器扩容 | 需要 2–3 台机器（云服务器） |
+| Wireshark 抓包 | 需要图形界面手工操作：抓 `lo`，过滤 `tcp.port == 18100` 等 |
+| 浏览器本地缓存 | Claude 应用内置浏览器里 drift 的 Worker 取 `sqlite3.wasm` 报 `Failed to fetch`（文件本身可正常下载），待在 Chrome / Edge 中确认是否只是该浏览器的限制 |

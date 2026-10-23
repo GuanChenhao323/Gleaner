@@ -1,7 +1,21 @@
 {
   "outdir": "/reports/servers",
-  "servers": [{"agent": "Gleaner", "url": "ws://host.docker.internal:9001"}],
-  "cases": ["*"],
-  "exclude-cases": ["12.*", "13.*"],
+  "servers": [
+    {
+      "agent": "Gleaner-asyncio",
+      "url": "ws://host.docker.internal:9001"
+    },
+    {
+      "agent": "Gleaner-reactor",
+      "url": "ws://host.docker.internal:9002"
+    }
+  ],
+  "cases": [
+    "*"
+  ],
+  "exclude-cases": [
+    "12.*",
+    "13.*"
+  ],
   "exclude-agent-cases": {}
 }

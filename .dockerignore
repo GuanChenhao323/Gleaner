@@ -1,0 +1,15 @@
+# 构建上下文是仓库根目录；镜像只需要 server/、client/build/web 与 devtools/fake_moodle
+.git
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+client/*
+!client/build
+client/build/*
+!client/build/web
+docs
+deploy
+devtools/*
+!devtools/fake_moodle
+server/tests

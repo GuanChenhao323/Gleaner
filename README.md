@@ -86,14 +86,17 @@ Windows 上构建 Android / Windows 版需要开启“开发者模式”。
 ```bash
 cp deploy/.env.example deploy/.env       # 修改密钥
 cd client && flutter build web --release --no-web-resources-cdn && cd ..
-docker compose -f deploy/docker-compose.yml --profile dev up --build
+docker compose -f deploy/docker-compose.yml --profile dev up -d --build
+python devtools/compose_demo.py           # 自动走一遍演示路径（注册、截止提前推送、推送节点故障转移等）
 ```
 
 网关 :8080、Grafana :3000（面板“拾课 Gleaner 运行总览”）、Prometheus :9090、MQTT :1883、fake_moodle :8090。
+注册验证码在 compose 的 dev 环境里发到 GreenMail：IMAP `localhost:3143`，用户名和密码都是注册邮箱。
+WSL 2 里运行时，最后一个 WSL 会话退出后发行版会自动关闭，演示期间请保持一个 WSL 终端开着。
 
 ### 压测与一致性测试
 
-见 [devtools/loadtest/README.md](devtools/loadtest/README.md) 与 [docs/protocols/websocket.md](docs/protocols/websocket.md#7-autobahn-一致性测试)。
+见 [devtools/loadtest/README.md](devtools/loadtest/README.md) 与 [docs/protocols/websocket.md](docs/protocols/websocket.md#8-autobahn-一致性测试)。
 
 ## 演示路径
 
