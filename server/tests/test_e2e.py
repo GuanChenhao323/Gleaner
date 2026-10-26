@@ -513,3 +513,46 @@ async def test_register_requires_email_code(stack, monkeypatch):
             assert r.status == 409
     finally:
         await ms.close()
+
+
+async def test_moodle_login_with_pasted_security_key(stack):
+    """统一认证（CAS）学校用的登录方式：用户从 Moodle“偏好设置 → 安全密钥”复制密钥粘贴进来，拾课不经手密码。"""
+    import requests
+
+    gw = f"http://127.0.0.1:{stack['gw'].info['port']}"
+    s = requests.Session()
+    s.trust_env = False
+    # 用户在浏览器里登录 Moodle 后打开“安全密钥”页
+    s.post(
+        f"{stack['moodle']}/login/index.php",
+        data={"username": "student", "password": "moodle123", "logintoken": "x"},
+        timeout=5,
+    )
+    page = s.get(f"{stack['moodle']}/user/managetoken.php", timeout=5).text
+    key = page.split("<code>")[1].split("</code>")[0]
+
+    async with HTTPClient() as c:
+        r = await c.post(
+            gw + "/api/auth/register",
+            json_body={"email": "key@test.edu", "password": "password1", "name": "小钥"},
+        )
+        auth = {"Authorization": f"Bearer {r.json()['token']}"}
+        sid = (
+            await c.post(gw + "/api/sources", json_body={"template": "moodle"}, headers=auth)
+        ).json()["source"]["id"]
+        login = gw + f"/api/sources/{sid}/login"
+
+        r = await c.post(login, json_body={"token": "not-a-key"}, headers=auth)
+        assert r.status == 422  # 格式不对，不发请求
+        r = await c.post(login, json_body={"token": "0" * 32}, headers=auth)
+        assert r.status == 401 and not r.json()["ok"]  # 格式对但无效（已重置或过期）
+
+        r = await c.post(login, json_body={"token": f"  {key}\n"}, headers=auth)
+        assert r.json() == {"ok": True, "auth_type": "ws_token"}
+
+        async def feed_ready():
+            f = (await c.get(gw + "/api/feed?kind=assignment", headers=auth)).json()
+            return f if len(f["items"]) >= 7 else None
+
+        feed = await until(feed_ready, 20)
+        assert all(i["source"]["id"] == sid for i in feed["items"])

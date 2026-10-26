@@ -228,6 +228,18 @@ class Handler(BaseHTTPRequestHandler):
             user = self._need_login()
             if user is None:
                 return
+            if p == "/user/managetoken.php":
+                # 偏好设置 → 安全密钥：显示（必要时创建）当前用户的 Moodle mobile web service 密钥
+                with STATE.lock:
+                    tok = next((t for t, u in STATE.tokens.items() if u == user), None)
+                    if tok is None:
+                        tok = secrets.token_hex(16)
+                        STATE.tokens[tok] = user
+                body = (
+                    '<table class="generaltable" id="webservicetokens"><thead><tr><th>Key</th><th>Service</th></tr></thead>'
+                    f'<tbody><tr><td class="c0"><code>{tok}</code></td><td class="c1">Moodle mobile web service</td></tr></tbody></table>'
+                )
+                return self._send(200, page("Security keys", body, user=user))
             if p == "/my/":
                 items = "".join(
                     f'<li class="course-listitem"><a href="/course/view.php?id={c.id}" class="coursename">{html.escape(c.shortname)} {html.escape(c.fullname)}</a> <span class="text-muted">{html.escape(c.teacher)}</span></li>'
@@ -364,6 +376,15 @@ class Handler(BaseHTTPRequestHandler):
                     "username": user,
                     "userid": 3,
                     "release": "4.3 (Build: 20231009)",
+                    # 与真实 Moodle 一致：列出该 token 所属服务允许调用的函数
+                    "functions": [
+                        {"name": n, "version": "2023100900"}
+                        for n in (
+                            "core_webservice_get_site_info",
+                            "core_enrol_get_users_courses",
+                            "mod_assign_get_assignments",
+                        )
+                    ],
                 }
             )
         if fn == "core_enrol_get_users_courses":

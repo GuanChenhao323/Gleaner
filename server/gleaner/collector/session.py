@@ -74,3 +74,51 @@ async def moodle_login(fetcher: Fetcher, base: str, username: str, password: str
         if sess.ws_token is None:
             raise FetchError("need_login", "用户名或密码错误")
     return sess
+
+
+def moodle_ws_url(base: str, token: str, function: str) -> str:
+    """Moodle REST Web Service 地址。
+
+    不能写成 ``urljoin(base, "/webservice/rest/server.php?") + query``：Python 3.12 的 urljoin
+    会丢掉末尾空的“?”，拼出 ``server.phpwstoken=…``（3.14 不会），token 等于没传。
+    """
+    query = urlencode({"wstoken": token, "wsfunction": function, "moodlewsrestformat": "json"})
+    return urljoin(base, "/webservice/rest/server.php") + "?" + query
+
+
+_WS_KEY = re.compile(r"[0-9a-f]{32}")
+# 采集用到的 Web Service 函数（见 connectors/moodle.py）
+_REQUIRED_FUNCTIONS = ("mod_assign_get_assignments",)
+
+
+def normalize_ws_key(raw: str) -> str | None:
+    """Moodle 安全密钥是 32 位十六进制；去掉复制时带上的空白，格式不对返回 None。"""
+    key = "".join(raw.split()).lower()
+    return key if _WS_KEY.fullmatch(key) else None
+
+
+async def moodle_token_session(fetcher: Fetcher, base: str, key: str) -> SourceSession:
+    """用用户粘贴的安全密钥（偏好设置 → 安全密钥 → Moodle mobile web service）建立会话。
+
+    适用于统一认证（CAS / SSO）的学校：账号密码不能直接换 token，拾课也不经手统一认证密码。
+    用 core_webservice_get_site_info 校验密钥有效，并确认所属服务允许读取作业。
+    """
+    r = await fetcher.fetch(moodle_ws_url(base, key, "core_webservice_get_site_info"))
+    try:
+        data = r.json()
+    except ValueError as e:
+        raise FetchError("parse", f"Web Service 返回的不是 JSON（HTTP {r.status}）") from e
+    if isinstance(data, dict) and data.get("errorcode"):
+        if data["errorcode"] in ("invalidtoken", "accessexception"):
+            raise FetchError("need_login", "密钥无效或已过期，请在 Moodle 安全密钥页面重新复制")
+        raise FetchError("parse", str(data.get("message") or data["errorcode"]))
+    if not isinstance(data, dict):
+        raise FetchError("parse", "Web Service 返回格式异常")
+    allowed = {f.get("name") for f in data.get("functions") or []}
+    missing = [f for f in _REQUIRED_FUNCTIONS if allowed and f not in allowed]
+    if missing:
+        raise FetchError(
+            "need_login",
+            "这个密钥所属的服务不能读取作业，请复制“Moodle mobile web service”那一行的密钥",
+        )
+    return SourceSession(ws_token=key)

@@ -267,6 +267,7 @@ Autobahn 报告目录缺失。现在 18 项检查全部通过。注意 `server/D
 | 5 | 推送节点重启后，接入它的用户收不到任何推送 | Hub 为下线节点保留去重表 60 秒，新进程的帧序号从 1 开始，SUBSCRIBE 被当成重复帧丢掉 | 节点进程在 NODE_JOIN 中带自己的 `epoch`，变化时 Hub 清空该成员的去重表（`docs/protocols/bus.md` §4） |
 | 6 | 浏览器端一直显示“离线 · 显示缓存内容” | 浏览器本地数据库（drift）不可用时，`refreshAll` 写缓存抛异常，实时连接根本没建立 | 本地缓存读写失败只影响离线浏览；实时连接与操作照常（队列写不进时直接发送） |
 | 7 | 网关多 worker 不生效（第二轮压测发现） | 在事件循环内 fork | 见第二轮“网关多 worker” |
+| 8 | 容器里 Moodle Web Service 从未生效（接入 MUST 时发现），一直回退网页解析 | `urljoin(base, "/webservice/rest/server.php?")`：容器里的 Python 3.12 会丢掉末尾空的“?”，拼成 `server.phpwstoken=…`；本机 Python 3.14 不会，所以测试没发现 | 统一用 `collector/session.py: moodle_ws_url` 拼地址；回归测试 `test_moodle_ws_url_keeps_query_separator` |
 
 每个问题都补了回归测试。另外新增 `GLEANER_TEST_PG`：设置后，用到数据库的测试改跑 PostgreSQL；`test_core`、`test_e2e`、`test_mail`、`test_storage_pg` 共 40 项在 PostgreSQL 上全部通过。
 

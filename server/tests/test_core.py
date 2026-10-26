@@ -457,3 +457,12 @@ async def test_migration_scopes_existing_personal_keys(db_url):
     assert keys == {personal: f"@{uid}/moodle:m:assign:1", shared: "web:http://w/1"}
     assert aliases == {personal: f"@{uid}/url:moodle:m:assign:1", shared: "url:web:http://w/1"}
     await db.close()
+
+
+def test_moodle_ws_url_keeps_query_separator():
+    """Python 3.12 的 urljoin 会丢掉末尾空的“?”；容器里 Moodle Web Service 曾因此一直拿不到 token。"""
+    from gleaner.collector.session import moodle_ws_url
+
+    url = moodle_ws_url("https://m.example.edu/my/", "a" * 32, "mod_assign_get_assignments")
+    assert url.startswith("https://m.example.edu/webservice/rest/server.php?wstoken=")
+    assert "wsfunction=mod_assign_get_assignments" in url

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api.dart';
 import '../../core/format.dart';
@@ -211,6 +212,10 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
   final pw = TextEditingController();
   final smtpHost = TextEditingController();
   final smtpPort = TextEditingController(text: '587');
+  final key = TextEditingController();
+  // Moodle 默认用安全密钥：学校多为统一认证（CAS / SSO），账号密码换不到 token
+  final isMoodle = s.type == 'moodle';
+  var useKey = isMoodle;
   var busy = false;
   String? err;
   await showDialog<void>(
@@ -220,23 +225,61 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
         title: Text('登录「${s.name}」'),
         content: SizedBox(
           width: 380,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (isMoodle) ...[
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: true, label: Text('粘贴安全密钥'), icon: Icon(Icons.key_outlined)),
+                  ButtonSegment(value: false, label: Text('账号密码'), icon: Icon(Icons.password)),
+                ],
+                selected: {useKey},
+                onSelectionChanged: busy
+                    ? null
+                    : (v) => set(() {
+                          useKey = v.first;
+                          err = null;
+                        }),
+              ),
+              const SizedBox(height: 12),
+            ],
             Text(
-              s.isMail ? '使用邮箱的“应用专用密码”。口令会以 AES-GCM 加密保存，用于 IMAP/SMTP 连接。' : '账号密码只用于这一次登录，平台只加密保存登录后得到的会话，不保存密码。',
+              useKey
+                  ? '学校使用统一认证时用这种方式，拾课不会接触你的统一认证密码：\n'
+                      '1. 在浏览器登录 Moodle，打开“偏好设置 → 安全密钥”；\n'
+                      '2. 复制“Moodle mobile web service”那一行的密钥，粘贴到下面。\n'
+                      '密钥以 AES-GCM 加密保存；在 Moodle 里重置密钥即可随时撤销。'
+                  : s.isMail
+                      ? '使用邮箱的“应用专用密码”。口令会以 AES-GCM 加密保存，用于 IMAP/SMTP 连接。'
+                      : '账号密码只用于这一次登录，平台只加密保存登录后得到的会话，不保存密码。',
               style: TextStyle(color: Theme.of(c).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
-            TextField(controller: user, decoration: InputDecoration(labelText: s.isMail ? '邮箱地址' : '学号 / 用户名', prefixIcon: const Icon(Icons.person_outline))),
-            const SizedBox(height: 12),
-            TextField(
-              controller: pw,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: s.isMail ? '应用专用密码（不是邮箱登录密码）' : '密码',
-                helperText: s.isMail ? '在邮箱网页版的“设置 → 账户安全”中生成' : null,
-                prefixIcon: const Icon(Icons.lock_outline),
+            if (useKey) ...[
+              OutlinedButton.icon(
+                onPressed: () => launchUrl(Uri.parse(s.endpoint).resolve('/user/managetoken.php')),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('打开 Moodle 安全密钥页面'),
               ),
-            ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: key,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(labelText: '安全密钥', hintText: '32 位字母数字', prefixIcon: Icon(Icons.key_outlined)),
+              ),
+            ] else ...[
+              TextField(controller: user, decoration: InputDecoration(labelText: s.isMail ? '邮箱地址' : '学号 / 用户名', prefixIcon: const Icon(Icons.person_outline))),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pw,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: s.isMail ? '应用专用密码（不是邮箱登录密码）' : '密码',
+                  helperText: s.isMail ? '在邮箱网页版的“设置 → 账户安全”中生成' : null,
+                  prefixIcon: const Icon(Icons.lock_outline),
+                ),
+              ),
+            ],
             if (s.isMail) ...[
               const SizedBox(height: 12),
               Row(children: [
@@ -259,12 +302,15 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
                       err = null;
                     });
                     try {
-                      final r = await ref.read(apiProvider).sourceLogin(
-                            s.id,
-                            user.text.trim(),
-                            pw.text,
-                            smtp: s.isMail && smtpHost.text.isNotEmpty ? {'host': smtpHost.text.trim(), 'port': int.tryParse(smtpPort.text) ?? 587} : null,
-                          );
+                      final api = ref.read(apiProvider);
+                      final r = useKey
+                          ? await api.sourceLoginToken(s.id, key.text)
+                          : await api.sourceLogin(
+                              s.id,
+                              user.text.trim(),
+                              pw.text,
+                              smtp: s.isMail && smtpHost.text.isNotEmpty ? {'host': smtpHost.text.trim(), 'port': int.tryParse(smtpPort.text) ?? 587} : null,
+                            );
                       if (r['ok'] == true) {
                         ref.invalidate(sourcesProvider);
                         if (c.mounted) Navigator.pop(c);
@@ -278,7 +324,7 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
                       set(() => busy = false);
                     }
                   },
-            child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('登录'),
+            child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(useKey ? '保存密钥' : '登录'),
           ),
         ],
       ),

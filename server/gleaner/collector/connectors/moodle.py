@@ -6,11 +6,12 @@ import html as _html
 import re
 import time
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
 from ..fetcher import FetchError
+from ..session import moodle_ws_url
 from .base import Context, FetchResult, Snapshot, normalize_url, url_alias
 
 
@@ -50,14 +51,9 @@ async def fetch_moodle(ctx: Context) -> FetchResult:
 async def _via_ws(ctx: Context) -> FetchResult:
     assert ctx.session
     base = ctx.source.endpoint
-    url = urljoin(base, "/webservice/rest/server.php?") + urlencode(
-        {
-            "wstoken": ctx.session.ws_token,
-            "wsfunction": "mod_assign_get_assignments",
-            "moodlewsrestformat": "json",
-        }
+    r = await ctx.fetcher.fetch(
+        moodle_ws_url(base, ctx.session.ws_token or "", "mod_assign_get_assignments")
     )
-    r = await ctx.fetcher.fetch(url)
     ctx.requests += 1
     ctx.bytes += len(r.body)
     data = r.json()

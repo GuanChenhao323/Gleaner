@@ -31,6 +31,7 @@ open-questions 中由组长拍板的事项记在这里：决定内容、原因�
 | 11 | 访问真实学校系统的规则 | 只对 MUST Moodle 开放，且必须先取得书面授权并登记；只用登记的测试账号，登录由组员本人完成；只读、限速、遵守 robots；真实数据不入库；自动化测试与 CI 仍只连 fake_moodle | `CLAUDE.md`“工作方式”；`docs/integrations/must-moodle.md`；授权未登记时 `devtools/must_moodle_probe.py` 拒绝运行 |
 | 12 | 飞书版本 | 用国际版 Lark（`open.larksuite.com`），不用中国大陆版飞书（`open.feishu.cn`）；两者账号与数据互不相通 | 接入时在 `docs/integrations/` 登记；接口域名按 Lark |
 | 13 | X（Twitter）、Facebook | 不接入 | 从 M11 范围中移除 |
+| 14 | MUST Moodle 登录方式 | 方案 A：用户粘贴 Moodle 安全密钥（偏好设置 → 安全密钥 → Moodle mobile web service），拾课不经手统一认证密码；Moodle 来源的登录框默认用这种方式，仍保留账号密码方式给非统一认证的站点 | `POST /api/sources/{id}/login` 的 `token` 字段；`collector/session.py: moodle_token_session`；客户端登录框；测试 `test_moodle_login_with_pasted_security_key` |
 
 ### 仍需提供的信息
 

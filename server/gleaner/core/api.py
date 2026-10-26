@@ -16,7 +16,12 @@ from typing import Any
 from .. import security
 from ..collector.connectors import CONNECTORS, Context, SourceInfo
 from ..collector.fetcher import Fetcher, FetchError
-from ..collector.session import SourceSession, moodle_login
+from ..collector.session import (
+    SourceSession,
+    moodle_login,
+    moodle_token_session,
+    normalize_ws_key,
+)
 from ..mailsvc.sender import send_platform_mail, send_user_mail
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
@@ -859,10 +864,23 @@ class API:
         if not src:
             return Response.error(404, "来源不存在")
         b = req.json() or {}
+        now = time.time()
+        if src["type"] == "moodle" and "token" in b:
+            # 统一认证学校：粘贴 Moodle 安全密钥（偏好设置 → 安全密钥），不经手统一认证密码
+            key = normalize_ws_key(str(b.get("token") or ""))
+            if key is None:
+                return Response.error(422, "密钥格式不对：应为 32 位字母数字", "bad_token")
+            try:
+                sess = await moodle_token_session(self.fetcher, src["endpoint"], key)
+            except FetchError as e:
+                return Response.json_body(
+                    {"ok": False, "error": str(e), "kind": e.kind},
+                    401 if e.kind == "need_login" else 502,
+                )
+            return await self._save_source_secret(user, sid, sess.to_secret(), "ws_token", now)
         username, password = str(b.get("username", "")), str(b.get("password", ""))
         if not username or not password:
             return Response.error(422, "请输入账号和密码", "missing")
-        now = time.time()
         if src["type"] == "moodle":
             try:
                 sess = await moodle_login(self.fetcher, src["endpoint"], username, password)
@@ -882,6 +900,12 @@ class API:
         else:
             secret = SourceSession().to_secret()
             auth_type = "cookie"
+        return await self._save_source_secret(user, sid, secret, auth_type, now)
+
+    async def _save_source_secret(
+        self, user: dict[str, Any], sid: int, secret: dict[str, Any], auth_type: str, now: float
+    ) -> Response:
+        """加密保存来源凭据（AAD 绑定“用户 id:来源 id”），并立即触发一次采集。"""
         blob = security.encrypt(secret, aad=f"{user['id']}:{sid}".encode())
         await self.db.execute(
             """INSERT INTO credentials (user_id, source_id, auth_type, secret_encrypted, updated_at) VALUES (?, ?, ?, ?, ?)

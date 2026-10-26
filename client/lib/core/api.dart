@@ -104,6 +104,8 @@ class Api {
   Future<void> removeSource(int id) => _req('DELETE', '/api/sources/$id');
   Future<Map<String, dynamic>> sourceLogin(int id, String user, String pw, {Map<String, dynamic>? smtp}) =>
       _map('POST', '/api/sources/$id/login', data: {'username': user, 'password': pw, 'smtp': ?smtp});
+  /// 统一认证（CAS / SSO）的 Moodle：粘贴“偏好设置 → 安全密钥”里的密钥，不经手统一认证密码。
+  Future<Map<String, dynamic>> sourceLoginToken(int id, String token) => _map('POST', '/api/sources/$id/login', data: {'token': token});
   Future<void> refreshSource(int id) => _req('POST', '/api/sources/$id/refresh');
 
   // ---- 邮件 ----

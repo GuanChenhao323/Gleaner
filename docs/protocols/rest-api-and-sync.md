@@ -28,7 +28,7 @@
 | GET / POST | /api/sources | 我的来源（含状态、304 命中率）/ 添加（模板或自定义网址，可 `via_agent`） |
 | POST | /api/sources/preview | 首次采集预览（不保存） |
 | PUT / DELETE | /api/sources/{id} | 权重、静音、名称 / 取消订阅 |
-| POST | /api/sources/{id}/login · /refresh | 登录来源（只保存会话）/ 立即检查 |
+| POST | /api/sources/{id}/login · /refresh | 登录来源（只保存会话）/ 立即检查。请求体 `{username, password}`；Moodle 还可以用 `{token}`（用户从“偏好设置 → 安全密钥”复制的 32 位密钥，用于统一认证学校：先用 `core_webservice_get_site_info` 校验，格式错 422、无效 401） |
 | POST | /api/mail/send | 经已连接邮箱发信（`Idempotency-Key`） |
 | GET | /api/mail/sent | 发信记录 |
 | GET / PUT | /api/dashboard · /api/rules | 看板布局、个性化规则 |

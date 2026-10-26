@@ -61,13 +61,22 @@
 
 结论：现有“账号密码换 token”的方式大概率不适用，需要在第 5 节的方案里选一个。
 
-## 5. 登录方案（MUST 是统一认证，需要组长选择）
+## 5. 登录方案（2026-10-26 选定方案 A，见决策第 14 条）
 
 | 方案 | 做法 | 优点 | 缺点 |
 | --- | --- | --- | --- |
-| A. 粘贴安全密钥（推荐先做） | 用户在浏览器里正常登录 Moodle → 偏好设置 → 安全密钥，复制 “Moodle mobile web service” 的密钥，粘贴到拾课“添加信息源 → Moodle” | 拾课完全不接触统一认证密码；Web 版、手机版都能用；实现量小 | 用户多一步操作；密钥失效后要重新粘贴；需确认 MUST 是否对学生显示安全密钥页面 |
+| **A. 粘贴安全密钥（已选定并实现）** | 用户在浏览器里正常登录 Moodle → 偏好设置 → 安全密钥，复制 “Moodle mobile web service” 的密钥，粘贴到拾课“添加信息源 → Moodle” | 拾课完全不接触统一认证密码；Web 版、手机版都能用；实现量小 | 用户多一步操作；密钥失效后要重新粘贴；需确认 MUST 是否对学生显示安全密钥页面 |
 | B. App 内嵌浏览器 SSO | 手机版用内嵌浏览器打开 `launch.php`，用户自己在 CAS 页登录（含验证码、扫码），App 截获 `moodlemobile://token=…` 回跳取得 token | 体验与官方 Moodle App 一致；不接触密码 | 只适用手机 / 桌面 App，Web 版截获不了回跳；实现量中等 |
 | C. 服务端代登录 CAS | 拾课服务端用自研 HTTP 客户端走 CAS 表单（复刻 RSA 加密）拿到会话，再换 token | 用户只输一次账号密码 | 要经手统一认证密码（同一密码可登录学校全部系统）；遇到验证码就失败，不能也不应绕过；学校改页面就会坏 |
+
+方案 A 的实现：
+
+- 客户端：信息源 → Moodle → 登录框默认“粘贴安全密钥”，带“打开 Moodle 安全密钥页面”按钮（`/user/managetoken.php`）；仍可切换到“账号密码”。
+- 服务端：`POST /api/sources/{id}/login {"token": "…"}`。去掉空白后必须是 32 位十六进制（否则 422）；
+  用 `core_webservice_get_site_info` 校验（无效 401），并确认该服务包含 `mod_assign_get_assignments`；通过后 AES-GCM 加密保存，立即触发一次采集。
+- 采集：只有 token、没有网页会话，全部走 Web Service（`mod_assign_get_assignments`）。
+- 验证：fake_moodle 新增“安全密钥”页面；端到端测试 `test_moodle_login_with_pasted_security_key`；compose 环境里从“需要重新登录”粘贴密钥后恢复正常并采到 7 个作业。
+- 接入时还发现并修复：容器里的 Python 3.12 拼 Web Service 地址会丢掉“?”，导致 Web Service 从未生效（见评估第三轮第 8 条）。
 
 ## 6. 可能遇到的情况与对策
 
