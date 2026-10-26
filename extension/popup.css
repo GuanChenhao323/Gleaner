@@ -1,0 +1,69 @@
+:root {
+  --brand: #2f6b5a;
+  --brand-dark: #1f4a3e;
+  --wheat: #e0a43a;
+  --text: #1b1f1d;
+  --muted: #5f6b66;
+  --line: #dfe6e2;
+  --bg: #ffffff;
+  --card: #f3f7f5;
+  --error: #b3261e;
+  --ok: #2f6b5a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e6ece9;
+    --muted: #9fb0a8;
+    --line: #2c3632;
+    --bg: #151a18;
+    --card: #1e2522;
+    --error: #f2b8b5;
+    --ok: #8fd3bd;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 340px;
+  margin: 0;
+  padding: 14px 16px 12px;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+header strong { font-size: 15px; }
+header .muted { margin-left: auto; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+label { display: block; margin: 8px 0; color: var(--muted); }
+label input:not([type="radio"]) {
+  display: block; width: 100%; margin-top: 4px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font: inherit;
+}
+label.radio { display: flex; align-items: center; gap: 6px; margin: 4px 0; color: var(--text); }
+
+button {
+  width: 100%; margin-top: 6px; padding: 8px 12px; border-radius: 18px; cursor: pointer; font: inherit; font-weight: 600;
+  border: 1px solid var(--brand); background: transparent; color: var(--brand);
+}
+button.primary { background: var(--brand); color: #fff; }
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { opacity: 0.55; cursor: default; }
+
+.page { padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; background: var(--card); }
+.page .title { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.page .url { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12px; margin: 4px 2px 0; }
+.divider { height: 1px; background: var(--line); margin: 12px 0 8px; }
+
+#status { min-height: 18px; margin-top: 10px; font-size: 12px; }
+#status.ok { color: var(--ok); }
+#status.error { color: var(--error); }
+
+footer { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+footer a { color: var(--brand); text-decoration: none; font-size: 12px; }

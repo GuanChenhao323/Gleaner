@@ -15,6 +15,7 @@ from typing import Any
 
 from .. import security
 from ..collector.connectors import CONNECTORS, Context, SourceInfo
+from ..collector.connectors.base import normalize_url
 from ..collector.fetcher import Fetcher, FetchError
 from ..collector.session import (
     SourceSession,
@@ -25,7 +26,7 @@ from ..collector.session import (
 from ..mailsvc.sender import send_platform_mail, send_user_mail
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
-from .pipeline import Pipeline, item_public
+from .pipeline import Pipeline, item_public, owner_prefix
 from .templates import get_template, list_templates
 
 Publish = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -76,6 +77,9 @@ def _user_public(u: dict[str, Any]) -> dict[str, Any]:
         },
         "created_at": u["created_at"],
     }
+
+
+CLIP_MAX_TEXT = 100_000  # 插件上传正文上限（字符）
 
 
 class API:
@@ -141,6 +145,7 @@ class API:
         r.add("GET", "/api/templates", self.templates)
         r.add("GET", "/api/sources", a(self.list_sources))
         r.add("POST", "/api/sources", a(self.add_source))
+        r.add("POST", "/api/clips", a(self.save_clip))
         r.add("POST", "/api/sources/preview", a(self.preview_source))
         r.add("PUT", "/api/sources/{id}", a(self.update_source))
         r.add("DELETE", "/api/sources/{id}", a(self.remove_source))
@@ -720,11 +725,15 @@ class API:
         now = time.time()
         src = None
         if shared:
-            src = await self.db.fetchone(
+            # 同一网址可能既有“列表”订阅又有“整页监测”订阅（浏览器插件），按 mode 区分
+            for cand in await self.db.fetch(
                 "SELECT * FROM sources WHERE owner_id IS NULL AND endpoint = ? AND type = ?",
                 endpoint,
                 stype,
-            )
+            ):
+                if loads(cand.get("config"), {}).get("mode") == config.get("mode"):
+                    src = cand
+                    break
         if src is None:
             sid = await self.db.insert(
                 "sources",
@@ -854,6 +863,72 @@ class API:
             await self.db.execute("DELETE FROM sources WHERE id = ?", sid)
         return Response.json_body({"ok": True})
 
+    # ---- 浏览器插件：保存当前页面 -----------------------------------------------
+
+    async def save_clip(self, req: Request, user: dict[str, Any]) -> Response:
+        """插件“保存到收件箱”：页面正文由插件在用户浏览器里读取后上传（登录后才能看的页面也能存）。
+
+        每个用户一个个人来源“网页收藏”（类型 clip，不参与定时采集）；事项走正常流水线，
+        同一网址再次保存会比较正文并记录新版本。不按链接与其他事项合并：
+        否则保存一篇已在收件箱里的通知会被并进通知，用户保存的正文和之后的版本都会丢失。
+        """
+        b = req.json() or {}
+        url = str(b.get("url") or "").strip()
+        if not re.match(r"^https?://", url, re.I) or len(url) > 2048:
+            return Response.error(422, "只能保存 http / https 网页", "bad_url")
+        title = " ".join(str(b.get("title") or "").split())[:300] or url
+        text = str(b.get("text") or "").strip()[:CLIP_MAX_TEXT]
+        src = await self._clip_source(user)
+        key = "clip:" + normalize_url(url)
+        snap = {
+            "key": key,
+            "kind": "clip",
+            "title": title,
+            "url": url,
+            "body": text,
+            "attrs": {"saved_from": "browser-extension"},
+        }
+        counts = await self.pipeline.ingest(
+            {"source_id": src["id"], "status": "ok", "prev_status": "ok", "items": [snap]}
+        )
+        scoped = owner_prefix(user["id"]) + key
+        item_id = await self.db.fetchval("SELECT id FROM items WHERE identity_key = ?", scoped)
+        status = next((k for k in ("new", "changed") if counts.get(k)), "unchanged")
+        return Response.json_body(
+            {"ok": True, "item_id": item_id, "status": status}, 201 if status == "new" else 200
+        )
+
+    async def _clip_source(self, user: dict[str, Any]) -> dict[str, Any]:
+        src = await self.db.fetchone(
+            "SELECT * FROM sources WHERE owner_id = ? AND type = 'clip'", user["id"]
+        )
+        if src:
+            return src
+        now = time.time()
+        sid = await self.db.insert(
+            "sources",
+            {
+                "owner_id": user["id"],
+                "type": "clip",
+                "name": "网页收藏",
+                "endpoint": "extension://clip",
+                "template": "",
+                "config": {},
+                "status": "ok",
+                "created_at": now,
+                "next_fetch_at": 0,
+            },
+        )
+        await self.db.execute(
+            "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, 0.6, ?) ON CONFLICT DO NOTHING",
+            user["id"],
+            sid,
+            now,
+        )
+        src = await self.db.fetchone("SELECT * FROM sources WHERE id = ?", sid)
+        assert src
+        return src
+
     async def source_login(self, req: Request, user: dict[str, Any]) -> Response:
         """来源登录：只保存登录后得到的 Cookie / Token（AES-GCM 加密），不保存统一认证密码。
 
@@ -931,8 +1006,11 @@ class API:
 
     async def refresh_source(self, req: Request, user: dict[str, Any]) -> Response:
         sid = int(req.params["id"])
-        if not await self._own_sub(user, sid):
+        src = await self._own_sub(user, sid)
+        if not src:
             return Response.error(404, "来源不存在")
+        if src["type"] == "clip":  # 网页收藏由插件推送，没有可采集的地址
+            return Response.json_body({"ok": True, "via_agent": False})
         await self.db.execute("UPDATE sources SET next_fetch_at = 0 WHERE id = ?", sid)
         await self.publish("collector.fetch", {"source_id": sid})
         via_agent = False

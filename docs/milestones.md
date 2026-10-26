@@ -18,7 +18,7 @@
 | M9 | 评估 | Autobahn、5000 连接压测、对比实验 1–5、故障注入、Wireshark 抓包 | ⚠️ | Windows 与 Linux（WSL 2）数据齐全：select/epoll 曲线、反应器 5000 连接、tc netem、网关多 worker，见 docs/evaluation；官方 Autobahn 已通过（asyncio 版 0 失败）；跨机器扩容、抓包待补 |
 | M10 | 上线与用户 | 云服务器、域名证书、内测、≥ 50 名真实用户、SUS 问卷 | ⏳ | — |
 | M11 | 真实平台接入 | 先接 MUST Moodle（授权登记 → 探测 → 本人登录 → 适配解析 → 24 小时验收）；之后接飞书国际版 Lark | 🟡 | MUST 已授权并完成探测（统一认证 CAS，需选登录方案）；见 `docs/integrations/must-moodle.md` |
-| M12 | 浏览器插件 | Chrome / Edge 插件：保存当前页面到收件箱、订阅页面更新（整页监测 / RSS） | ⏳ | 见 `docs/browser-extension.md` |
+| M12 | 浏览器插件 | Chrome / Edge 插件：保存当前页面到收件箱、订阅页面更新（整页监测 / RSS） | 🟡 | 服务端与插件已实现并用测试页验证；待在真实 Chrome / Edge 里加载试用；见 `docs/browser-extension.md` |
 
 ## 当前测试基线（2026-10-22）
 

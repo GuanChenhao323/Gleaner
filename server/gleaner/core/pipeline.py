@@ -229,7 +229,14 @@ class Pipeline:
         published = snap.get("published_at")
         deadline = snap.get("deadline_at")
         dl_text = (snap.get("attrs") or {}).get("deadline_text", "")
-        if deadline is None and snap.get("kind") in ("notice", "mail", "assignment", "rss"):
+        if deadline is None and snap.get("kind") in (
+            "notice",
+            "mail",
+            "assignment",
+            "rss",
+            "clip",
+            "page",
+        ):
             m = extract_deadline(
                 f"{snap.get('title', '')} {body}",
                 dt.datetime.fromtimestamp(published, TZ) if published else None,

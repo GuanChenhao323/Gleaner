@@ -43,7 +43,8 @@ MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点�
 | `server/gleaner/storage/` | SQLite / PostgreSQL 访问层与表结构 |
 | `agent/` | 本地采集代理 |
 | `client/` | Flutter 客户端 |
-| `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境 |
+| `extension/` | Chrome / Edge 浏览器插件：保存当前页面、订阅页面更新（见 `docs/browser-extension.md`） |
+| `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境、插件弹窗测试页 |
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
 | `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |

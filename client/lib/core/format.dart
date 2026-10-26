@@ -98,6 +98,8 @@ String kindLabel(String kind) => switch (kind) {
       'notice' => '通知',
       'mail' => '邮件',
       'rss' => '通知',
+      'clip' => '剪藏', // 浏览器插件“保存到收件箱”
+      'page' => '网页', // 插件“订阅更新”的整页监测
       _ => '事项',
     };
 
@@ -105,6 +107,8 @@ IconData kindIcon(String kind) => switch (kind) {
       'assignment' => Icons.assignment_outlined,
       'notice' => Icons.campaign_outlined,
       'mail' => Icons.mail_outline,
+      'clip' => Icons.bookmark_add_outlined,
+      'page' => Icons.web,
       _ => Icons.article_outlined,
     };
 
@@ -114,6 +118,7 @@ IconData sourceIcon(String type) => switch (type) {
       'rss' => Icons.rss_feed,
       'teacher' => Icons.badge_outlined,
       'imap' || 'pop3' => Icons.mail_outline,
+      'clip' => Icons.bookmarks_outlined,
       _ => Icons.link,
     };
 

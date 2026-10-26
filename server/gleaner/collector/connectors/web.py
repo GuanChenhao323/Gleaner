@@ -26,9 +26,69 @@ def _date(text: str) -> float | None:
         return None
 
 
+_NOISE = ("script", "style", "noscript", "template", "svg", "nav", "header", "footer", "form")
+PAGE_MAX_TEXT = 100_000
+
+
+def page_text(html_text: str, region: str | None = None) -> tuple[str, str]:
+    """整页监测用：返回（标题，正文纯文本）。去掉脚本、导航、页眉页脚，优先取 main / article。"""
+    soup = BeautifulSoup(html_text, "lxml")
+    og = soup.select_one('meta[property="og:title"]')
+    title = str(og.get("content") or "") if og else ""
+    if not title and soup.title:
+        title = soup.title.get_text(strip=True)
+    for tag in soup(list(_NOISE)):
+        tag.decompose()
+    if region:
+        node = soup.select_one(region)
+        if node is None:
+            from ..fetcher import FetchError
+
+            raise FetchError("parse", f"找不到关注区域 {region}")
+    else:
+        node = soup.select_one("main, article, [role=main]") or soup.body or soup
+    lines = (ln.strip() for ln in node.get_text("\n").splitlines())
+    body = "\n".join(ln for ln in lines if ln)
+    return " ".join(title.split())[:300], body[:PAGE_MAX_TEXT]
+
+
+async def fetch_page(ctx: Context) -> FetchResult:
+    """整页监测（浏览器插件“订阅更新”）：整页或关注区域作为一个事项，正文变化即产生新版本。"""
+    cfg = ctx.source.config
+    url = ctx.source.endpoint
+    text, nm = await ctx.get(url, auth=bool(ctx.session))
+    if nm and ctx.cached(url) is not None:
+        title, body = ctx.cached(url)
+    else:
+        if text is None:
+            return FetchResult("not_modified", complete=False)
+        title, body = page_text(text, cfg.get("region"))
+        ctx.remember(url, [title, body])
+    dl = extract_deadline(f"{title} {body}", None)
+    return FetchResult(
+        "ok",
+        [
+            Snapshot(
+                key=f"page:{normalize_url(url)}",
+                kind="page",
+                title=title or ctx.source.endpoint,
+                url=url,
+                body=body,
+                course=ctx.source.course,
+                deadline_at=dl.at.timestamp() if dl else None,
+                # 不设链接别名：否则会并进同一网址的通知，之后页面变化都被当成重复
+                attrs={"deadline_text": dl.text if dl else ""},
+            )
+        ],
+        complete=True,
+    )
+
+
 async def fetch_web(ctx: Context) -> FetchResult:
     """列表页 + 详情页。选择器来自来源配置（校园模板预置），也支持自定义“关注区域”。"""
     cfg = ctx.source.config
+    if cfg.get("mode") == "page":
+        return await fetch_page(ctx)
     url = ctx.source.endpoint
     text, nm = await ctx.get(url, auth=bool(ctx.session))
     if nm and ctx.cached(url) is not None:

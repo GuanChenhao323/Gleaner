@@ -556,3 +556,90 @@ async def test_moodle_login_with_pasted_security_key(stack):
 
         feed = await until(feed_ready, 20)
         assert all(i["source"]["id"] == sid for i in feed["items"])
+
+
+async def test_browser_extension_clip_and_page_subscription(stack):
+    """浏览器插件：保存当前页面到收件箱（同一网址再存记新版本）；订阅页面更新（整页监测）。"""
+    gw = f"http://127.0.0.1:{stack['gw'].info['port']}"
+    page_url = f"{stack['moodle']}/news/1.html"
+    async with HTTPClient() as c:
+        r = await c.post(
+            gw + "/api/auth/register",
+            json_body={"email": "clip@test.edu", "password": "password1", "name": "小藏"},
+        )
+        auth = {"Authorization": f"Bearer {r.json()['token']}"}
+        # 先订阅学院通知：同一网页已经作为通知在收件箱里（compose 实测时插件保存被并进通知、正文丢失）
+        await c.post(gw + "/api/sources", json_body={"template": "college_news"}, headers=auth)
+
+        async def notice_ready():
+            items = (await c.get(gw + "/api/feed", headers=auth)).json()["items"]
+            return [i for i in items if i["url"].endswith("/news/1.html")]
+
+        await until(notice_ready, 20)
+
+        clip = {"url": page_url, "title": "讲座通知", "text": "本周五下午三点在 A101 举行讲座。"}
+        r = await c.post(gw + "/api/clips", json_body=clip, headers=auth)
+        assert r.status == 201, r.text()
+        first = r.json()
+        assert first["ok"] and first["status"] == "new"
+
+        r = await c.post(
+            gw + "/api/clips",
+            json_body={**clip, "text": "讲座改到 B202，时间不变。"},
+            headers=auth,
+        )
+        assert r.json()["status"] == "changed" and r.json()["item_id"] == first["item_id"]
+        versions = (
+            await c.get(gw + f"/api/items/{first['item_id']}/versions", headers=auth)
+        ).json()["versions"]
+        assert len(versions) == 2
+
+        r = await c.post(
+            gw + "/api/clips", json_body={**clip, "url": "file:///etc/passwd"}, headers=auth
+        )
+        assert r.status == 422
+
+        feed = (await c.get(gw + "/api/feed", headers=auth)).json()["items"]
+        saved = [i for i in feed if i["id"] == first["item_id"]]
+        assert (
+            saved
+            and saved[0]["kind"] == "clip"
+            and "B202" in saved[0]["summary"] + saved[0]["title"] + str(saved[0].get("body", ""))
+        )
+        sources = (await c.get(gw + "/api/sources", headers=auth)).json()["sources"]
+        assert [s["type"] for s in sources if s["id"] == saved[0]["source"]["id"]] == ["clip"]
+
+        # 订阅更新：整页监测
+        r = await c.post(
+            gw + "/api/sources",
+            json_body={
+                "type": "web",
+                "endpoint": page_url,
+                "name": "讲座页",
+                "config": {"mode": "page"},
+            },
+            headers=auth,
+        )
+        assert r.status == 201, r.text()
+        sid = r.json()["source"]["id"]
+        await c.post(gw + f"/api/sources/{sid}/refresh", headers=auth)
+
+        async def page_item():
+            items = (await c.get(gw + "/api/feed", headers=auth)).json()["items"]
+            return [i for i in items if i["source"]["id"] == sid]
+
+        got = await until(page_item, 20)
+        assert len(got) == 1 and got[0]["kind"] == "page" and got[0]["url"]
+
+        # 页面内容变化 → 同一事项出现新版本（不能被当成重复，也不能并进学院通知那条）
+        with fm.STATE.lock:
+            fm.STATE.notices[0].body += "（地点改到 B202）"
+        await c.post(gw + f"/api/sources/{sid}/refresh", headers=auth)
+
+        async def page_changed():
+            v = (await c.get(gw + f"/api/items/{got[0]['id']}/versions", headers=auth)).json()[
+                "versions"
+            ]
+            return v if len(v) >= 2 else None
+
+        await until(page_changed, 20)
