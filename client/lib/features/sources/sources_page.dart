@@ -16,24 +16,24 @@ class SourcesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sources = ref.watch(sourcesProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('来源'), actions: [
+      appBar: AppBar(title: const Text('信息源'), actions: [
         IconButton(tooltip: '刷新状态', icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(sourcesProvider)),
         const SizedBox(width: 8),
       ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showAddSource(context, ref),
         icon: const Icon(Icons.add),
-        label: const Text('添加来源'),
+        label: const Text('添加信息源'),
       ),
       body: sources.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '无法获取来源状态', message: '$e', action: OutlinedButton(onPressed: () => ref.invalidate(sourcesProvider), child: const Text('重试'))),
+        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '无法获取信息源状态', message: '$e', action: OutlinedButton(onPressed: () => ref.invalidate(sourcesProvider), child: const Text('重试'))),
         data: (list) => list.isEmpty
             ? EmptyState(
                 icon: Icons.hub_outlined,
                 title: '还没有信息源',
-                message: '用校园模板一键添加 Moodle、学院通知、教师信息和学校邮箱，无需研究网页规则。',
-                action: FilledButton.icon(onPressed: () => showAddSource(context, ref), icon: const Icon(Icons.add), label: const Text('添加第一个来源')),
+                message: '用校园模板一键添加 Moodle、学院通知、教师信息和学校邮箱。系统会定期检查这些来源，把作业、通知和邮件整理进收件箱。',
+                action: FilledButton.icon(onPressed: () => showAddSource(context, ref), icon: const Icon(Icons.add), label: const Text('添加第一个信息源')),
               )
             : ListView(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),

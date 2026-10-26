@@ -21,10 +21,16 @@ class ItemCard extends ConsumerWidget {
     final unread = !item.state.read;
     final due = item.deadline;
     final courseColor = Brand.course(item.course);
-    final urgent = item.priority == 'urgent';
+    final accent = dueRowAccent(done: item.isDone, priority: item.priority, deadline: due);
+    final Color base = selected
+        ? cs.secondaryContainer.withValues(alpha: 0.7)
+        : (unread ? cs.surfaceContainerLow : cs.surface);
     final card = Material(
-      color: selected ? cs.secondaryContainer.withValues(alpha: 0.7) : (unread ? cs.surfaceContainerLow : cs.surface),
-      borderRadius: BorderRadius.circular(18),
+      color: accent != null ? Color.alphaBlend(accent.withValues(alpha: 0.14), base) : base,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: accent != null ? BorderSide(color: accent.withValues(alpha: 0.35)) : BorderSide.none,
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -34,12 +40,11 @@ class ItemCard extends ConsumerWidget {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(color: courseColor.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12)),
-              child: Stack(children: [
-                Center(child: Icon(kindIcon(item.kind), size: 20, color: courseColor)),
-                if (urgent && unread)
-                  Positioned(right: 4, top: 4, child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: Brand.urgent, shape: BoxShape.circle))),
-              ]),
+              decoration: BoxDecoration(
+                color: (accent ?? courseColor).withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(child: Icon(kindIcon(item.kind), size: 20, color: accent ?? courseColor)),
             ),
             const SizedBox(width: 12),
             Expanded(

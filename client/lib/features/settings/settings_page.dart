@@ -86,13 +86,6 @@ class SettingsPage extends ConsumerWidget {
                 ListTile(leading: const Icon(Icons.dns_outlined), title: const Text('服务器'), subtitle: Text(s.server)),
               ]),
             ),
-            const SectionHeader('工具'),
-            Card(
-              child: Column(children: [
-                ListTile(leading: const Icon(Icons.edit_note), title: const Text('写邮件'), subtitle: const Text('经已连接的学校邮箱发送'), onTap: () => context.push('/compose')),
-                ListTile(leading: const Icon(Icons.qr_code_2), title: const Text('扫码传输'), subtitle: const Text('电脑与手机之间传文件，支持断点续传'), onTap: () => context.push('/transfer')),
-              ]),
-            ),
             const SectionHeader('隐私与账号'),
             Card(
               child: Column(children: [

@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'core/session.dart';
 import 'features/assignments/assignments_page.dart';
 import 'features/auth/login_page.dart';
-import 'features/calendar/calendar_page.dart';
 import 'features/courses/courses_page.dart';
 import 'features/dashboard/dashboard_page.dart';
 import 'features/inbox/inbox_page.dart';
@@ -33,6 +32,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
       // 扫码加入传输会话不要求登录（手机可能还没有账号）
       if (loc.startsWith('/transfer/')) return null;
+      // 日历已并入作业页
+      if (loc == '/calendar') return loggedIn ? '/assignments?view=calendar' : '/login';
       if (!loggedIn && loc != '/login') return '/login';
       if (loggedIn && loc == '/login') return '/';
       return null;
@@ -52,11 +53,16 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/inbox',
             pageBuilder: (_, s) => page(InboxPage(
               key: ValueKey(s.uri.queryParameters['filter']),
-              initial: InboxFilter.values.firstWhere((f) => f.name == s.uri.queryParameters['filter'], orElse: () => InboxFilter.all),
+              initial: parseInboxFilter(s.uri.queryParameters['filter']),
             )),
           ),
-          GoRoute(path: '/assignments', pageBuilder: (_, _) => page(const AssignmentsPage())),
-          GoRoute(path: '/calendar', pageBuilder: (_, _) => page(const CalendarPage())),
+          GoRoute(
+            path: '/assignments',
+            pageBuilder: (_, s) => page(AssignmentsPage(
+              key: ValueKey(s.uri.queryParameters['view']),
+              initialCalendar: s.uri.queryParameters['view'] == 'calendar',
+            )),
+          ),
           GoRoute(path: '/courses', pageBuilder: (_, _) => page(const CoursesPage())),
           GoRoute(path: '/sources', pageBuilder: (_, _) => page(const SourcesPage())),
           GoRoute(path: '/settings', pageBuilder: (_, _) => page(const SettingsPage())),

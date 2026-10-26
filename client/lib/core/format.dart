@@ -82,6 +82,17 @@ Color urgencyColor(BuildContext context, Urgency u) {
   };
 }
 
+/// 列表整行强调色：24 小时内 / 系统紧急 → 红；72 小时内（如「还剩 2 天」）→ 黄；否则 null。
+Color? dueRowAccent({required bool done, required String priority, DateTime? deadline}) {
+  if (done) return null;
+  if (priority == 'urgent') return Brand.urgent;
+  return switch (urgencyOf(deadline)) {
+    Urgency.critical || Urgency.overdue => Brand.urgent,
+    Urgency.soon => Brand.wheat,
+    _ => null,
+  };
+}
+
 String kindLabel(String kind) => switch (kind) {
       'assignment' => '作业',
       'notice' => '通知',
