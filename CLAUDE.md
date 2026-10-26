@@ -54,7 +54,7 @@ aiosmtplib、aioimaplib、dnspython、prometheus_client。（`server/pyproject.t
   * 只访问该文档“允许访问范围”中列出的页面与 Web Service 函数；遵守 robots.txt；同一主机请求间隔不少于 2 秒。
   * 真实站点抓到的页面、作业、姓名、邮箱等数据不得提交进仓库，也不得写进测试夹具；解析规则用脱敏后的结构样本写测试。
   * 真实站点的检查只通过手动运行的脚本进行，不放进 pytest 与 CI。
-* 其他真实平台（飞书、X、Facebook 等）在各自获得授权、并在 `docs/integrations/` 登记之前，同样不得访问。
+* 其他真实平台（下一个是飞书国际版 Lark；X、Facebook 已决定不接）在各自获得授权、并在 `docs/integrations/` 登记之前，同样不得访问。
 * 不确定的需求记到 `docs/open-questions.md` 并告诉组长，不要自行发挥。
 
 ## 常用命令

@@ -5,19 +5,19 @@
 
 ## 1. 授权与登记（组长填写）
 
-授权状态：待提供
+授权状态：已获授权
 
 | 项目 | 内容 |
 | --- | --- |
-| Moodle 地址 | （待提供，例如 `https://xxx.must.edu.mo`） |
-| 授权人 / 部门 | （待提供：老师或学校 IT 部门） |
-| 授权形式与存放位置 | （书面邮件或文件；原件不入库，这里只写存放位置） |
-| 授权范围 | （允许的账号、页面 / 接口、访问频率） |
-| 有效期 | （待提供） |
-| 测试账号 | 登记人与用途（**只写账号名，不写密码**；登录由本人在客户端界面完成） |
-| 登记日期 | （待提供） |
+| Moodle 地址 | `https://moodle.must.edu.mo` |
+| 授权人 / 部门 | 澳门科技大学与 CMU 合作项目同意连接（组长 GuanChenhao323 于 2026-10-26 确认） |
+| 授权形式与存放位置 | 组长口头转达；书面材料（合作协议或邮件）待补，原件不入库，补齐后在此写明存放位置 |
+| 授权范围 | 只读访问第 2 节所列页面与 Web Service；仅限下面登记的测试账号；限速见第 2 节 |
+| 有效期 | 待补（以合作协议为准） |
+| 测试账号 | `1230003454`（组长提供；密码不入库，登录由账号持有人本人在客户端完成） |
+| 登记日期 | 2026-10-26 |
 
-授权到手后，把第一行改为 `授权状态：已获授权`，并补全表格。
+书面授权材料与有效期补齐后更新本表；授权失效时把第一行改回 `授权状态：待提供`，探测脚本与真实访问随即停止。
 
 ## 2. 允许访问范围（默认清单，以授权范围为准）
 
@@ -26,7 +26,7 @@
 | 类别 | 地址 / 函数 | 用途 |
 | --- | --- | --- |
 | 公开信息 | `/robots.txt`、`/lib/ajax/service-nologin.php` 的 `tool_mobile_get_public_config` | 探测登录方式（账号密码 / SSO）、站点版本、是否开放移动端服务 |
-| 登录 | `/login/token.php`（`service=moodle_mobile_app`）、`/login/index.php` | 换取 Web Service token，或保存网页会话 Cookie；只存会话不存密码 |
+| 登录 | `/login/token.php`（`service=moodle_mobile_app`）、`/login/index.php`、统一认证登录页 `https://login.must.edu.mo/login`（只读表单结构） | 换取 Web Service token，或保存网页会话 Cookie；只存会话不存密码 |
 | Web Service | `core_webservice_get_site_info`、`core_enrol_get_users_courses`、`mod_assign_get_assignments` | 课程列表、作业、截止时间、附件信息 |
 | 网页（Web Service 不可用时回退） | `/my/`、`/course/view.php`、`/mod/assign/index.php`、`/mod/assign/view.php` | 同上，用 HTML 解析 |
 
@@ -45,9 +45,31 @@
 
 ## 4. 探测结果
 
-（授权后由 `devtools/must_moodle_probe.py` 生成，只记录站点级信息，不记录任何个人数据。）
+2026-10-26 `devtools/must_moodle_probe.py`（只读站点级公开信息，不登录）：
 
-## 5. 可能遇到的情况与对策
+| 项目 | 结果 | 含义 |
+| --- | --- | --- |
+| robots.txt | 返回 303 重定向，无 robots 文件 | 没有禁止路径；仍按第 2 节限速 |
+| 站点名 | Macau University of Science and Technology | — |
+| 登录方式（`typeoflogin`） | 内嵌浏览器 SSO；身份提供方 “Login MUST” | 学生账号走统一认证，不是 Moodle 本地账号 |
+| 统一认证 | `/login/index.php` 302 到 `https://login.must.edu.mo/login?service=…`（CAS 协议） | — |
+| CAS 登录页结构 | 账号 + 密码 + 隐私政策勾选；页面引入 jsencrypt（密码疑似在浏览器端 RSA 加密后提交）；后台提交表单带验证码字段；另有扫码登录 | 服务端代登录需要复刻加密，且可能遇到验证码 |
+| Web Service | `enablewebservices = 1`，`enablemobilewebservice = 1` | 移动端服务已开放，拿到 token 后可直接用 Web Service |
+| `/login/token.php` | 空账号返回 `invalidlogin` | 端点可用；但统一认证账号一般不能用账号密码直接换 token |
+| 移动端 SSO 入口 | `https://moodle.must.edu.mo/admin/tool/mobile/launch.php` | 可走移动端 SSO 启动流程取得 token |
+| Moodle 版本 | 未公开 | — |
+
+结论：现有“账号密码换 token”的方式大概率不适用，需要在第 5 节的方案里选一个。
+
+## 5. 登录方案（MUST 是统一认证，需要组长选择）
+
+| 方案 | 做法 | 优点 | 缺点 |
+| --- | --- | --- | --- |
+| A. 粘贴安全密钥（推荐先做） | 用户在浏览器里正常登录 Moodle → 偏好设置 → 安全密钥，复制 “Moodle mobile web service” 的密钥，粘贴到拾课“添加信息源 → Moodle” | 拾课完全不接触统一认证密码；Web 版、手机版都能用；实现量小 | 用户多一步操作；密钥失效后要重新粘贴；需确认 MUST 是否对学生显示安全密钥页面 |
+| B. App 内嵌浏览器 SSO | 手机版用内嵌浏览器打开 `launch.php`，用户自己在 CAS 页登录（含验证码、扫码），App 截获 `moodlemobile://token=…` 回跳取得 token | 体验与官方 Moodle App 一致；不接触密码 | 只适用手机 / 桌面 App，Web 版截获不了回跳；实现量中等 |
+| C. 服务端代登录 CAS | 拾课服务端用自研 HTTP 客户端走 CAS 表单（复刻 RSA 加密）拿到会话，再换 token | 用户只输一次账号密码 | 要经手统一认证密码（同一密码可登录学校全部系统）；遇到验证码就失败，不能也不应绕过；学校改页面就会坏 |
+
+## 6. 可能遇到的情况与对策
 
 | 情况 | 影响 | 对策 |
 | --- | --- | --- |
@@ -57,7 +79,7 @@
 | 网页是自定义主题 | 现有选择器失效 | 以 Moodle 标准的 `data-region` 属性与 Web Service 为主，减少对主题 class 的依赖 |
 | 会话过期 | 来源状态变为“需要重新登录” | 客户端提示用户重新登录（已实现） |
 
-## 6. 数据与隐私
+## 7. 数据与隐私
 
 - 真实站点的页面、课程、作业、姓名、邮箱一律不入库、不进测试夹具、不贴进 issue 或聊天记录。
 - 会话与 token 用 AES-GCM 加密保存（AAD 为“用户 id:来源 id”），用户删除来源或注销账号时一并删除。
