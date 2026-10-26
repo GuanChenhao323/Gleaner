@@ -11,7 +11,9 @@
 
 ## B. 需要实地确认（第 1–2 周任务）
 
-9. 本校 Moodle 是否开放 Web Service（`moodle_mobile_app`）、是否走统一认证（CAS/SSO）、是否提供 iCal 导出；云端能否访问。
+9. MUST Moodle 是否开放 Web Service（`moodle_mobile_app`）、是否走统一认证（CAS/SSO）、是否提供 iCal 导出；云端能否访问。
+   取得授权后用 `devtools/must_moodle_probe.py` 探测，结果写进 [integrations/must-moodle.md](integrations/must-moodle.md) 第 4 节。
+   若是 SSO，需要决定用“粘贴 Moodle 安全密钥”还是移动端 SSO 启动流程（见该文档第 5 节）。
 10. 学院通知网站的真实 HTML 结构：模板里的 CSS 选择器（`ul.news-list li`、`.arti-content` 等）是按 fake_moodle 写的，需要按真实页面调整。
 11. 学校邮箱是否支持 IMAP / POP3、是否要求 OAuth2、是否允许应用专用密码；SMTP 端口与 STARTTLS 支持情况。
 12. 真实站点的 robots.txt：引擎遵守 robots，若禁止相关路径会把来源标为“检查失败”。需登录的个人来源是否也遵守？

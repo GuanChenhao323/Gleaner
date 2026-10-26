@@ -23,7 +23,15 @@ open-questions 中由组长拍板的事项记在这里：决定内容、原因�
 
 起因：compose 实测发现第二个同学登录同一个 Moodle 后看不到作业（身份键全局唯一），且按链接合并时个人邮件可能并进别人的事项。
 
+## 2026-10-26 · 真实平台接入（组长决定）
+
+| # | 问题 | 决定 | 落地 |
+| --- | --- | --- | --- |
+| 10 | 真实平台接入范围与顺序 | 在 P0–P2 之外新增真实平台接入（M11）。先接澳门科技大学（MUST）Moodle，之后视情况接飞书、X、Facebook | `docs/integrations/`；`docs/milestones.md` M11 |
+| 11 | 访问真实学校系统的规则 | 只对 MUST Moodle 开放，且必须先取得书面授权并登记；只用登记的测试账号，登录由组员本人完成；只读、限速、遵守 robots；真实数据不入库；自动化测试与 CI 仍只连 fake_moodle | `CLAUDE.md`“工作方式”；`docs/integrations/must-moodle.md`；授权未登记时 `devtools/must_moodle_probe.py` 拒绝运行 |
+
 ### 仍需提供的信息
 
 - 平台发信账号（SMTP 服务器、端口、账号、授权码）：验证码、摘要邮件、告警都用它。开发期发到本地假邮件服务器。
 - 大模型服务商、接口地址、模型名与密钥。
+- MUST Moodle：地址、测试账号（只登记账号名）、学校书面授权（填写 `docs/integrations/must-moodle.md` 第 1 节）。

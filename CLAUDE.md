@@ -40,13 +40,21 @@ aiosmtplib、aioimaplib、dnspython、prometheus_client。（`server/pyproject.t
 
 ## 工作方式
 
-* 范围：proposal"功能设计"中 P0、P1、P2 全部功能，以及"网络编程核心技术方案"的全部模块。
+* 范围：proposal"功能设计"中 P0、P1、P2 全部功能，以及"网络编程核心技术方案"的全部模块；
+  另加真实平台接入（M11，先 MUST Moodle，见 `docs/integrations/`）。接入代码同样受上面的 server/ 约束：OAuth、REST 都走自研 HTTP 客户端，不引入平台 SDK。
 * 按 `docs/milestones.md` 推进；每个里程碑都要能独立测试。
 * 协议模块先写测试再实现。测试至少覆盖：正常流程、TCP 粘包与分片到达、畸形输入、超时与断线。
 * 每个自研协议在 `docs/protocols/` 写一份设计文档：帧格式或报文格式、状态机、错误处理、对应 RFC 章节。
 * 代码风格：全部加类型注解；用 ruff 格式化与检查；关键协议代码注释对应的 RFC 章节。
 * 里程碑完成的标准：全部测试与 lint 通过；`docker compose up` 能跑通演示路径；更新 README、`docs/protocols/`、`docs/milestones.md`；提交一次 git commit。
-* 开发和测试一律连接 `devtools/fake_moodle` 与本地测试邮件服务器，不要访问真实的学校系统。
+* 开发和自动化测试一律连接 `devtools/fake_moodle` 与本地测试邮件服务器；pytest、CI、压测都不得访问真实站点。
+* 唯一的例外是**澳门科技大学（MUST）Moodle**（2026-10-26 组长决定，作为第一个真实平台接入），必须同时满足：
+  * `docs/integrations/must-moodle.md` 里的授权状态为“已获授权”，并写明授权人、范围与有效期；否则一律不访问。
+  * 只用该文档登记的测试账号；登录由组员本人在客户端界面完成，Claude 不输入密码、不保存密码（系统只存会话）。
+  * 只访问该文档“允许访问范围”中列出的页面与 Web Service 函数；遵守 robots.txt；同一主机请求间隔不少于 2 秒。
+  * 真实站点抓到的页面、作业、姓名、邮箱等数据不得提交进仓库，也不得写进测试夹具；解析规则用脱敏后的结构样本写测试。
+  * 真实站点的检查只通过手动运行的脚本进行，不放进 pytest 与 CI。
+* 其他真实平台（飞书、X、Facebook 等）在各自获得授权、并在 `docs/integrations/` 登记之前，同样不得访问。
 * 不确定的需求记到 `docs/open-questions.md` 并告诉组长，不要自行发挥。
 
 ## 常用命令

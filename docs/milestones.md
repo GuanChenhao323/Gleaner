@@ -17,6 +17,7 @@
 | M8 | 部署与运维 | Docker Compose、Prometheus + Grafana 面板与告警、CI、HTTPS / MQTT TLS | 🟡 | `docker compose --profile dev up -d --build` 后 `python devtools/compose_demo.py` 全部通过（PostgreSQL、GreenMail 实测）；HTTPS 证书与 CI 部署待云服务器 |
 | M9 | 评估 | Autobahn、5000 连接压测、对比实验 1–5、故障注入、Wireshark 抓包 | ⚠️ | Windows 与 Linux（WSL 2）数据齐全：select/epoll 曲线、反应器 5000 连接、tc netem、网关多 worker，见 docs/evaluation；官方 Autobahn 已通过（asyncio 版 0 失败）；跨机器扩容、抓包待补 |
 | M10 | 上线与用户 | 云服务器、域名证书、内测、≥ 50 名真实用户、SUS 问卷 | ⏳ | — |
+| M11 | 真实平台接入 | 先接 MUST Moodle（授权登记 → 探测 → 本人登录 → 适配解析 → 24 小时验收）；之后视情况接飞书、X、Facebook | ⏳ | 等待授权；流程与验收见 `docs/integrations/must-moodle.md` |
 
 ## 当前测试基线（2026-10-22）
 

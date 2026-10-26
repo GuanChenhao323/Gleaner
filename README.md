@@ -46,6 +46,7 @@ MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点�
 | `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境 |
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
+| `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |
 
 ## 常用命令
 
