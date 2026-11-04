@@ -1,13 +1,18 @@
-# 拾课 Gleaner
+# Campus Radar（Gleaner 仓库）
 
-面向学生的个性化信息聚合工作台：把 Moodle 作业、学院通知、学校邮箱整理成跨课程的作业列表、日历和收件箱；
-原通知被修改时更新同一事项并标出变化，紧急事项秒级推送到浏览器和手机。
+面向本校学生的校园信息管理应用：通过 Chrome 插件选择 Moodle 和指定校园网页中的信息，自动结构化为个人事项，在 Flutter 工作台管理状态、追溯来源并查看变化。结构化优先使用插件与程序，效果不足时再考虑 LLM；监测以 Chrome 运行且本地后端可用为条件。
 
-网络编程课程大作业（等级 5）。**所有网络协议都从 socket 层自研**：HTTP/1.1 网关与客户端、WebSocket、
-MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点间二进制总线、DNS 解析器。
-需求见 [docs/proposal.md](docs/proposal.md)，进度见 [docs/milestones.md](docs/milestones.md)，待确认问题见 [docs/open-questions.md](docs/open-questions.md)。
+**当前产品范围唯一依据：[产品定义](docs/product-definition.md)。** 新定义已取代旧产品范围；[项目提案](docs/proposal.md) 保留独立课程技术交付，[里程碑](docs/milestones.md) 记录新基线进度，[待决问题](docs/open-questions.md) 记录尚未确认的选择。
 
-## 架构
+Campus Radar 是当前产品名称；Gleaner／拾课保留为仓库、代码包、配置及历史实现名称。仓库包含多协议网关、邮件、云部署等既有课程实现；这些模块存在不代表当前产品承诺提供对应功能。当前 MVP 尚待按新基线验收，首发 Flutter 平台尚待确认。
+
+## 当前产品组成
+
+Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义，接口接线需按新基线验证。
+
+## 既有课程技术架构
+
+下图和目录表描述已有实现，用于复用与技术评估，不是当前 MVP 的部署要求。
 
 ```
  Flutter 客户端（Web / Android / 桌面）
@@ -50,7 +55,9 @@ MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点�
 | `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |
 | `docs/exec-plans` | 用于记录未完成和已完成的计划，文档的内容需要严格参考 `docs/exec-plans/template.md`|
 
-## 常用命令
+## 既有实现的开发命令
+
+以下 Web、Compose 和多节点流程服务于当前代码及课程验证，不代表新产品已完成或已承诺多端交付。
 
 ### 服务端
 
@@ -101,7 +108,9 @@ WSL 2 里运行时，最后一个 WSL 会话退出后发行版会自动关闭，
 
 见 [devtools/loadtest/README.md](devtools/loadtest/README.md) 与 [docs/protocols/websocket.md](docs/protocols/websocket.md#8-autobahn-一致性测试)。
 
-## 演示路径
+## 既有课程演示路径
+
+此处验证协议推送与故障恢复；当前产品演示和验收使用产品定义第 7 节的场景 A/B/C。
 
 1. **扫码加入**：投屏登录页，同学用手机打开 Web 版注册，用校园模板订阅；Grafana 在线连接数上升。
 2. **作业变更秒级送达**：在 fake_moodle 管理台点“提前 2 天”→ 客户端弹出“重要变更 · 截止提前 2 天”，日历移动，修改历史多一个版本，手机收到 MQTT 通知。

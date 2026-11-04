@@ -1,5 +1,7 @@
 # 评估结果
 
+评估目标和实验编号见 [原提案](../archive/proposal-2026-10-21.md)。
+
 原始数据在 `results/*.json`（含运行环境与说明），由 `devtools/loadtest/experiments.py` 生成，可原样重跑。
 
 ## 第一轮：Windows 开发机（2026-10-22）
