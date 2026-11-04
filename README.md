@@ -48,6 +48,7 @@ MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点�
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
 | `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |
+| `docs/exec-plans` | 用于记录未完成和已完成的计划，文档的内容需要严格参考 `docs/exec-plans/template.md`|
 
 ## 常用命令
 
