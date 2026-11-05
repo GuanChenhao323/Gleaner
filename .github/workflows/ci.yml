@@ -16,6 +16,26 @@ jobs:
       - run: ruff check . && ruff format --check .
       - run: pytest -q
 
+  # 用到数据库的测试在 PostgreSQL 16 上再跑一遍（部署用 PostgreSQL，SQLite 与它在 SQL 方言上有差异）
+  server-postgres:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: server}}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_PASSWORD: test}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      GLEANER_TEST_PG: postgresql://postgres:test@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q tests/test_storage_pg.py tests/test_core.py tests/test_e2e.py tests/test_mail.py tests/test_api.py
+
   client:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: client}}
@@ -32,7 +52,7 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: [server, client]
+    needs: [server, server-postgres, client]
     runs-on: ubuntu-latest
     steps:
       - run: echo "部署步骤待配置服务器 SSH 密钥后启用（见 docs/open-questions.md）"

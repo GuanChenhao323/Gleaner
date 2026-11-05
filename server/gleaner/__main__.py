@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 
+from . import security
 from .config import Config, setup_logging
 from .services import (
     Running,
@@ -68,6 +70,11 @@ def main() -> None:
     ap.add_argument("--pushes", type=int, default=2, help="dev 模式下的推送节点数")
     a = ap.parse_args()
     setup_logging()
+    problems = security.check_secrets()
+    for msg in problems:
+        logging.getLogger("gleaner").warning("安全配置：%s", msg)
+    if problems and os.environ.get("GLEANER_STRICT_SECRETS") == "1":
+        raise SystemExit("GLEANER_STRICT_SECRETS=1：密钥配置不完整，拒绝启动")
     cfg = Config()
     os.makedirs(cfg.data_dir, exist_ok=True)
 

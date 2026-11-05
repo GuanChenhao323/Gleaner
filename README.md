@@ -47,6 +47,7 @@ MQTT 3.1.1 Broker、IMAP（IDLE）/ SMTP（STARTTLS）/ POP3 客户端、节点�
 | `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境、插件弹窗测试页 |
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
+| `docs/database.md` | 数据库与持久化：连接池、事务、迁移、凭据加密、数据保留与备份 |
 | `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |
 
 ## 常用命令
@@ -95,6 +96,23 @@ python devtools/compose_demo.py           # 自动走一遍演示路径（注册
 网关 :8080、Grafana :3000（面板“拾课 Gleaner 运行总览”）、Prometheus :9090、MQTT :1883、fake_moodle :8090。
 注册验证码在 compose 的 dev 环境里发到 GreenMail：IMAP `localhost:3143`，用户名和密码都是注册邮箱。
 WSL 2 里运行时，最后一个 WSL 会话退出后发行版会自动关闭，演示期间请保持一个 WSL 终端开着。
+
+### 备份与恢复
+
+compose 的 `backup` 服务每天把 PostgreSQL（`pg_dump` 自定义格式）和数据卷（扫码传输文件、Broker 状态）备份到 `deploy/backups/`，保留 14 天
+（`BACKUP_KEEP_DAYS`、`BACKUP_DIR` 可在 `deploy/.env` 里改）。立即备份一次、以及恢复：
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm -e BACKUP_ONCE=1 backup
+docker compose -f deploy/docker-compose.yml stop core gateway push1 push2 broker collector mailsvc
+docker compose -f deploy/docker-compose.yml exec -T postgres pg_restore -U gleaner -d gleaner --clean --if-exists < deploy/backups/gleaner-<时间>.dump
+docker compose -f deploy/docker-compose.yml start core gateway push1 push2 broker collector mailsvc
+```
+
+本地开发环境（SQLite）：`python devtools/backup.py` 备份 `data/dev.db`，`--restore <文件>` 恢复。
+
+数据保留期（core 每小时清理一次，见 `server/gleaner/core/maintenance.py`）：邮件正文 30 天后清空（只留标题、发件人、摘要与链接），
+投递记录 60 天，幂等记录 30 天，行为事件与发信记录 180 天，过期验证码、失效会话、过期扫码传输（含文件）、无人订阅的公共来源随时清理。
 
 ### 压测与一致性测试
 

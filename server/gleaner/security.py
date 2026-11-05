@@ -79,20 +79,84 @@ def mqtt_password(uid: int, token_version: int) -> str:
     )
 
 
-def _data_key() -> bytes:
-    hexkey = os.environ.get("GLEANER_DATA_KEY")
-    if hexkey:
-        return bytes.fromhex(hexkey)
+_BLOB_MAGIC = b"GK"  # 新格式：b"GK" || 密钥编号(1 字节) || nonce(12) || 密文+tag
+
+
+def _hex_key(raw: str) -> bytes:
+    key = bytes.fromhex(raw.strip())
+    if len(key) != 32:
+        raise ValueError("GLEANER_DATA_KEY 必须是 32 字节（64 个十六进制字符）")
+    return key
+
+
+def _derived_key() -> bytes:
+    # 旧行为：没配 GLEANER_DATA_KEY 时由令牌密钥派生（换令牌密钥会让所有凭据无法解密，所以只作兜底）
     return hashlib.sha256(secret() + b"data-key").digest()
 
 
+def _data_key() -> bytes:
+    hexkey = os.environ.get("GLEANER_DATA_KEY")
+    return _hex_key(hexkey) if hexkey else _derived_key()
+
+
+def _all_keys() -> list[bytes]:
+    """解密时依次尝试：当前密钥、GLEANER_DATA_KEY_OLD 里的旧密钥（逗号分隔，轮换密钥时用）、派生密钥。"""
+    keys = [_data_key()]
+    for raw in os.environ.get("GLEANER_DATA_KEY_OLD", "").split(","):
+        if raw.strip():
+            keys.append(_hex_key(raw))
+    keys.append(_derived_key())
+    out: list[bytes] = []
+    for k in keys:
+        if k not in out:
+            out.append(k)
+    return out
+
+
+def _key_id(key: bytes) -> int:
+    return hashlib.sha256(b"key-id:" + key).digest()[0]
+
+
 def encrypt(data: dict[str, Any] | bytes, aad: bytes = b"") -> bytes:
-    """AES-256-GCM：12 字节随机 nonce || 密文 || 16 字节 tag。aad 绑定用户与来源，防止密文挪用。"""
+    """AES-256-GCM。aad 绑定用户与来源，防止密文挪用；带密钥编号，便于轮换密钥。"""
     plain = data if isinstance(data, bytes) else json.dumps(data).encode()
+    key = _data_key()
     nonce = os.urandom(12)
-    return nonce + AESGCM(_data_key()).encrypt(nonce, plain, aad)
+    return _BLOB_MAGIC + bytes([_key_id(key)]) + nonce + AESGCM(key).encrypt(nonce, plain, aad)
 
 
 def decrypt(blob: bytes, aad: bytes = b"") -> dict[str, Any]:
-    plain = AESGCM(_data_key()).decrypt(bytes(blob[:12]), bytes(blob[12:]), aad)
-    return json.loads(plain)
+    from cryptography.exceptions import InvalidTag
+
+    blob = bytes(blob)
+    if blob[:2] == _BLOB_MAGIC and len(blob) > 3 + 12:
+        kid, nonce, ct = blob[2], blob[3:15], blob[15:]
+        candidates = [k for k in _all_keys() if _key_id(k) == kid]
+    else:  # 旧格式：nonce || 密文
+        nonce, ct = blob[:12], blob[12:]
+        candidates = _all_keys()
+    for key in candidates:
+        try:
+            return json.loads(AESGCM(key).decrypt(nonce, ct, aad))
+        except InvalidTag:
+            continue
+    raise InvalidTag(
+        "没有可用的数据密钥能解密这条凭据（GLEANER_DATA_KEY 是否被更换？旧密钥请放进 GLEANER_DATA_KEY_OLD）"
+    )
+
+
+def check_secrets() -> list[str]:
+    """启动检查：返回配置问题；``GLEANER_STRICT_SECRETS=1`` 时由调用方拒绝启动（生产环境建议打开）。"""
+    problems = []
+    if os.environ.get("GLEANER_SECRET", _DEV_SECRET) == _DEV_SECRET:
+        problems.append("GLEANER_SECRET 未设置，正在使用公开的开发密钥（任何人都能伪造登录令牌）")
+    if not os.environ.get("GLEANER_DATA_KEY"):
+        problems.append(
+            "GLEANER_DATA_KEY 未设置，凭据加密密钥由 GLEANER_SECRET 派生（更换令牌密钥会导致凭据无法解密）"
+        )
+    else:
+        try:
+            _data_key()
+        except ValueError as e:
+            problems.append(str(e))
+    return problems

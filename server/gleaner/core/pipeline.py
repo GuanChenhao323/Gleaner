@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import datetime as dt
 import hashlib
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from ..obs.metrics import REGISTRY
@@ -111,10 +113,35 @@ def item_public(
 
 
 async def load_profile(db: Database, user: dict[str, Any]) -> UserProfile:
-    rules = await db.fetch("SELECT kind, pattern, boost FROM rules WHERE user_id = ?", user["id"])
-    subs = await db.fetch(
-        "SELECT source_id, weight FROM subscriptions WHERE user_id = ?", user["id"]
-    )
+    return (await load_profiles(db, [user]))[user["id"]]
+
+
+async def load_profiles(db: Database, users: list[dict[str, Any]]) -> dict[int, UserProfile]:
+    """一次查询加载一批用户的规则与订阅权重（扇出时避免每个订阅者两次查询）。"""
+    out: dict[int, UserProfile] = {}
+    for i in range(0, len(users), 500):
+        chunk = users[i : i + 500]
+        ids = [u["id"] for u in chunk]
+        marks = ", ".join("?" for _ in ids)
+        rules: dict[int, list[dict[str, Any]]] = {}
+        for r in await db.fetch(
+            f"SELECT user_id, kind, pattern, boost FROM rules WHERE user_id IN ({marks})", *ids
+        ):
+            rules.setdefault(r["user_id"], []).append(r)
+        subs: dict[int, list[dict[str, Any]]] = {}
+        for r in await db.fetch(
+            f"SELECT user_id, source_id, weight FROM subscriptions WHERE user_id IN ({marks})",
+            *ids,
+        ):
+            subs.setdefault(r["user_id"], []).append(r)
+        for u in chunk:
+            out[u["id"]] = _profile(u, rules.get(u["id"], []), subs.get(u["id"], []))
+    return out
+
+
+def _profile(
+    user: dict[str, Any], rules: list[dict[str, Any]], subs: list[dict[str, Any]]
+) -> UserProfile:
     return UserProfile(
         user_id=user["id"],
         grade=user.get("grade") or "",
@@ -138,6 +165,7 @@ class Pipeline:
         self.db = db
         self.route = route
         self.summarizer = summarizer or Summarizer()
+        self._locks: dict[str, list[Any]] = {}  # 身份键 -> [锁, 等待数]
 
     # -- 入口 --------------------------------------------------------------------
 
@@ -154,12 +182,27 @@ class Pipeline:
         for snap in msg.get("items", []):
             snap = _scope(source, snap)
             seen.add(snap["key"])
-            kind = await self._upsert(source, snap)
+            async with self._key_lock(snap["key"]):
+                kind = await self._upsert(source, snap)
             if kind:
                 counts[kind] += 1
         if msg.get("complete"):
             counts["removed"] = await self._detect_removed(source, seen)
         return counts
+
+    @contextlib.asynccontextmanager
+    async def _key_lock(self, key: str) -> AsyncIterator[None]:
+        """同一身份键的写入串行化：先查后插之间有大模型调用等等待，并发时会撞唯一约束
+        （例如插件连点两次保存同一页面、总线重发的同一条采集结果）。"""
+        entry = self._locks.setdefault(key, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if not entry[1]:
+                self._locks.pop(key, None)
 
     async def _status_transition(self, source: dict[str, Any], msg: dict[str, Any]) -> None:
         """来源状态变化时通知订阅者：需要重新登录、检查失败、恢复正常。"""
@@ -286,37 +329,39 @@ class Pipeline:
             ):
                 return "duplicate"
             fields = await self._enrich(source, snap)
-            item_id = await self.db.insert(
-                "items",
-                {
-                    "source_id": source["id"],
-                    "identity_key": snap["key"],
-                    "content_hash": h,
-                    **{k: v for k, v in fields.items()},
-                    "version": 1,
-                    "first_seen_at": now,
-                    "updated_at": now,
-                },
-            )
-            await self.db.insert(
-                "item_versions",
-                {
-                    "item_id": item_id,
-                    "version": 1,
-                    "snapshot": _snapshot(fields),
-                    "changed_fields": {},
-                    "important": 0,
-                    "detected_at": now,
-                },
-            )
-            for alias in snap.get("alias_keys") or []:
-                await self.db.execute(
-                    "INSERT INTO item_aliases (alias_key, item_id, source_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (alias_key) DO NOTHING",
-                    alias,
-                    item_id,
-                    source["id"],
-                    now,
+            # 事项、第 1 个版本与别名一起写入：中途失败不会留下没有版本或别名的事项
+            async with self.db.transaction():
+                item_id = await self.db.insert(
+                    "items",
+                    {
+                        "source_id": source["id"],
+                        "identity_key": snap["key"],
+                        "content_hash": h,
+                        **{k: v for k, v in fields.items()},
+                        "version": 1,
+                        "first_seen_at": now,
+                        "updated_at": now,
+                    },
                 )
+                await self.db.insert(
+                    "item_versions",
+                    {
+                        "item_id": item_id,
+                        "version": 1,
+                        "snapshot": _snapshot(fields),
+                        "changed_fields": {},
+                        "important": 0,
+                        "detected_at": now,
+                    },
+                )
+                for alias in snap.get("alias_keys") or []:
+                    await self.db.execute(
+                        "INSERT INTO item_aliases (alias_key, item_id, source_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (alias_key) DO NOTHING",
+                        alias,
+                        item_id,
+                        source["id"],
+                        now,
+                    )
             ITEMS_NEW.inc(1, fields["kind"])
             row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", item_id)
             assert row
@@ -358,32 +403,33 @@ class Pipeline:
             "change_note": note,
             "important_change": important,
         }
-        await self.db.execute(
-            "UPDATE items SET title = ?, raw_title = ?, summary = ?, body = ?, url = ?, course = ?, deadline_at = ?, attrs = ?, version = ?, deleted = 0, updated_at = ? WHERE id = ?",
-            fields["title"],
-            fields["raw_title"],
-            fields["summary"],
-            fields["body"],
-            fields["url"],
-            fields["course"],
-            fields["deadline_at"],
-            json.dumps(attrs, ensure_ascii=False, default=str),
-            version,
-            now,
-            existing["id"],
-        )
-        await self.db.insert(
-            "item_versions",
-            {
-                "item_id": existing["id"],
-                "version": version,
-                "snapshot": _snapshot({**fields, "attrs": attrs}),
-                "changed_fields": changed,
-                "important": int(important),
-                "change_note": note,
-                "detected_at": now,
-            },
-        )
+        async with self.db.transaction():  # 事项更新与新版本记录要么都写入，要么都不写
+            await self.db.execute(
+                "UPDATE items SET title = ?, raw_title = ?, summary = ?, body = ?, url = ?, course = ?, deadline_at = ?, attrs = ?, version = ?, deleted = 0, updated_at = ? WHERE id = ?",
+                fields["title"],
+                fields["raw_title"],
+                fields["summary"],
+                fields["body"],
+                fields["url"],
+                fields["course"],
+                fields["deadline_at"],
+                json.dumps(attrs, ensure_ascii=False, default=str),
+                version,
+                now,
+                existing["id"],
+            )
+            await self.db.insert(
+                "item_versions",
+                {
+                    "item_id": existing["id"],
+                    "version": version,
+                    "snapshot": _snapshot({**fields, "attrs": attrs}),
+                    "changed_fields": changed,
+                    "important": int(important),
+                    "change_note": note,
+                    "detected_at": now,
+                },
+            )
         ITEMS_CHANGED.inc(1, str(important).lower())
         row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", existing["id"])
         assert row
@@ -506,15 +552,17 @@ class Pipeline:
             }
             subs = [s for s in subs if s["id"] not in already]
         attrs = loads(item.get("attrs"), {})
-        for user in subs:
-            if user.get("sub_muted"):
-                continue
-            profile = await load_profile(self.db, user)
-            state = await self.db.fetchone(
-                "SELECT * FROM user_item_state WHERE user_id = ? AND item_id = ?",
-                user["id"],
-                item["id"],
+        subs = [u for u in subs if not u.get("sub_muted")]
+        profiles = await load_profiles(self.db, subs)
+        states = {
+            r["user_id"]: r
+            for r in await self.db.fetch(
+                "SELECT * FROM user_item_state WHERE item_id = ?", item["id"]
             )
+        }
+        for user in subs:
+            profile = profiles[user["id"]]
+            state = states.get(user["id"])
             if state and state.get("not_important") and not important:
                 continue
             sc = score_item(
@@ -525,20 +573,17 @@ class Pipeline:
                 important_change=important,
                 now=now,
             )
-            await self.db.execute(
+            # 打分结果写回个人状态并直接取回整行（RETURNING），省掉一次查询
+            state = await self.db.fetchone(
                 """INSERT INTO user_item_state (user_id, item_id, score, priority, reasons, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT (user_id, item_id) DO UPDATE SET score = excluded.score, priority = excluded.priority, reasons = excluded.reasons""",
+                   ON CONFLICT (user_id, item_id) DO UPDATE SET score = excluded.score, priority = excluded.priority, reasons = excluded.reasons
+                   RETURNING *""",
                 user["id"],
                 item["id"],
                 sc.total,
                 sc.priority,
                 json.dumps(sc.reasons, ensure_ascii=False),
                 now,
-            )
-            state = await self.db.fetchone(
-                "SELECT * FROM user_item_state WHERE user_id = ? AND item_id = ?",
-                user["id"],
-                item["id"],
             )
             pub = item_public(item, state, origin_source or source)
             if kind == "item":
@@ -584,8 +629,12 @@ class Pipeline:
         """为用户分配下一个 seq 并写投递记录；按优先级路由到推送节点与 MQTT。"""
         now = time.time()
         async with self.db.transaction():
-            await self.db.execute("UPDATE users SET next_seq = next_seq + 1 WHERE id = ?", user_id)
-            seq = int(await self.db.fetchval("SELECT next_seq FROM users WHERE id = ?", user_id))
+            seq = int(
+                await self.db.fetchval(
+                    "UPDATE users SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq",
+                    user_id,
+                )
+            )
             payload = {**payload, "seq": seq}
             channel = "ws+mqtt" if mqtt_topic else ("ws" if priority != "low" else "ws-silent")
             await self.db.insert(

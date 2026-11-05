@@ -211,8 +211,12 @@ class Scheduler:
         return self.ring.get(f"source:{source_id}") == self.node_id
 
     async def refresh(self) -> None:
+        # 只取 60 秒内到期的来源（索引 ix_sources_due），并跳过无人订阅的公共来源（不再采集）
         rows = await self.db.fetch(
-            "SELECT id, next_fetch_at FROM sources WHERE via_agent = 0 AND type IN ('moodle','web','rss','teacher')"
+            "SELECT id, next_fetch_at FROM sources WHERE via_agent = 0 AND next_fetch_at <= ? "
+            "AND type IN ('moodle','web','rss','teacher') "
+            "AND (owner_id IS NOT NULL OR EXISTS (SELECT 1 FROM subscriptions s WHERE s.source_id = sources.id))",
+            time.time() + 60,
         )
         mine = 0
         for r in rows:

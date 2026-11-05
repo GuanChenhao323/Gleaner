@@ -28,6 +28,7 @@ from ..collector.session import (
 from ..mailsvc.sender import send_platform_mail, send_user_mail
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, is_unique_violation, loads
+from ..storage.migrations import share_key
 from .pipeline import Pipeline, item_public, owner_prefix
 from .templates import get_template, list_templates
 from .throttle import Throttle
@@ -694,7 +695,23 @@ class API:
             r["id"] for r in await self.db.fetch("SELECT id FROM sources WHERE owner_id = ?", uid)
         ]
         async with self.db.transaction():
-            for sid in private:  # 私有来源并进公共事项时留下的别名
+            for sid in private:
+                # 私有来源（如个人邮件）并进公共事项时，公共事项的 merged_from 里记着邮件标题：一并抹掉
+                for it in await self.db.fetch(
+                    "SELECT i.id, i.attrs FROM items i JOIN item_aliases a ON a.item_id = i.id "
+                    "WHERE a.source_id = ? AND i.source_id != ?",
+                    sid,
+                    sid,
+                ):
+                    attrs = loads(it["attrs"], {})
+                    merged = [m for m in attrs.get("merged_from", []) if m.get("source_id") != sid]
+                    if len(merged) != len(attrs.get("merged_from", [])):
+                        attrs["merged_from"] = merged
+                        await self.db.execute(
+                            "UPDATE items SET attrs = ? WHERE id = ?",
+                            json.dumps(attrs, ensure_ascii=False),
+                            it["id"],
+                        )
                 await self.db.execute("DELETE FROM item_aliases WHERE source_id = ?", sid)
             for t in (
                 "deliveries",
@@ -847,8 +864,13 @@ class API:
         rows = rows[:500]
         out = [loads(r["payload"], {}) for r in rows]
         new_cursor = rows[-1]["seq"] if rows else cursor
-        # 游标落后太多（例如投递已被清理）时让客户端全量刷新
-        reset = cursor > user["next_seq"]
+        # 需要全量刷新的情况：游标比服务端还新（换库 / 数据被重置），或者游标之后的投递已被
+        # 保留期清理掉（第一条投递之前有空缺；或者一条都不剩但游标落后于最新序号）
+        reset = (
+            cursor > user["next_seq"]
+            or (bool(rows) and rows[0]["seq"] > cursor + 1)
+            or (not rows and cursor < user["next_seq"])
+        )
         return Response.json_body(
             {"deliveries": out, "cursor": new_cursor, "has_more": more, "reset": reset}
         )
@@ -1168,38 +1190,40 @@ class API:
             )
         now = time.time()
         src = None
+        values = {
+            "owner_id": None if shared else user["id"],
+            "type": stype,
+            "name": name,
+            "endpoint": endpoint,
+            "template": (tpl or {}).get("id", ""),
+            "config": config,
+            "course": course,
+            "via_agent": int(via_agent),
+            "status": "pending"
+            if not (tpl or {}).get("needs_login") and stype not in ("imap", "pop3")
+            else "need_login",
+            "created_at": now,
+            "next_fetch_at": 0,
+        }
         async with self.db.transaction():
             if shared:
-                # 同一网址可能既有“列表”订阅又有“整页监测”订阅（浏览器插件），按 mode 区分
-                for cand in await self.db.fetch(
-                    "SELECT * FROM sources WHERE owner_id IS NULL AND endpoint = ? AND type = ?",
-                    endpoint,
-                    stype,
-                ):
-                    if loads(cand.get("config"), {}).get("mode") == config.get("mode"):
-                        src = cand
-                        break
-            if src is None:
-                sid = await self.db.insert(
-                    "sources",
-                    {
-                        "owner_id": None if shared else user["id"],
-                        "type": stype,
-                        "name": name,
-                        "endpoint": endpoint,
-                        "template": (tpl or {}).get("id", ""),
-                        "config": config,
-                        "course": course,
-                        "via_agent": int(via_agent),
-                        "status": "pending"
-                        if not (tpl or {}).get("needs_login") and stype not in ("imap", "pop3")
-                        else "need_login",
-                        "created_at": now,
-                        "next_fetch_at": 0,
-                    },
+                # 公共来源按（类型，地址，模式）唯一：同一网址可能既有“列表”订阅又有“整页监测”订阅（浏览器插件）。
+                # 唯一索引保证并发添加也只有一份：插入冲突时读出已有的那一份
+                key = share_key(stype, endpoint, config)
+                cols = [*values, "share_key"]
+                created = await self.db.execute(
+                    f"INSERT INTO sources ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)}) "
+                    "ON CONFLICT (share_key) WHERE share_key IS NOT NULL DO NOTHING",
+                    *values.values(),
+                    key,
                 )
+                row = await self.db.fetchone("SELECT * FROM sources WHERE share_key = ?", key)
+                assert row
+                sid = row["id"]
+                if not created:
+                    src = row
             else:
-                sid = src["id"]
+                sid = await self.db.insert("sources", values)
             await self.db.execute(
                 "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
                 user["id"],
@@ -1354,19 +1378,16 @@ class API:
         if src:
             return src
         now = time.time()
-        sid = await self.db.insert(
-            "sources",
-            {
-                "owner_id": user["id"],
-                "type": "clip",
-                "name": "网页收藏",
-                "endpoint": "extension://clip",
-                "template": "",
-                "config": {},
-                "status": "ok",
-                "created_at": now,
-                "next_fetch_at": 0,
-            },
+        # 每人一个（唯一索引 ux_sources_clip）：并发保存时第二个插入什么也不做，再读出来即可
+        await self.db.execute(
+            "INSERT INTO sources (owner_id, type, name, endpoint, template, config, status, created_at, next_fetch_at) "
+            "VALUES (?, 'clip', '网页收藏', 'extension://clip', '', '{}', 'ok', ?, 0) "
+            "ON CONFLICT (owner_id) WHERE type = 'clip' DO NOTHING",
+            user["id"],
+            now,
+        )
+        sid = await self.db.fetchval(
+            "SELECT id FROM sources WHERE owner_id = ? AND type = 'clip'", user["id"]
         )
         await self.db.execute(
             "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, 0.6, ?) ON CONFLICT DO NOTHING",

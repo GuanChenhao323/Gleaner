@@ -229,15 +229,3 @@ SCHEMA: list[str] = [
 
 
 # 已有数据库的增量迁移：列已存在时忽略错误
-MIGRATIONS: list[str] = [
-    "ALTER TABLE users ADD COLUMN digest_email INTEGER NOT NULL DEFAULT 0",
-    # 个人来源的身份键与别名键加所有者前缀（pipeline._scope），已有数据补上；可重复执行
-    """UPDATE items SET identity_key = '@' || (SELECT s.owner_id FROM sources s WHERE s.id = items.source_id)
-           || '/' || identity_key
-       WHERE identity_key NOT LIKE '@%'
-         AND source_id IN (SELECT id FROM sources WHERE owner_id IS NOT NULL)""",
-    """UPDATE item_aliases SET alias_key = '@' || (SELECT s.owner_id FROM sources s WHERE s.id = item_aliases.source_id)
-           || '/' || alias_key
-       WHERE alias_key NOT LIKE '@%'
-         AND source_id IN (SELECT id FROM sources WHERE owner_id IS NOT NULL)""",
-]

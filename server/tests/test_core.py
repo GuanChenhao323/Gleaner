@@ -441,11 +441,18 @@ async def test_migration_scopes_existing_personal_keys(db_url):
             ids[sid],
             sid,
         )
+    # 模拟迁移 2、3 发布之前的旧库：删掉这两条执行记录，重新连接时会补跑
+    await db.execute("DELETE FROM schema_migrations WHERE version IN (2, 3)")
     await db.close()
-    for _ in range(2):  # 迁移可重复执行
+    for _ in range(2):  # 执行过的迁移不会重复执行
         db = await Database(url).connect()
         await db.close()
     db = await Database(url).connect()
+    versions = [
+        r["version"]
+        for r in await db.fetch("SELECT version FROM schema_migrations ORDER BY version")
+    ]
+    assert versions == sorted(set(versions)) and {2, 3} <= set(versions)
     keys = {
         r["source_id"]: r["identity_key"]
         for r in await db.fetch("SELECT source_id, identity_key FROM items")
@@ -466,3 +473,165 @@ def test_moodle_ws_url_keeps_query_separator():
     url = moodle_ws_url("https://m.example.edu/my/", "a" * 32, "mod_assign_get_assignments")
     assert url.startswith("https://m.example.edu/webservice/rest/server.php?wstoken=")
     assert "wsfunction=mod_assign_get_assignments" in url
+
+
+def test_to_pg_placeholders() -> None:
+    from gleaner.storage.db import to_pg
+
+    assert to_pg("SELECT ? , '?' , \"a?\" , 'x%' , ?") == "SELECT %s , '?' , \"a?\" , 'x%%' , %s"
+    assert to_pg("WHERE k LIKE '@%' AND v = ?") == "WHERE k LIKE '@%%' AND v = %s"
+    assert to_pg("SELECT 'it''s ?'") == "SELECT 'it''s ?'"
+
+
+async def test_maintenance_retention(tmp_path, db_url):
+    from gleaner.core.maintenance import run_maintenance
+
+    db = await Database(db_url("mt.db")).connect()
+    now = 1_800_000_000.0
+    old = now - 400 * 86400
+    uid = await db.insert("users", {"email": "mt@x.com", "password_hash": "x", "created_at": 0})
+    shared_orphan = await db.insert(
+        "sources", {"type": "web", "name": "o", "endpoint": "http://o/", "created_at": 0}
+    )
+    mail_src = await db.insert(
+        "sources",
+        {"type": "imap", "name": "m", "endpoint": "imap://m", "owner_id": uid, "created_at": 0},
+    )
+    moodle = await db.insert(
+        "sources",
+        {
+            "type": "moodle",
+            "name": "md",
+            "endpoint": "http://md/",
+            "owner_id": uid,
+            "status": "need_login",
+            "created_at": 0,
+        },
+    )
+    for sid in (mail_src, moodle):
+        await db.execute(
+            "INSERT INTO subscriptions (user_id, source_id, created_at) VALUES (?, ?, 0)", uid, sid
+        )
+    mail_item = await db.insert(
+        "items",
+        {
+            "source_id": mail_src,
+            "identity_key": "m1",
+            "kind": "mail",
+            "title": "t",
+            "body": "正文",
+            "first_seen_at": old,
+            "updated_at": old,
+        },
+    )
+    fresh_mail = await db.insert(
+        "items",
+        {
+            "source_id": mail_src,
+            "identity_key": "m2",
+            "kind": "mail",
+            "title": "t",
+            "body": "新正文",
+            "first_seen_at": now,
+            "updated_at": now,
+        },
+    )
+    await db.execute(
+        "INSERT INTO credentials (user_id, source_id, auth_type, secret_encrypted, updated_at) VALUES (?, ?, 'ws_token', ?, ?)",
+        uid,
+        moodle,
+        b"x",
+        old,
+    )
+    await db.execute(
+        "INSERT INTO credentials (user_id, source_id, auth_type, secret_encrypted, updated_at) VALUES (?, ?, 'app_password', ?, ?)",
+        uid,
+        mail_src,
+        b"x",
+        old,
+    )
+    for seq, t, item in ((1, old, mail_item), (2, now, fresh_mail), (3, now, 999_999)):
+        await db.execute(
+            "INSERT INTO deliveries (user_id, seq, item_id, kind, payload, created_at) VALUES (?, ?, ?, 'item', '{}', ?)",
+            uid,
+            seq,
+            item,
+            t,
+        )
+    await db.execute(
+        "INSERT INTO op_log (user_id, op_id, result, created_at) VALUES (?, 'c:a', '{}', ?)",
+        uid,
+        old,
+    )
+    await db.execute(
+        "INSERT INTO email_codes (email, code_hash, expires_at, attempts, sent_at) VALUES ('a@b.c', 'h', ?, 0, ?)",
+        old,
+        old,
+    )
+    await db.execute(
+        "INSERT INTO sent_mails (user_id, idempotency_key, status, created_at) VALUES (?, 'k1', 'sending', ?)",
+        uid,
+        now - 3600,
+    )
+    await db.insert(
+        "sessions", {"id": "s-old", "user_id": uid, "created_at": old, "last_seen_at": old}
+    )
+    await db.insert(
+        "sessions", {"id": "s-new", "user_id": uid, "created_at": now, "last_seen_at": now}
+    )
+    tid = await db.insert(
+        "transfers",
+        {"user_id": uid, "pair_code": "ABC234", "token": "t", "created_at": old, "expires_at": old},
+    )
+    tdir = tmp_path / "transfers" / str(tid)
+    tdir.mkdir(parents=True)
+    (tdir / "1.part").write_bytes(b"x")
+
+    out = await run_maintenance(db, str(tmp_path), now=now)
+    assert out["mail_bodies"] == 1 and out["deliveries"] == 1 and out["orphan_deliveries"] == 1
+    bodies = {
+        r["identity_key"]: r["body"] for r in await db.fetch("SELECT identity_key, body FROM items")
+    }
+    assert bodies == {"m1": "", "m2": "新正文"}
+    assert [r["seq"] for r in await db.fetch("SELECT seq FROM deliveries")] == [2]
+    assert await db.fetchval("SELECT COUNT(*) FROM op_log") == 0
+    assert await db.fetchval("SELECT COUNT(*) FROM email_codes") == 0
+    assert await db.fetchval("SELECT status FROM sent_mails") == "failed"
+    assert [r["id"] for r in await db.fetch("SELECT id FROM sessions")] == ["s-new"]
+    # 失效的来源会话被删，邮箱的应用专用密码保留
+    assert [r["auth_type"] for r in await db.fetch("SELECT auth_type FROM credentials")] == [
+        "app_password"
+    ]
+    assert not await db.fetchone("SELECT 1 FROM sources WHERE id = ?", shared_orphan)
+    assert not tdir.exists() and await db.fetchval("SELECT COUNT(*) FROM transfers") == 0
+    # 再跑一次什么都不做
+    again = await run_maintenance(db, str(tmp_path), now=now)
+    assert not any(again.values())
+    await db.close()
+
+
+def test_data_key_rotation_and_legacy_blobs(monkeypatch):
+    import os as _os
+
+    from gleaner import security
+
+    k1, k2 = _os.urandom(32).hex(), _os.urandom(32).hex()
+    monkeypatch.delenv("GLEANER_DATA_KEY", raising=False)
+    legacy_key = security._derived_key()
+    nonce = b"\0" * 12
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    legacy = nonce + AESGCM(legacy_key).encrypt(nonce, b'{"a": 1}', b"aad")  # 旧格式密文
+    monkeypatch.setenv("GLEANER_DATA_KEY", k1)
+    blob1 = security.encrypt({"b": 2}, aad=b"aad")
+    assert blob1[:2] == b"GK" and security.decrypt(blob1, aad=b"aad") == {"b": 2}
+    assert security.decrypt(legacy, aad=b"aad") == {"a": 1}  # 旧格式仍可解密（派生密钥兜底）
+    # 轮换：新密钥 k2，旧密钥放进 GLEANER_DATA_KEY_OLD
+    monkeypatch.setenv("GLEANER_DATA_KEY", k2)
+    monkeypatch.setenv("GLEANER_DATA_KEY_OLD", k1)
+    assert security.decrypt(blob1, aad=b"aad") == {"b": 2}
+    monkeypatch.delenv("GLEANER_DATA_KEY_OLD")
+    with pytest.raises(Exception):  # noqa: B017  （没有旧密钥时解不开）
+        security.decrypt(blob1, aad=b"aad")
+    monkeypatch.setenv("GLEANER_DATA_KEY", "abcd")
+    assert any("32 字节" in p for p in security.check_secrets())

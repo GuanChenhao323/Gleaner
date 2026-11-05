@@ -83,11 +83,12 @@ async def publish_digests(db: Database, pipe: Pipeline, now: float | None = None
     local = dt.datetime.fromtimestamp(now, TZ)
     hhmm = local.strftime("%H:%M")
     today = local.strftime("%Y-%m-%d")
-    users = await db.fetch("SELECT id, email, digest_time, digest_email FROM users")
+    # 只查摘要时间是这一分钟的用户（索引 ix_users_digest），不再每 30 秒扫描全部用户
+    users = await db.fetch(
+        "SELECT id, email, digest_time, digest_email FROM users WHERE digest_time = ?", hhmm
+    )
     n = 0
     for u in users:
-        if u["digest_time"] != hhmm:
-            continue
         key = f"digest:{today}"
         if await db.fetchone("SELECT 1 FROM op_log WHERE user_id = ? AND op_id = ?", u["id"], key):
             continue

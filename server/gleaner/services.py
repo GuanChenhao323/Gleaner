@@ -18,6 +18,7 @@ from .collector.fetcher import Fetcher
 from .config import Config
 from .core.agent_hub import AgentHub
 from .core.api import API
+from .core.maintenance import run_maintenance
 from .core.pipeline import Pipeline
 from .core.reminders import publish_digests, send_due_reminders
 from .core.validate import BadRequest, as_int
@@ -132,6 +133,10 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
             _loop_every(60, lambda: send_due_reminders(db, pipe))
         ),
         asyncio.get_running_loop().create_task(_loop_every(30, lambda: publish_digests(db, pipe))),
+        # 数据保留与过期清理（core/maintenance.py），每小时一次
+        asyncio.get_running_loop().create_task(
+            _loop_every(3600, lambda: run_maintenance(db, cfg.data_dir))
+        ),
     ]
 
     async def stop_tasks() -> None:

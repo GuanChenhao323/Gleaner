@@ -63,13 +63,17 @@ def _kill_backends() -> None:
 async def test_reconnect_after_server_drops_connection() -> None:
     # 数据库重启后不重连，业务服务会一直报 "the connection is closed"（compose 实测发现）
     await asyncio.to_thread(_reset)
-    db = await Database(PG).connect()
+    db = await Database(PG, pool_size=1).connect()
     try:
         assert await db.fetchval("SELECT 1") == 1
         await asyncio.to_thread(_kill_backends)
-        with pytest.raises(psycopg.OperationalError):  # 断线时正在执行的这一条失败，不自动重试
-            await db.fetchval("SELECT 1")
+        # 只读语句：发现连接已断就重连后重试一次，调用方无感
         assert await db.fetchval("SELECT 1") == 1
+        await asyncio.to_thread(_kill_backends)
+        # 写语句不自动重试（可能已经执行过），这一条失败，下一条恢复
+        with pytest.raises(psycopg.OperationalError):
+            await db.execute("UPDATE users SET name = 'x' WHERE id = 0")
+        assert await db.execute("UPDATE users SET name = 'x' WHERE id = 0") == 0
 
         # 事务中途断线：不能换新连接把后半段语句提交到事务之外
         with pytest.raises(psycopg.OperationalError):
@@ -80,3 +84,35 @@ async def test_reconnect_after_server_drops_connection() -> None:
         assert await db.fetchval("SELECT 1") == 1
     finally:
         await db.close()
+
+
+async def test_pool_runs_statements_concurrently() -> None:
+    """连接池：4 条连接上 8 条各 0.3 秒的查询约 0.6 秒完成（单连接要 2.4 秒）。"""
+    import time
+
+    await asyncio.to_thread(_reset)
+    db = await Database(PG, pool_size=4).connect()
+    try:
+        t0 = time.perf_counter()
+        await asyncio.gather(*(db.fetchval("SELECT pg_sleep(0.3)") for _ in range(8)))
+        assert time.perf_counter() - t0 < 1.5
+        # 事务固定一条连接：事务内看得到自己未提交的写入，事务外看不到
+        async with db.transaction():
+            await db.insert(
+                "users", {"email": "tx@test.local", "password_hash": "x", "created_at": 0}
+            )
+            assert (
+                await db.fetchval("SELECT COUNT(*) FROM users WHERE email = 'tx@test.local'") == 1
+            )
+            other = await asyncio.create_task(_count_outside(db))
+            assert other == 0
+        assert await db.fetchval("SELECT COUNT(*) FROM users WHERE email = 'tx@test.local'") == 1
+    finally:
+        await db.close()
+
+
+async def _count_outside(db: Database) -> int:
+    from gleaner.storage import db as dbmod
+
+    dbmod._TX.set(None)  # 新任务继承了上下文：显式退出事务，模拟另一个请求
+    return await db.fetchval("SELECT COUNT(*) FROM users WHERE email = 'tx@test.local'")
