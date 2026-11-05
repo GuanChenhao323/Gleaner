@@ -108,6 +108,21 @@ class Api {
   Future<Map<String, dynamic>> sourceLoginToken(int id, String token) => _map('POST', '/api/sources/$id/login', data: {'token': token});
   Future<void> refreshSource(int id) => _req('POST', '/api/sources/$id/refresh');
 
+  // Browser capture v1 has a stricter success envelope than legacy APIs.
+  Future<Map<String, dynamic>> _browser(String method, String path, {Object? data}) async {
+    final result = await _map(method, path, data: data);
+    if (result['schema_version'] != 1 || result['ok'] != true) throw ApiException(502, 'invalid_response', '来源接口响应格式异常');
+    return result;
+  }
+  Future<List<Map<String, dynamic>>> browserMonitors() async {
+    final result = await _browser('GET', '/api/v1/monitors');
+    if (result['monitors'] is! List) throw ApiException(502, 'invalid_response', '来源列表格式异常');
+    return (result['monitors'] as List).map((m) => Map<String, dynamic>.from(m as Map)).toList();
+  }
+  Future<void> browserControl(int id, int revision, bool enabled) async { await _browser('PUT', '/api/v1/monitors/$id', data: {'revision': revision, 'enabled': enabled}); }
+  Future<void> browserCheck(int id) async { await _browser('POST', '/api/v1/monitors/$id/check', data: {}); }
+  Future<void> browserRemove(int id) async { await _browser('DELETE', '/api/v1/monitors/$id'); }
+
   // ---- 邮件 ----
   Future<Map<String, dynamic>> sendMail(Map<String, dynamic> body, String key) => _map('POST', '/api/mail/send', data: body, headers: {'Idempotency-Key': key});
   Future<List<Map<String, dynamic>>> sentMails() async {

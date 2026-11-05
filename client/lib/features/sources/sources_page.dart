@@ -9,6 +9,7 @@ import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../widgets/common.dart';
+import 'browser_monitors.dart';
 
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
@@ -29,21 +30,15 @@ class SourcesPage extends ConsumerWidget {
       body: sources.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '无法获取信息源状态', message: '$e', action: OutlinedButton(onPressed: () => ref.invalidate(sourcesProvider), child: const Text('重试'))),
-        data: (list) => list.isEmpty
-            ? EmptyState(
-                icon: Icons.hub_outlined,
-                title: '还没有信息源',
-                message: '用校园模板一键添加 Moodle、学院通知、教师信息和学校邮箱。系统会定期检查这些来源，把作业、通知和邮件整理进收件箱。',
-                action: FilledButton.icon(onPressed: () => showAddSource(context, ref), icon: const Icon(Icons.add), label: const Text('添加第一个信息源')),
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-                children: [
-                  _Summary(list),
-                  const SizedBox(height: 12),
-                  for (final s in list) Padding(padding: const EdgeInsets.only(bottom: 10), child: _SourceCard(s)),
-                ],
-              ),
+        data: (list) => ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+          children: [
+            const BrowserMonitorsPanel(),
+            if (list.isEmpty) const Text('还没有保存的信息。使用插件选择校园页面候选后，记录与来源会出现在这里。模拟模板仅供演示，可由下方添加入口主动选择。'),
+            if (list.isNotEmpty) _Summary(list),
+            for (final s in list.where((s) => s.type != 'browser')) Padding(padding: const EdgeInsets.only(bottom: 10), child: _SourceCard(s)),
+          ],
+        ),
       ),
     );
   }

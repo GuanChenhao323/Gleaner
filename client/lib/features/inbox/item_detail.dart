@@ -9,6 +9,8 @@ import '../../core/providers.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../sources/browser_monitors.dart';
+import 'source_changes.dart';
 
 class ItemDetail extends ConsumerStatefulWidget {
   final int id;
@@ -118,6 +120,18 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         if (item.body.isNotEmpty) ...[
           const SectionHeader('原文内容'),
           Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(item.body, style: t.textTheme.bodyMedium?.copyWith(height: 1.7)))),
+        ],
+        if ((item.raw['source_fields'] as Map? ?? {}).isNotEmpty) ...[
+          const SectionHeader('来源原始字段'),
+          Card(child: Padding(padding: const EdgeInsets.all(12), child: SelectableText((item.raw['source_fields'] as Map).entries.map((e) => '${const {'course':'课程','semester':'学期','week':'周次','weekday':'星期','period':'节次','datetime_text':'原始时间','office':'办公室','department':'部门','role':'角色','phone':'电话','email':'邮箱','requirements':'要求','subtype':'资料类别'}[e.key] ?? e.key}：${e.value}').join('\n')))),
+        ],
+        if (item.raw['browser_monitor'] is Map) ...[
+          const SectionHeader('浏览器来源检查'),
+          Text(browserCheckLabel('${(item.raw['browser_monitor'] as Map)['last_result']}')),
+        ],
+        if (item.state.note.isNotEmpty) ...[
+          const SectionHeader('我的备注（来源更新不会覆盖）'),
+          SelectableText(item.state.note),
         ],
         _History(id: item.id),
         const SectionHeader('来源与可靠性'),
@@ -274,6 +288,7 @@ class _History extends ConsumerWidget {
                               style: TextStyle(fontWeight: versions[i].important ? FontWeight.w700 : FontWeight.w500),
                             ),
                             Text('v${versions[i].version} · ${relative(tsToDate(versions[i].detectedAt))}', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+                            if (versions[i].changed.isNotEmpty) SourceChanges(versions[i].changed),
                           ]),
                         ),
                       ),

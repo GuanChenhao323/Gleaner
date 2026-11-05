@@ -1,3 +1,4 @@
+// Historical 0.1 popup stub only; current worker tests live in extension/tests/.
 // 测试替身：在普通网页里模拟插件运行环境（chrome.storage / permissions / tabs / scripting）
 (() => {
   const TARGET = "http://localhost:8090/news/1.html";

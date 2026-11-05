@@ -26,6 +26,7 @@ from ..collector.session import (
 from ..mailsvc.sender import send_platform_mail, send_user_mail
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
+from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
 from .templates import get_template, list_templates
 
@@ -124,6 +125,7 @@ class API:
 
     def register(self, r: Router) -> None:
         a = self.authed
+        BrowserMonitorService(self.db, self.pipeline).register(r, a)
         r.add("GET", "/health", self.health)
         r.add("GET", "/api/health", self.health)
         r.add("POST", "/api/auth/code", self.send_code)
@@ -252,21 +254,8 @@ class API:
         await self._event(uid, "register")
         user = await self.db.fetchone("SELECT * FROM users WHERE id = ?", uid)
         assert user
-        await self._subscribe_shared_defaults(uid)
+        # New users choose their own sources. dev_all --seed explicitly adds demo sources.
         return self._session_response(user, 201)
-
-    async def _subscribe_shared_defaults(self, uid: int) -> None:
-        """新用户默认订阅已存在的公共来源（学院通知、教师信息），降低上手成本。"""
-        for s in await self.db.fetch(
-            "SELECT id, template FROM sources WHERE owner_id IS NULL AND template IN ('college_news','faculty')"
-        ):
-            await self.db.execute(
-                "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                uid,
-                s["id"],
-                0.6,
-                time.time(),
-            )
 
     async def login(self, req: Request) -> Response:
         b = req.json() or {}
@@ -475,6 +464,11 @@ class API:
         it = items[0]
         row = await self.db.fetchone("SELECT body FROM items WHERE id = ?", it["id"])
         it["body"] = row["body"] if row else ""
+        it["browser_monitor"] = await self.db.fetchone(
+            "SELECT id, enabled, supported, last_result, last_success_at, error FROM browser_monitors WHERE owner_id = ? AND item_id = ? AND deleted = 0",
+            user["id"],
+            it["id"],
+        )
         return Response.json_body(it)
 
     async def versions(self, req: Request, user: dict[str, Any]) -> Response:

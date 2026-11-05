@@ -62,3 +62,12 @@
    离线时保留，重连 `welcome` 后 `/api/state/batch` 按顺序回放，服务端按幂等键去重，重复提交不会产生副作用。
 6. 冲突：个人状态以最后修改时间为准（客户端带操作时间 `ts`，比服务器上的更旧则不覆盖）；来源内容以服务端最新版本为准。
 7. 断线：指数退避 1 s → 30 s 加抖动重连；界面左下角圆点显示 在线 / 连接中 / 离线（含待同步操作数）。
+
+
+## 浏览器事项采集与任务 v1（2026-11-05）
+
+已实现的权威数据契约为 [IC-BROWSER-001](../architecture/browser-capture-v1.md)，实现 `server/gleaner/core/monitors.py`，由 Core 注册到既有自研 HTTP 网关。`POST /api/v1/captures` 接收所选目标，按 owner/request_id 幂等并逐项返回关联 item/monitor；`GET /api/v1/captures/{request_id}` 查询持久回执。`GET /api/v1/monitors` 与 `PUT/DELETE /api/v1/monitors/{id}` 负责列表／暂停／停止；`POST /api/v1/monitors/{id}/check` 请求检查，`GET .../checks` 查询检查记录。
+
+Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项租约任务，向 `POST /api/v1/monitor-jobs/{id}/result` 提交并确认结果。当前只支持主 frame；认证来源由 Chrome 原会话重入，不把学校密码／Cookie 发给服务端，也不让 Python collector 同时调度 browser 来源。所有 v1 成功响应含 schema_version=1、ok=true，逐项结果／租约另校验；401 鉴权错误沿用原 API 格式，其他契约错误非 2xx。历史 `/api/clips` 与 `/api/sources` 保持兼容，新扩展不再用互不关联的 clip/page 流程。
+
+事项详情额外返回 `browser_monitor` 和 `source_fields`；版本 changed 字典可含 `source_fields` 的前后值。个人 note/deadline_override 继续经原 `/api/items/{id}/state` 管理，不随来源覆盖。新注册账号不再自动订阅公共演示来源；演示 seed 仍显式创建演示订阅。

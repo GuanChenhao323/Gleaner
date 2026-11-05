@@ -293,6 +293,11 @@ async def test_notices_rss_teachers_and_preview(stack):
             gw + "/api/auth/register", json_body={"email": "jie@test.edu", "password": "password1"}
         )
         auth2 = {"Authorization": f"Bearer {r.json()['token']}"}
+        # New users see no unselected demo sources; explicit subscription still backfills.
+        assert (await c.get(gw + "/api/feed", headers=auth2)).json()["items"] == []
+        assert (
+            await c.post(gw + "/api/sources", json_body={"template": "college_news"}, headers=auth2)
+        ).status == 201
         f2 = (await c.get(gw + "/api/feed", headers=auth2)).json()
         assert len(f2["items"]) >= 4
 

@@ -1,14 +1,17 @@
-# 插件弹窗测试页
+# Chrome API 模拟测试入口
 
-内置浏览器和自动化测试无法加载真正的浏览器插件，这里用 `chrome-stub.js` 模拟 `chrome.storage / permissions / tabs / scripting`，
-直接加载 `extension/` 里的真实 `popup.js`，在普通网页里走一遍“登录 → 保存到收件箱 → 订阅更新”。
+2026-11-05：旧 0.1 popup 的普通网页测试页停止使用。0.2 的 popup 通过真正的 MV3 worker 提交任务；普通网页不能冒充该运行环境。`chrome-stub.js` 保留作历史参考，不再注入当前 popup。
+
+当前可自动运行的替代入口：
 
 ```bash
-python devtools/dev_all.py --seed                              # 开发环境允许跨域（GLEANER_CORS_ORIGINS=*）
-python -m http.server 8097 --bind 127.0.0.1                    # 在仓库根目录运行
-# 浏览器打开 http://127.0.0.1:8097/devtools/extension_harness/popup.html
-# 服务器 http://localhost:8080，账号 demo@gleaner.test / demo12345
+npm --prefix extension ci
+npm --prefix extension test
 ```
 
-模拟的“当前页面”是 `chrome-stub.js` 里的示例 HTML（带 RSS 链接与截止时间），网址指向 fake_moodle 的 `/news/1.html`，
-订阅时服务端会真的去抓这个地址。真实插件请按 `docs/browser-extension.md` 第 4 节加载 `extension/` 目录。
+- `extension/tests/capture.test.js`：在合成 DOM 中执行真实内容运行时／适配器，检查同页候选、课表上下文、登录／选区／加载壳、严格响应和 outbox。
+- `extension/tests/worker.test.js`：用模拟 Chrome API 执行真实 background 模块，覆盖持久意图、popup 丢失、worker 重建、已提交但响应丢失重放、租约中断及自有标签清理。
+
+这些结果只能标为 **模拟 DOM／Chrome API 测试**，不能证明真实 Chrome 权限、Cookie、alarm 或真实学校 DOM 已通过验收。
+
+真实 Chrome 手动验收使用 [三来源结构夹具](../campus_fixture/README.md)，按 [插件说明](../../docs/browser-extension.md) 加载 `extension/`。学校真实页面另按访问登记和用户本人登录验证。

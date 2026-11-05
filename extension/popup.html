@@ -1,55 +1,14 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>拾课 Gleaner</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <header>
-    <img src="icons/icon-32.png" alt="" width="24" height="24">
-    <strong>拾课</strong>
-    <span class="muted" id="account"></span>
-  </header>
-
-  <!-- 未登录：填写服务器地址与拾课账号 -->
-  <section id="login-view" hidden>
-    <p class="muted">登录拾课账号后，就能把网页加进收件箱。插件只保存登录令牌，不保存密码。</p>
-    <label>服务器地址<input id="server" type="url" placeholder="https://gleaner.example.edu" required></label>
-    <label>邮箱<input id="email" type="email" autocomplete="username" required></label>
-    <label>密码<input id="password" type="password" autocomplete="current-password" required></label>
-    <button id="login" class="primary">登录</button>
-  </section>
-
-  <!-- 已登录：当前页面与两个操作 -->
-  <section id="main-view" hidden>
-    <div class="page">
-      <div id="page-title" class="title"></div>
-      <div id="page-url" class="url"></div>
-      <div id="page-note" class="muted small"></div>
-    </div>
-
-    <button id="save" class="primary">保存到收件箱</button>
-    <p class="muted small">读取当前页面的正文（选中了文字就只保存选中部分）；同一网页再次保存会记录新版本。</p>
-
-    <div class="divider"></div>
-
-    <div id="feed-choice" hidden>
-      <label class="radio"><input type="radio" name="sub" value="rss" checked> 订阅 RSS（推荐）</label>
-      <label class="radio"><input type="radio" name="sub" value="page"> 监测整个页面</label>
-    </div>
-    <button id="subscribe">订阅更新</button>
-    <p class="muted small">拾课会定期检查这个页面，内容变化时推送。需要登录才能看的页面，服务器可能取不到内容。</p>
-  </section>
-
-  <div id="status" role="status"></div>
-
-  <footer id="footer" hidden>
-    <a href="#" id="open">打开拾课</a>
-    <a href="#" id="logout">退出</a>
-  </footer>
-
-  <script src="popup.js"></script>
-</body>
-</html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Campus Radar</title><link rel="stylesheet" href="popup.css"></head>
+<body><header><img src="icons/icon-32.png" alt="" width="24" height="24"><strong>Campus Radar</strong></header>
+<section id="login-view" hidden><p>连接本地后端。学校账号请在原站登录，插件不接触学校密码。</p>
+<label>本地后端<input id="server" value="http://localhost:8080" type="url"></label>
+<button id="allow">允许连接此后端</button><p class="muted">首次授权可能关闭弹窗，重新打开后点击登录。</p>
+<label>Campus Radar 邮箱<input id="email" type="email" autocomplete="username"></label><label>Campus Radar 密码<input id="password" type="password" autocomplete="current-password"></label><button id="login">登录</button></section>
+<section id="main-view" hidden><p id="account"></p><p id="page-url" class="url"></p>
+<button id="scan">识别本页信息</button><p class="muted">仅支持已适配结构；页面识别成功不等于真实站点监测已经验收。未加载／跨 frame 页面会明确提示。</p>
+<div id="navigation"></div><div id="candidates"></div><button id="preview" disabled>读取所选详情预览</button><label class="check"><input id="monitor" type="checkbox">启用来源检查（默认每 10 分钟；Chrome 与后端需运行）</label><button id="save" disabled>保存所选</button>
+<details><summary>补充：手动选取原文</summary><p>仅公开来源。先在原页选中文字，预览其稳定元素范围；无稳定标识则不保存。此方式暂不支持监测。</p><button id="manual">预览手动选区</button></details>
+<button id="refresh">查看提交结果</button><button id="retry">重试失败提交</button><button id="wake">领取到期检查</button><div id="results"></div>
+<footer><button id="open">打开工作台</button><button id="logout">退出</button></footer></section><p id="status" role="status">正在连接后台…</p>
+<script type="module" src="popup.js"></script></body></html>

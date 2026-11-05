@@ -39,7 +39,7 @@ header strong { font-size: 15px; }
 header .muted { margin-left: auto; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 label { display: block; margin: 8px 0; color: var(--muted); }
-label input:not([type="radio"]) {
+label input:not([type="radio"]):not([type="checkbox"]) {
   display: block; width: 100%; margin-top: 4px; padding: 7px 9px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font: inherit;
 }
@@ -67,3 +67,11 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 footer { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 footer a { color: var(--brand); text-decoration: none; font-size: 12px; }
+body { width: 450px; max-height: 580px; overflow-y: auto; }
+[hidden] { display: none !important; }
+article { margin: 10px 0; padding: 10px; border: 1px solid #ccd9d3; border-radius: 10px; }
+article label, .check { display: flex; align-items: center; gap: 8px; }
+input[type=checkbox] { width: auto; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 130px; overflow-y: auto; font: inherit; background: var(--card); padding: 8px; }
+button { margin: 4px 0; }
+#results p { white-space: pre-wrap; overflow-wrap: anywhere; }

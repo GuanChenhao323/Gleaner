@@ -8,7 +8,7 @@ Campus Radar 是当前产品名称；Gleaner／拾课保留为仓库、代码包
 
 ## 当前产品组成
 
-Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义，接口接线需按新基线验证。
+Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义；候选采集、持久后台和浏览器来源契约见 [插件说明](docs/browser-extension.md)。三来源结构夹具已接线，真实学校 DOM 和认证须另行授权验收。
 
 ## 既有课程技术架构
 
@@ -48,8 +48,8 @@ Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储
 | `server/gleaner/storage/` | SQLite / PostgreSQL 访问层与表结构 |
 | `agent/` | 本地采集代理 |
 | `client/` | Flutter 客户端 |
-| `extension/` | Chrome / Edge 浏览器插件：保存当前页面、订阅页面更新（见 `docs/browser-extension.md`） |
-| `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境、插件弹窗测试页 |
+| `extension/` | Chrome MV3 插件：候选勾选与预览、持久保存、关联来源重读（见 `docs/browser-extension.md`） |
+| `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境、三来源结构夹具与插件模拟测试 |
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
 | `docs/integrations/` | 真实平台接入的授权登记与接入步骤（目前：MUST Moodle） |
@@ -115,3 +115,16 @@ WSL 2 里运行时，最后一个 WSL 会话退出后发行版会自动关闭，
 1. **扫码加入**：投屏登录页，同学用手机打开 Web 版注册，用校园模板订阅；Grafana 在线连接数上升。
 2. **作业变更秒级送达**：在 fake_moodle 管理台点“提前 2 天”→ 客户端弹出“重要变更 · 截止提前 2 天”，日历移动，修改历史多一个版本，手机收到 MQTT 通知。
 3. **断网与故障恢复**：结束一个推送节点进程（或断网）→ 客户端显示离线、可浏览缓存、可加待办 → 恢复后自动重连到另一节点，补齐消息，待办只生效一次。
+
+
+## 浏览器采集开发闭环
+
+扩展 0.2.0 按 [IC-BROWSER-001](docs/architecture/browser-capture-v1.md) 接入 Core 和 Flutter，旧剪藏接口兼容保留。结构夹具启动：`.venv/bin/python devtools/campus_fixture/app.py --port 8098`，入口 `http://localhost:8098/`；Chrome 加载 `extension/` 后按 [本地复现步骤](devtools/campus_fixture/README.md) 操作。学校账号在原站自行登录，未验证的生产结构不会被声明为已支持。
+
+```bash
+npm --prefix extension ci
+npm --prefix extension test
+.venv/bin/python -m pytest -q server/tests/test_browser_capture.py
+```
+
+上述自动测试只访问本地／合成数据；真实 Chrome 权限和会话验证与模拟 API 结果分别记录。

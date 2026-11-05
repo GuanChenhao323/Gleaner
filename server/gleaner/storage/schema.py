@@ -230,3 +230,43 @@ MIGRATIONS: list[str] = [
        WHERE alias_key NOT LIKE '@%'
          AND source_id IN (SELECT id FROM sources WHERE owner_id IS NOT NULL)""",
 ]
+
+# Browser capture v1: private entity identity + backend-owned schedule and durable leases.
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS browser_requests (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        request_id TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL,
+        created_at REAL NOT NULL, PRIMARY KEY(owner_id, request_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS browser_monitors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, identity_key TEXT NOT NULL,
+        binding TEXT NOT NULL, recipe TEXT NOT NULL,
+        source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL DEFAULT 1, supported INTEGER NOT NULL,
+        enabled INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+        interval_s REAL NOT NULL DEFAULT 600, next_at REAL NOT NULL DEFAULT 0,
+        last_result TEXT NOT NULL DEFAULT 'not_executed', last_attempt_at REAL,
+        last_success_at REAL, error TEXT NOT NULL DEFAULT '',
+        last_raw TEXT NOT NULL, created_at REAL NOT NULL,
+        UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS browser_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id INTEGER NOT NULL REFERENCES browser_monitors(id) ON DELETE CASCADE,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, revision INTEGER NOT NULL, lease TEXT NOT NULL,
+        expires_at REAL NOT NULL, claimed_at REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 1,
+        digest TEXT, response TEXT, finished_at REAL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_browser_due ON browser_monitors(owner_id, device_id, next_at)",
+    "CREATE INDEX IF NOT EXISTS ix_browser_job_target ON browser_jobs(monitor_id, finished_at)",
+    """CREATE TABLE IF NOT EXISTS browser_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id INTEGER NOT NULL REFERENCES browser_monitors(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL,
+        checked_at REAL NOT NULL, version INTEGER
+    )""",
+]
