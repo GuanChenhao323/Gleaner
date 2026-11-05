@@ -110,7 +110,7 @@ async def main() -> None:
     r = s.post(f"{GW}/api/auth/code", json={"email": email}, timeout=10)
     code = until(lambda: mail_code(email), 30, 1.0)
     step("注册验证码邮件", r.ok and bool(code), f"{email} 收到 {code}", t0)
-    body = {"email": email, "password": "demo12345", "name": "小林", "grade": "2024级", "major": "计算机", "code": code}
+    body = {"email": email, "password": "demo12345", "name": "小林", "grade": "2024级", "major": "计算机", "code": code, "agree_privacy": True}
     r = s.post(f"{GW}/api/auth/register", json=body, timeout=10)
     step("注册", r.status_code == 201, f"HTTP {r.status_code}")
     token = r.json()["token"]

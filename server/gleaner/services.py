@@ -20,6 +20,7 @@ from .core.agent_hub import AgentHub
 from .core.api import API
 from .core.pipeline import Pipeline
 from .core.reminders import publish_digests, send_due_reminders
+from .core.validate import BadRequest, as_int
 from .gateway.app import Gateway
 from .gateway.balancer import UpstreamPool
 from .mailsvc.receiver import MailService
@@ -81,7 +82,7 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
         await hub.publish(topic, payload)
 
     pipe = Pipeline(db, route)
-    api = API(db, pipe, route)
+    api = API(db, pipe, route, data_dir=cfg.data_dir)
     router = Router()
     api.register(router)
 
@@ -100,8 +101,17 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
             log.info("ingest source=%s %s", data.get("source_id"), counts)
 
     async def on_client_state(topic: str, data: Any, src: str) -> None:
+        """推送节点转来的 WebSocket 状态操作：参数不合法时只记日志（对应 HTTP 的 422）。"""
         op = data.get("op") or {}
-        await api.apply_state(int(data["uid"]), int(op.get("item_id", 0)), op, op.get("op_id"))
+        try:
+            await api.apply_state(
+                as_int(data.get("uid"), "uid", lo=1),
+                as_int(op.get("item_id"), "item_id", lo=1),
+                op,
+                op.get("op_id"),
+            )
+        except BadRequest as e:
+            log.info("ignored invalid client.state from %s: %s", src, e.message)
 
     hub.subscribe("extract.result", on_extract)
     hub.subscribe("client.state", on_client_state)
@@ -242,7 +252,12 @@ async def start_broker(cfg: Config, *, host: str = "0.0.0.0", port: int | None =
             retain=bool(data.get("retain")),
         )
 
+    def on_forget(topic: str, data: Any, src: str) -> None:
+        n = broker.forget_user(int(data["uid"]))
+        log.info("mqtt: forgot user %s (%d sessions)", data["uid"], n)
+
     bus.subscribe("mqtt.publish", on_publish)
+    bus.subscribe("mqtt.forget", on_forget)
     bus.start()
 
     async def save_loop() -> None:
@@ -298,7 +313,7 @@ def _make_fetcher(cfg: Config) -> Fetcher:
 
         resolver = Resolver()
     return Fetcher(
-        HTTPClient(per_host_limit=4, total_limit=64, resolver=resolver),
+        HTTPClient(per_host_limit=4, total_limit=64, resolver=resolver, egress_guard=True),
         min_interval=float(os.environ.get("GLEANER_HOST_INTERVAL", "0.5")),
     )
 

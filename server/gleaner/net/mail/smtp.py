@@ -90,9 +90,11 @@ class SMTPClient:
         security: str = "starttls",  # starttls / tls / none
         timeout: float = 30.0,
         ssl_context: ssl.SSLContext | None = None,
+        egress_guard: bool = False,
         local_hostname: str | None = None,
     ) -> None:
         self.host = host
+        self.egress_guard = egress_guard
         self.port = port
         self.username = username
         self.password = password
@@ -141,6 +143,7 @@ class SMTPClient:
             tls=self.security == "tls",
             timeout=self.timeout,
             ssl_context=self.ssl_context,
+            egress_guard=self.egress_guard,
         )
         code, lines = await self._reply()
         if code != 220:

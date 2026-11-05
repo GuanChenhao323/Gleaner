@@ -207,6 +207,17 @@ SCHEMA: list[str] = [
         attempts INTEGER NOT NULL DEFAULT 0,
         sent_at REAL NOT NULL
     )""",
+    # 登录会话：令牌里带会话 id，可按设备退出、查看与吊销（改密码时全部吊销）
+    """CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at REAL NOT NULL,
+        last_seen_at REAL NOT NULL,
+        user_agent TEXT NOT NULL DEFAULT '',
+        ip TEXT NOT NULL DEFAULT '',
+        revoked_at REAL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id)",
     """CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,

@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from ..egress import EgressDenied, checked_address
 from .cookies import CookieJar
 from .message import Headers, Request, Response
 from .parser import HTTPParser, ParseError
@@ -84,7 +85,10 @@ class HTTPClient:
         resolver: Resolver | None = None,
         ssl_context: ssl.SSLContext | None = None,
         user_agent: str = DEFAULT_UA,
+        egress_guard: bool = False,
     ) -> None:
+        # egress_guard：只允许连接公网地址（访问用户填写的网址时打开，防 SSRF，见 net/egress.py）
+        self.egress_guard = egress_guard
         self.connect_timeout = connect_timeout
         self.read_timeout = read_timeout
         self.per_host_limit = per_host_limit
@@ -250,7 +254,14 @@ class HTTPClient:
             c.close()
         scheme, host, port = key
         addr = host
-        if self.resolver is not None and not _is_ip(host) and host != "localhost":
+        if self.egress_guard:
+            try:
+                addr = await checked_address(host, port, self.resolver)
+            except EgressDenied as e:
+                raise HTTPError("blocked", str(e)) from e
+            except OSError as e:
+                raise HTTPError("dns", f"{host}: {e}") from e
+        elif self.resolver is not None and not _is_ip(host) and host != "localhost":
             try:
                 addr = await self.resolver(host)
             except Exception as e:

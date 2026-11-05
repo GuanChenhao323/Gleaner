@@ -53,6 +53,13 @@ def _adapt(v: Any) -> Any:
     return v
 
 
+def is_unique_violation(exc: BaseException) -> bool:
+    """是否为唯一约束冲突（SQLite 与 PostgreSQL 两种驱动的异常类型不同）。"""
+    if isinstance(exc, sqlite3.IntegrityError):
+        return "UNIQUE" in str(exc).upper() or "PRIMARY KEY" in str(exc).upper()
+    return getattr(exc, "sqlstate", None) == "23505"  # psycopg: unique_violation
+
+
 def loads(v: Any, default: Any = None) -> Any:
     if v is None or v == "":
         return default
@@ -208,6 +215,9 @@ class Database:
                     with conn.cursor() as cur:
                         cur.executemany(_to_pg(sql), data)
 
+        if _IN_TX.get():  # 事务已持有锁（asyncio.Lock 不可重入，再取会死锁）
+            await asyncio.to_thread(run)
+            return
         async with self._lock():
             await asyncio.to_thread(run)
 

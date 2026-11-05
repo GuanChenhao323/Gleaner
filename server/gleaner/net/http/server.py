@@ -229,6 +229,7 @@ class HTTPServer:
                 continue
             req = pending.pop(0)
             req.peer = peer
+            req.context["tls"] = cfg.ssl_context is not None  # 网关据此设置 X-Forwarded-Proto
             served += 1
             t0 = time.perf_counter()
             if req.headers.get("Expect", "").lower() == "100-continue":
@@ -236,7 +237,8 @@ class HTTPServer:
             try:
                 resp = await self._dispatch(req)
             except Exception:
-                log.exception("handler error for %s %s", req.method, req.target)
+                # 只记路径，不记查询串（里面可能有 ?token= 之类的凭据）
+                log.exception("handler error for %s %s", req.method, req.path)
                 resp = Response.error(500, "internal error")
             keep = req.keep_alive and resp.keep_alive and served < cfg.max_requests_per_conn
             if resp.upgrade is not None and resp.status == 101:

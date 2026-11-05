@@ -31,13 +31,13 @@ async def make_users(server: str, n: int, prefix: str) -> list[str]:
             email = f"{prefix}{i}@load.test"
             r = await c.post(
                 f"{server}/api/auth/login",
-                json_body={"email": email, "password": "loadtest1"},
+                json_body={"email": email, "password": "loadtest1", "agree_privacy": True},
                 headers={"X-Forwarded-For": f"10.{i // 65536}.{i // 256 % 256}.{i % 256}"},
             )
             if r.status != 200:
                 r = await c.post(
                     f"{server}/api/auth/register",
-                    json_body={"email": email, "password": "loadtest1"},
+                    json_body={"email": email, "password": "loadtest1", "agree_privacy": True},
                     headers={"X-Forwarded-For": f"10.{i // 65536}.{i // 256 % 256}.{i % 256}"},
                 )
             return r.json()["token"]

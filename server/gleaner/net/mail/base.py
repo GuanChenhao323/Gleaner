@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import ssl
 
+from ..egress import EgressDenied, checked_address
+
 
 class MailError(Exception):
     def __init__(self, message: str, code: int | None = None, temporary: bool = False) -> None:
@@ -31,11 +33,18 @@ class LineConn:
         tls: bool,
         timeout: float = 30.0,
         ssl_context: ssl.SSLContext | None = None,
+        egress_guard: bool = False,
     ) -> LineConn:
         ctx = ssl_context or ssl.create_default_context()
+        addr = host
+        if egress_guard:  # 用户自填的邮箱服务器：只允许公网地址（防 SSRF，见 net/egress.py）
+            try:
+                addr = await checked_address(host, port)
+            except EgressDenied as e:
+                raise MailError(str(e)) from e
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(
-                host,
+                addr,
                 port,
                 ssl=ctx if tls else None,
                 server_hostname=host if tls else None,

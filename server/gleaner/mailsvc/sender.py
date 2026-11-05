@@ -11,7 +11,7 @@ from typing import Any
 
 from .. import security
 from ..net.mail import Attachment, MailError, OutgoingMail, send_with_retry
-from ..storage.db import Database
+from ..storage.db import Database, is_unique_violation
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,8 @@ def smtp_settings(secret: dict[str, Any]) -> dict[str, Any]:
         "security": smtp.get("security") or os.environ.get("GLEANER_SMTP_SECURITY", "starttls"),
         "username": smtp.get("username") or secret.get("username"),
         "password": smtp.get("password") or secret.get("password"),
+        # 用户自己填写的 SMTP 主机只允许公网地址；部署时配置的默认主机不受限制
+        "egress_guard": bool(smtp.get("host")),
     }
 
 
@@ -87,20 +89,21 @@ async def send_user_mail(
                 "created_at": now,
             },
         )
-    except Exception:
-        # 并发的同键请求：唯一约束冲突
+    except Exception as e:
+        if not is_unique_violation(e):  # 只有唯一约束冲突才是“并发的同键请求”，其他错误照常抛出
+            raise
         return 202, {"status": "sending", "duplicate": True}
-    mail = OutgoingMail(
-        sender=sender,
-        to=to,
-        cc=cc,
-        subject=subject,
-        text=text,
-        attachments=[Attachment(n, c, m) for n, c, m in attachments],
-        message_id=message_id,
-    )
-    st = smtp_settings(secret)
     try:
+        mail = OutgoingMail(
+            sender=sender,
+            to=to,
+            cc=cc,
+            subject=subject,
+            text=text,
+            attachments=[Attachment(n, c, m) for n, c, m in attachments],
+            message_id=message_id,
+        )
+        st = smtp_settings(secret)
         res = await send_with_retry(mail=mail, ssl_context=_ssl_ctx(), **st)
         await db.execute(
             "UPDATE sent_mails SET status = 'sent', sent_at = ? WHERE id = ?", time.time(), mid
@@ -112,10 +115,13 @@ async def send_user_mail(
             "accepted": res.accepted,
             "rejected": res.rejected,
         }
-    except (MailError, OSError) as e:
+    except Exception as e:
+        # 任何异常（含组装邮件时的 ValueError）都要把记录标记为失败，否则同一幂等键会一直返回 sending
         await db.execute(
             "UPDATE sent_mails SET status = 'failed', error = ? WHERE id = ?", str(e)[:500], mid
         )
+        if not isinstance(e, MailError | OSError):
+            log.exception("send_user_mail failed")
         return 502, {"id": mid, "status": "failed", "error": str(e)}
 
 

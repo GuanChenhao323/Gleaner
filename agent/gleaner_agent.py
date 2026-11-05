@@ -56,7 +56,8 @@ class Agent:
         self.token = token
         self.agent_id = agent_id
         self.state = load_state()
-        self.fetcher = Fetcher(min_interval=1.0)
+        # 本地代理就是为了访问只能在校园网内打开的来源，不启用出站地址限制（服务端才需要防 SSRF）
+        self.fetcher = Fetcher(HTTPClient(per_host_limit=4, total_limit=64), min_interval=1.0)
         self.sources: dict[int, dict[str, Any]] = {}
         self.next_at: dict[int, float] = {}
         self.reconnects = 0

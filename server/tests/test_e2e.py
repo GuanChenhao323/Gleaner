@@ -95,6 +95,7 @@ async def test_full_demo_path(stack):
             json_body={
                 "email": "lin@test.edu",
                 "password": "password1",
+                "agree_privacy": True,
                 "name": "小林",
                 "grade": "2024级",
                 "major": "计算机",
@@ -243,6 +244,7 @@ async def test_notices_rss_teachers_and_preview(stack):
             json_body={
                 "email": "mia@test.edu",
                 "password": "password1",
+                "agree_privacy": True,
                 "grade": "2024级",
                 "major": "计算机",
             },
@@ -290,14 +292,19 @@ async def test_notices_rss_teachers_and_preview(stack):
 
         # 第二个用户订阅同一公共来源，立即看到已有通知
         r = await c.post(
-            gw + "/api/auth/register", json_body={"email": "jie@test.edu", "password": "password1"}
+            gw + "/api/auth/register",
+            json_body={"email": "jie@test.edu", "password": "password1", "agree_privacy": True},
         )
         auth2 = {"Authorization": f"Bearer {r.json()['token']}"}
         f2 = (await c.get(gw + "/api/feed", headers=auth2)).json()
         assert len(f2["items"]) >= 4
 
-        # 账号删除
+        # 账号删除：必须再次输入密码
         r = await c.request("DELETE", gw + "/api/account", headers=auth2)
+        assert r.status == 403
+        r = await c.request(
+            "DELETE", gw + "/api/account", headers=auth2, json_body={"password": "password1"}
+        )
         assert r.json()["deleted"]
         assert (await c.get(gw + "/api/me", headers=auth2)).status == 401
 
@@ -326,7 +333,11 @@ async def test_mail_merge_and_send(stack, monkeypatch):
         async with HTTPClient() as c:
             r = await c.post(
                 gw + "/api/auth/register",
-                json_body={"email": "jie2@test.edu", "password": "password1"},
+                json_body={
+                    "email": "jie2@test.edu",
+                    "password": "password1",
+                    "agree_privacy": True,
+                },
             )
             auth = {"Authorization": f"Bearer {r.json()['token']}"}
             sid = (
@@ -441,7 +452,7 @@ async def test_local_agent_long_connection(stack, tmp_path, monkeypatch):
     async with HTTPClient() as c:
         r = await c.post(
             gw + "/api/auth/register",
-            json_body={"email": "agent@test.edu", "password": "password1"},
+            json_body={"email": "agent@test.edu", "password": "password1", "agree_privacy": True},
         )
         token = r.json()["token"]
         auth = {"Authorization": f"Bearer {token}"}
@@ -492,7 +503,7 @@ async def test_register_requires_email_code(stack, monkeypatch):
     email = "newbie@any-mail.com"
     try:
         async with HTTPClient() as c:
-            body = {"email": email, "password": "password1"}
+            body = {"email": email, "password": "password1", "agree_privacy": True}
             r = await c.post(gw + "/api/auth/register", json_body=body)
             assert r.status == 422 and r.json()["error"] == "bad_code"
             r = await c.post(gw + "/api/auth/code", json_body={"email": email})
@@ -534,7 +545,12 @@ async def test_moodle_login_with_pasted_security_key(stack):
     async with HTTPClient() as c:
         r = await c.post(
             gw + "/api/auth/register",
-            json_body={"email": "key@test.edu", "password": "password1", "name": "小钥"},
+            json_body={
+                "email": "key@test.edu",
+                "password": "password1",
+                "agree_privacy": True,
+                "name": "小钥",
+            },
         )
         auth = {"Authorization": f"Bearer {r.json()['token']}"}
         sid = (
@@ -545,7 +561,7 @@ async def test_moodle_login_with_pasted_security_key(stack):
         r = await c.post(login, json_body={"token": "not-a-key"}, headers=auth)
         assert r.status == 422  # 格式不对，不发请求
         r = await c.post(login, json_body={"token": "0" * 32}, headers=auth)
-        assert r.status == 401 and not r.json()["ok"]  # 格式对但无效（已重置或过期）
+        assert r.status == 401 and r.json()["error"] == "source_login_failed"  # 格式对但无效
 
         r = await c.post(login, json_body={"token": f"  {key}\n"}, headers=auth)
         assert r.json() == {"ok": True, "auth_type": "ws_token"}
@@ -565,7 +581,12 @@ async def test_browser_extension_clip_and_page_subscription(stack):
     async with HTTPClient() as c:
         r = await c.post(
             gw + "/api/auth/register",
-            json_body={"email": "clip@test.edu", "password": "password1", "name": "小藏"},
+            json_body={
+                "email": "clip@test.edu",
+                "password": "password1",
+                "agree_privacy": True,
+                "name": "小藏",
+            },
         )
         auth = {"Authorization": f"Bearer {r.json()['token']}"}
         # 先订阅学院通知：同一网页已经作为通知在收件箱里（compose 实测时插件保存被并进通知、正文丢失）

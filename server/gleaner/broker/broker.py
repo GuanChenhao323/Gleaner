@@ -329,6 +329,20 @@ class Broker:
             self.tree.remove(filt, sess.client_id)
         self.sessions.pop(sess.client_id, None)
 
+    def forget_user(self, uid: int) -> int:
+        """删除账号时调用：断开并清掉该用户的全部持久会话（含离线队列）和其主题下的保留消息。"""
+        principal = str(uid)
+        n = 0
+        for sess in [s for s in self.sessions.values() if s.principal == principal]:
+            if sess.conn is not None:
+                sess.conn.writer.close()
+            self._drop_session(sess)
+            n += 1
+        prefix = f"gleaner/u/{uid}/"
+        for topic in [t for t in self.retained if t.startswith(prefix)]:
+            del self.retained[topic]
+        return n
+
     # -- 路由与投递 --------------------------------------------------------------
 
     def _route(self, msg: Publish) -> None:

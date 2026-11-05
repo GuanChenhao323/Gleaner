@@ -24,6 +24,8 @@ x-gleaner: &gleaner
     GLEANER_SMTP_HOST: ${GLEANER_SMTP_HOST:-greenmail}
     GLEANER_SMTP_PORT: ${GLEANER_SMTP_PORT:-3025}
     GLEANER_SMTP_SECURITY: ${GLEANER_SMTP_SECURITY:-none}
+    # 出站访问只允许公网地址（防 SSRF）；dev 配置里的测试服务按主机名放行，生产环境没有这两个主机，不受影响
+    GLEANER_EGRESS_ALLOW_HOSTS: ${GLEANER_EGRESS_ALLOW_HOSTS:-fake_moodle,greenmail}
   depends_on:
     postgres:
       condition: service_healthy

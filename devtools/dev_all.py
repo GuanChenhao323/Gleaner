@@ -37,6 +37,8 @@ os.environ.setdefault("GLEANER_DB", f"sqlite:///{ROOT / 'data' / 'dev.db'}")
 os.environ.setdefault("GLEANER_DATA_DIR", str(ROOT / "data"))
 os.environ.setdefault("GLEANER_STATIC_DIR", str(ROOT / "client" / "build" / "web"))
 os.environ.setdefault("GLEANER_CORS_ORIGINS", "*")
+# 本地开发连 127.0.0.1 上的 fake_moodle 与假邮件服务器：允许内网地址（生产环境默认禁止，防 SSRF）
+os.environ.setdefault("GLEANER_EGRESS_ALLOW_PRIVATE", "1")
 # 平台发信账号（注册验证码、每日摘要邮件）：开发期发到假邮件服务器
 os.environ.setdefault("GLEANER_PLATFORM_SMTP_USER", "noreply@gleaner.test")
 os.environ.setdefault("GLEANER_PLATFORM_SMTP_PASS", "secret")
@@ -70,6 +72,7 @@ async def seed(gateway: str, mail: object) -> None:
             "grade": "2024级",
             "major": "计算机",
             "courses": ["网络编程", "操作系统"],
+            "agree_privacy": True,
         }
         r = await c.post(f"{gateway}/api/auth/code", json_body={"email": body["email"]})
         if r.status != 409:

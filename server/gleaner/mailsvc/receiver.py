@@ -71,13 +71,17 @@ async def probe(src: dict[str, Any], secret: dict[str, Any]) -> tuple[bool, str]
     try:
         if src["type"] == "imap":
             host, port = _hostport(src["endpoint"], 993)
-            c = IMAPClient(host, port, tls=cfg.get("tls", port == 993), timeout=10)
+            c = IMAPClient(
+                host, port, tls=cfg.get("tls", port == 993), timeout=10, egress_guard=True
+            )
             await c.connect()
             await c.login(secret["username"], secret["password"])
             await c.logout()
         else:
             host, port = _hostport(src["endpoint"], 995)
-            p = POP3Client(host, port, tls=cfg.get("tls", port == 995), timeout=10)
+            p = POP3Client(
+                host, port, tls=cfg.get("tls", port == 995), timeout=10, egress_guard=True
+            )
             await p.connect()
             await p.login(secret["username"], secret["password"])
             await p.quit()
@@ -173,7 +177,9 @@ class MailboxWorker:
 
     async def _imap_session(self) -> None:
         host, port = _hostport(self.src["endpoint"], 993)
-        c = IMAPClient(host, port, tls=self.cfg.get("tls", port == 993), timeout=60)
+        c = IMAPClient(
+            host, port, tls=self.cfg.get("tls", port == 993), timeout=60, egress_guard=True
+        )
         await c.connect()
         try:
             await c.login(self.secret["username"], self.secret["password"])
@@ -217,7 +223,9 @@ class MailboxWorker:
 
     async def _pop3_poll(self) -> None:
         host, port = _hostport(self.src["endpoint"], 995)
-        p = POP3Client(host, port, tls=self.cfg.get("tls", port == 995), timeout=30)
+        p = POP3Client(
+            host, port, tls=self.cfg.get("tls", port == 995), timeout=30, egress_guard=True
+        )
         await p.connect()
         try:
             await p.login(self.secret["username"], self.secret["password"])

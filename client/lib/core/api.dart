@@ -61,7 +61,11 @@ class Api {
   Future<void> logout({bool all = false}) => _req('POST', '/api/auth/logout', data: {'all_devices': all});
   Future<Me> me() async => Me.fromJson(await _map('GET', '/api/me'));
   Future<Me> updateMe(Map<String, dynamic> body) async => Me.fromJson(await _map('PUT', '/api/me', data: body));
-  Future<void> deleteAccount() => _req('DELETE', '/api/account');
+  /// 删除账号需要再次输入密码（防止令牌被盗后被删号）。
+  Future<void> deleteAccount(String password) => _req('DELETE', '/api/account', data: {'password': password});
+  /// 修改密码：其他设备全部退出，返回当前设备的新令牌（与登录响应格式相同）。
+  Future<Map<String, dynamic>> changePassword(String oldPassword, String newPassword) =>
+      _map('PUT', '/api/me/password', data: {'old_password': oldPassword, 'new_password': newPassword});
 
   // ---- 事项 ----
   Future<Map<String, dynamic>> feed({String? cursor, String? kind, String? filter, String? q, int limit = 100}) => _map('GET', '/api/feed', query: {

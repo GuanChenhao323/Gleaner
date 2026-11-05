@@ -98,6 +98,12 @@ class SettingsPage extends ConsumerWidget {
                   ),
                 ),
                 ListTile(
+                  leading: const Icon(Icons.password),
+                  title: const Text('修改密码'),
+                  subtitle: const Text('修改后其他设备需要重新登录'),
+                  onTap: () => _changePassword(context, ref),
+                ),
+                ListTile(
                   leading: const Icon(Icons.logout),
                   title: const Text('退出登录'),
                   onTap: () async {
@@ -182,23 +188,83 @@ class SettingsPage extends ConsumerWidget {
     }
   }
 
+  Future<void> _changePassword(BuildContext context, WidgetRef ref) async {
+    final oldPw = TextEditingController();
+    final newPw = TextEditingController();
+    String? err;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => AlertDialog(
+          title: const Text('修改密码'),
+          content: SizedBox(
+            width: 360,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: oldPw, obscureText: true, decoration: const InputDecoration(labelText: '当前密码')),
+              const SizedBox(height: 10),
+              TextField(controller: newPw, obscureText: true, decoration: const InputDecoration(labelText: '新密码（至少 8 位）')),
+              if (err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(err!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  final resp = await ref.read(apiProvider).changePassword(oldPw.text, newPw.text);
+                  await ref.read(sessionProvider.notifier).signedIn(resp);
+                  if (c.mounted) Navigator.pop(c);
+                  if (context.mounted) toast(context, '密码已修改，其他设备需要重新登录');
+                } on ApiException catch (e) {
+                  set(() => err = e.message);
+                }
+              },
+              child: const Text('确认修改'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final pw = TextEditingController();
+    String? err;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded),
-        title: const Text('删除账号？'),
-        content: const Text('将删除你的账号、订阅、登录会话、个人状态与发信记录，且无法恢复。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error), onPressed: () => Navigator.pop(c, true), child: const Text('永久删除')),
-        ],
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => AlertDialog(
+          icon: const Icon(Icons.warning_amber_rounded),
+          title: const Text('删除账号？'),
+          content: SizedBox(
+            width: 380,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('将删除你的账号、订阅、登录会话、个人状态与发信记录，且无法恢复。请输入密码确认。'),
+              const SizedBox(height: 12),
+              TextField(controller: pw, obscureText: true, decoration: const InputDecoration(labelText: '密码')),
+              if (err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(err!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
+              onPressed: () async {
+                try {
+                  await ref.read(apiProvider).deleteAccount(pw.text);
+                  if (c.mounted) Navigator.pop(c, true);
+                } on ApiException catch (e) {
+                  set(() => err = e.message);
+                }
+              },
+              child: const Text('永久删除'),
+            ),
+          ],
+        ),
       ),
     );
     if (ok != true) return;
-    final store = ref.read(feedProvider.notifier);
-    await ref.read(apiProvider).deleteAccount();
-    await store.clearLocal();
+    await ref.read(feedProvider.notifier).clearLocal();
     await ref.read(sessionProvider.notifier).signOut();
   }
 }

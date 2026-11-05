@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import logging
+import os
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .. import security
+from ..net.egress import is_public
 from ..net.http import (
     Headers,
     HTTPClient,
@@ -93,8 +97,9 @@ class Gateway:
         self.started = time.time()
         self.router = Router()
         self.router.add("GET", "/health", self.health)
-        self.router.add("GET", "/metrics", metrics_handler())
-        self.router.add("GET", "/gateway/status", self.status)
+        # 运维数据（指标、上游地址与最近错误）只给内网（Prometheus 在 compose 网络里抓取）或带管理令牌的请求
+        self.router.add("GET", "/metrics", internal_only(metrics_handler()))
+        self.router.add("GET", "/gateway/status", internal_only(self.status))
         self.router.add("GET", "/ws", self.websocket)
         self.router.add("GET", "/agent", self.agent_websocket)
         self.router.add("GET", "/mqtt", self.mqtt_websocket)
@@ -178,12 +183,10 @@ class Gateway:
         ip = client_ip(req, self.trust_proxy)
         h["X-Forwarded-For"] = ip
         h["X-Forwarded-Proto"] = "https" if req.context.get("tls") else "http"
+        h["X-Forwarded-Host"] = req.headers.get("Host", "")  # core 校验 Cookie 请求的同源
         h["X-Request-Id"] = req.context.get("rid", "")
-        idempotent = (
-            req.method in ("GET", "HEAD", "PUT", "DELETE") or "Idempotency-Key" in req.headers
-        )
         tried: set[str] = set()
-        for _ in range(2 if idempotent else 1):
+        for _ in range(2):  # 失败时换一个节点再试一次（非 GET 只在请求确定没送达时重试，见下）
             up = self.core.pick_rr()
             if up is None or up.name in tried:
                 break
@@ -198,8 +201,14 @@ class Gateway:
                 )
             except HTTPError as e:
                 self.core.report(up, False, str(e))
+                # 非 GET 请求只在“还没发到 core”时换节点重试（连接失败、复用的空闲连接已断）；
+                # 读超时等情况 core 可能已经执行过，再发一次会重复执行
+                if req.method not in ("GET", "HEAD") and e.kind not in ("connect", "dns", "stale"):
+                    break
                 continue
-            self.core.report(up, r.status < 500, f"HTTP {r.status}")
+            # 只有网关层面的不可用（502/503/504）才算上游故障；业务 500 不摘除节点，
+            # 否则几个坏请求就能把所有 core 节点踢出
+            self.core.report(up, r.status not in (502, 503, 504), f"HTTP {r.status}")
             out = Headers(
                 [
                     (k, v)
@@ -327,3 +336,19 @@ def _security_headers(resp: Response) -> None:
 
 def gateway_status(gw: Gateway) -> dict[str, Any]:
     return {"core": gw.core.snapshot(), "push": gw.push.snapshot()}
+
+
+def internal_only(
+    fn: Callable[[Request], Awaitable[Response]],
+) -> Callable[[Request], Awaitable[Response]]:
+    """直连来源是内网 / 回环地址（不看 X-Forwarded-For，防伪造），或带 ``X-Admin-Token`` 时才放行。"""
+
+    async def h(req: Request) -> Response:
+        peer = req.peer[0] if req.peer else ""
+        admin = os.environ.get("GLEANER_ADMIN_TOKEN", "")
+        given = req.headers.get("X-Admin-Token", "")
+        if (peer and not is_public(peer)) or (admin and hmac.compare_digest(admin, given)):
+            return await fn(req)
+        return Response.error(403, "仅限内网访问", "forbidden")
+
+    return h

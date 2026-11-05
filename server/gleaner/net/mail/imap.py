@@ -47,8 +47,10 @@ class IMAPClient:
         tls: bool = True,
         timeout: float = 30.0,
         ssl_context: ssl.SSLContext | None = None,
+        egress_guard: bool = False,
     ) -> None:
         self.host = host
+        self.egress_guard = egress_guard
         self.port = port
         self.tls = tls
         self.timeout = timeout
@@ -60,7 +62,12 @@ class IMAPClient:
 
     async def connect(self) -> None:
         self.conn = await LineConn.open(
-            self.host, self.port, tls=self.tls, timeout=self.timeout, ssl_context=self.ssl_context
+            self.host,
+            self.port,
+            tls=self.tls,
+            timeout=self.timeout,
+            ssl_context=self.ssl_context,
+            egress_guard=self.egress_guard,
         )
         greet = await self._read_response()
         if not greet.line.startswith((b"* OK", b"* PREAUTH")):

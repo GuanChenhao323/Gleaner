@@ -12,6 +12,8 @@ import pytest  # noqa: E402
 def _no_email_code_by_default(monkeypatch):
     """大多数测试不关心注册验证码；专门的测试会重新打开。"""
     monkeypatch.setenv("GLEANER_REQUIRE_EMAIL_CODE", "0")
+    # 测试里的 fake_moodle、假邮件服务器都在 127.0.0.1；SSRF 测试会单独关掉这个开关
+    monkeypatch.setenv("GLEANER_EGRESS_ALLOW_PRIVATE", "1")
 
 
 @pytest.fixture

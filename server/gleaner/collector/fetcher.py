@@ -44,7 +44,8 @@ class Fetcher:
         backoff: float = 0.5,
         respect_robots: bool = True,
     ) -> None:
-        self.client = client or HTTPClient(per_host_limit=4, total_limit=64)
+        # 采集与预览访问的都是用户可填的网址：默认只允许公网地址（防 SSRF）
+        self.client = client or HTTPClient(per_host_limit=4, total_limit=64, egress_guard=True)
         self.min_interval = min_interval
         self.retries = retries
         self.backoff = backoff
@@ -130,6 +131,8 @@ class Fetcher:
             except HTTPError as e:
                 FETCHES.inc(1, e.kind)
                 last_err = e
+                if e.kind == "blocked":  # 目标是内网地址（含重定向到内网），重试也没用
+                    raise FetchError("blocked", str(e)) from e
                 if attempt < self.retries:
                     await asyncio.sleep(self.backoff * 2**attempt * (0.5 + random.random()))
                     continue
