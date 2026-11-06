@@ -57,6 +57,48 @@ def add_column(table: str, column: str, decl: str) -> Callable[[Any, str], None]
     return step
 
 
+def ddl(sql: str) -> Callable[[Any, str], None]:
+    """建表语句按 SQLite 写；PostgreSQL 下 REAL 换成 DOUBLE PRECISION（时间戳要双精度）。"""
+
+    def step(conn: Any, kind: str) -> None:
+        conn.execute(sql.replace("REAL", "DOUBLE PRECISION") if kind == "postgres" else sql)
+
+    return step
+
+
+def _backfill_item_types(conn: Any, kind: str) -> None:
+    """旧事项回填产品类型（决策 D21），与 ``itemtypes.default_type`` 一致（旧数据没有活动时间）：
+    作业或有截止时间 → 待办，其余 → 通知。规则一致，下次采集时才不会因为“类型变化”多出一个版本。"""
+    _execute(
+        conn,
+        kind,
+        "UPDATE items SET item_type = 'todo' WHERE item_type = '' "
+        "AND (kind = 'assignment' OR deadline_at IS NOT NULL)",
+    )
+    _execute(conn, kind, "UPDATE items SET item_type = 'notice' WHERE item_type = ''")
+    # 旧的截止时间覆盖视为“截止时间”的用户修改（基准取当时的来源值）
+    _execute(
+        conn,
+        kind,
+        "INSERT INTO user_item_edits (user_id, item_id, field, value, base, updated_at) "
+        "SELECT st.user_id, st.item_id, 'deadline_at', CAST(st.deadline_override AS TEXT), "
+        "CASE WHEN i.deadline_at IS NULL THEN 'null' ELSE CAST(i.deadline_at AS TEXT) END, st.updated_at "
+        "FROM user_item_state st JOIN items i ON i.id = st.item_id "
+        "WHERE st.deadline_override IS NOT NULL ON CONFLICT DO NOTHING",
+    )
+
+
+def _add_real(table: str, column: str) -> Callable[[Any, str], None]:
+    """加一列可空的时间戳（PostgreSQL 用双精度）。"""
+
+    def step(conn: Any, kind: str) -> None:
+        if column not in _columns(conn, kind, table):
+            typ = "DOUBLE PRECISION" if kind == "postgres" else "REAL"
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typ}")
+
+    return step
+
+
 def _share_key(stype: str, endpoint: str, config: Any) -> str:
     cfg = config if isinstance(config, dict) else json.loads(config or "{}")
     return f"{stype}|{endpoint}|{cfg.get('mode') or ''}"
@@ -182,6 +224,49 @@ MIGRATIONS: list[Migration] = [
         [
             "CREATE INDEX IF NOT EXISTS ix_sources_due ON sources(via_agent, next_fetch_at)",
             "CREATE INDEX IF NOT EXISTS ix_users_digest ON users(digest_time)",
+        ],
+    ),
+    # Campus Radar 新基线（决策 D19–D23）：三类事项、日程归档、用户修改与来源分开、事项级监测
+    Migration(
+        7,
+        "item types, user edits and item monitors",
+        [
+            add_column("items", "item_type", "TEXT NOT NULL DEFAULT ''"),
+            _add_real("user_item_state", "archived_at"),
+            ddl(
+                """CREATE TABLE IF NOT EXISTS user_item_edits (
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    field TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    base TEXT NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, item_id, field)
+                )"""
+            ),
+            ddl(
+                """CREATE TABLE IF NOT EXISTS item_monitors (
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    supported INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    interval_s REAL NOT NULL DEFAULT 3600,
+                    next_check_at REAL,
+                    lease_until REAL,
+                    last_checked_at REAL,
+                    last_success_at REAL,
+                    last_result TEXT NOT NULL DEFAULT '',
+                    last_error TEXT NOT NULL DEFAULT '',
+                    fail_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, item_id)
+                )"""
+            ),
+            _backfill_item_types,
+            "CREATE INDEX IF NOT EXISTS ix_items_type ON items(item_type)",
+            "CREATE INDEX IF NOT EXISTS ix_edits_item ON user_item_edits(item_id)",
+            "CREATE INDEX IF NOT EXISTS ix_monitors_due ON item_monitors(enabled, next_check_at)",
+            "CREATE INDEX IF NOT EXISTS ix_monitors_item ON item_monitors(item_id)",
         ],
     ),
 ]

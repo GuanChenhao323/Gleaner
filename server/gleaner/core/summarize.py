@@ -1,7 +1,9 @@
 """大模型摘要（P2）：经自研 HTTP 客户端调用，失败一律回退到规则提取。
 
 配置（环境变量）。默认使用 OpenAI 兼容接口（/v1/chat/completions），以便接入国内服务商；
-地址、模型、密钥三项都配置后才启用，否则一律走规则提取：
+默认关闭（决策 D25：具备模型配置不代表自动启用）。``GLEANER_LLM_ENABLED=1`` 且地址、模型、密钥三项都配置后才启用，
+否则一律走规则提取：
+- GLEANER_LLM_ENABLED：1 / true / yes 才启用
 - GLEANER_LLM_BASE_URL：服务商接口地址，例如 https://<服务商域名>（不含 /v1）；必须是 https（本机地址除外）
 - GLEANER_LLM_MODEL：模型名
 - GLEANER_LLM_API_KEY：密钥
@@ -114,6 +116,11 @@ class Summarizer:
         breaker_cooldown: float = 60.0,
         cache_size: int = 1024,
     ) -> None:
+        self.switched_on = os.environ.get("GLEANER_LLM_ENABLED", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         self.provider = os.environ.get("GLEANER_LLM_PROVIDER", "openai")
         self.api_key = os.environ.get("GLEANER_LLM_API_KEY", "")
         self.model = os.environ.get("GLEANER_LLM_MODEL", "")
@@ -141,7 +148,7 @@ class Summarizer:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key and self.model and self.base)
+        return bool(self.switched_on and self.api_key and self.model and self.base)
 
     def rule(self, title: str, body: str) -> Summary:
         return Summary(clean_title(title), summarize(body), "rule")

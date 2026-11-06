@@ -21,6 +21,8 @@ TRACKED = (
     "course",
 )
 IMPORTANT_FIELDS = ("attachments", "requirements")
+# 日程的时间与地点（存在 attrs 里，不进 TRACKED，以免改变已有内容哈希）
+EVENT_FIELDS = ("start_at", "end_at", "location")
 
 
 def snapshot_hash(snap: dict[str, Any]) -> str:
@@ -37,6 +39,13 @@ def diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, list[Any]]:
         if _norm(a) != _norm(b):
             out[k] = [a, b]
     return out
+
+
+def diff_fields(
+    old: dict[str, Any], new: dict[str, Any], keys: tuple[str, ...]
+) -> dict[str, list[Any]]:
+    """与 ``diff`` 相同的比较方式，只比较指定字段。"""
+    return {k: [old.get(k), new.get(k)] for k in keys if _norm(old.get(k)) != _norm(new.get(k))}
 
 
 def _norm(v: Any) -> Any:
@@ -91,6 +100,14 @@ def classify(changed: dict[str, list[Any]]) -> tuple[bool, str]:
     if "requirements" in changed:
         important = True
         notes.append("提交要求变化")
+    if "start_at" in changed or "end_at" in changed:
+        important = True
+        notes.append("活动时间变化")
+    if "location" in changed:
+        important = True
+        notes.append("地点变化")
+    if "item_type" in changed:
+        notes.append("类型变化")
     if "title" in changed:
         notes.append("标题修改")
     if not notes and changed:

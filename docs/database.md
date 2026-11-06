@@ -62,6 +62,19 @@
 | 4 | 热点查询与级联删除用的索引：订阅按来源、事项按来源、别名、个人状态、凭据、投递、事件等 |
 | 5 | 公共来源唯一键 `share_key`（先合并已有的重复公共来源）、每人唯一的网页收藏来源 |
 | 6 | 调度器按到期时间、每日摘要按摘要时间的索引 |
+| 7 | 新基线（决策 D19–D23）：`items.item_type`（待办／日程／通知，按默认规则回填）、`user_item_state.archived_at`（日程归档）、`user_item_edits`（用户修改，旧 `deadline_override` 一并迁入）、`item_monitors`（事项级监测）及索引 |
+
+## 3.1 事项、用户修改与监测（迁移 7）
+
+| 表 | 主键 | 内容 |
+| --- | --- | --- |
+| `items` | `id` | 来源值。`identity_key` 对插件采集的事项为 `@<uid>/capture:<规范化页面网址>#<locator>`；`item_type` 是来源侧判定的类型；活动时间、地点、页面网址、定位符存在 `attrs` |
+| `user_item_edits` | `(user_id, item_id, field)` | 用户修改，`value` 与 `base`（修改时的来源值）都存 JSON。来源更新从不写这张表；`base` 与当前来源值不同即为冲突 |
+| `item_monitors` | `(user_id, item_id)` | 是否支持、是否启用、间隔、下次检查与租期、最后检查与最后成功时间、最近结果、错误（JSON）、连续失败次数 |
+
+- 生效值 = 用户修改优先，否则来源值；旧接口的 `deadline_override` 与 `user_item_edits` 的截止时间同步。
+- 截止提醒（`core/reminders.py`）按生效的截止时间；用户确认“没有截止时间”时不提醒。
+- 删除账号时两张新表随用户数据一起删除。
 
 ## 4. 凭据加密
 

@@ -14,6 +14,13 @@
 | R3 | 有条件的主动变化监测 | F07–F09、US07–US09 | 待核验：已有采集与版本模块；需验证关掉目标标签页后的重新获取及运行恢复 | 场景 B；新旧版本、差异、最后成功检查时间、认证过期和网络失败 |
 | R4 | 当前 MVP 综合验收 | 全部 P0、场景 A/B/C | 待 R0–R3 证据齐全；旧演示通过不能替代 | 本地约定环境稳定复现三场景；真实页面按授权单独验证 |
 
+### 2026-11-06 · 后端部分进展（R1–R3）
+
+- 需求：F01–F09 的后端接口与数据（US02、US04–US09 的服务端行为）；决策 D19–D25；接口 [IC-001](architecture/IC-001-extension-to-backend.md)、[IC-002](architecture/IC-002-backend-to-workbench.md)；计划 [执行计划](exec-plans/2026-11-06-backend-r1-r3.md)。
+- 改动：`POST /api/captures` 批量保存与逐条结果；三类类型与状态、筛选；用户修改与冲突；事项级监测领取与回报；LLM 显式开关；迁移 7。
+- 验证（Windows 11，Python 3.14，SQLite）：`pytest -q` 192 passed、3 skipped；`ruff check .`、`ruff format --check .` 通过。PostgreSQL 16（WSL Docker，Python 3.12）：数据库相关测试 68 passed。新增测试 `tests/test_captures.py`。
+- 未完成：插件改用新接口、各页面 `locator` 取法与后台监测调度（插件负责人，Spike 01／02）；工作台按类型、状态、冲突与监测状态展示（工作台负责人）；分类规则替换（分类负责人）。在这些完成前，R1–R3 仍为“待核验”，场景 A／B／C 没有端到端运行。
+
 P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
 
 ## 课程技术交付状态

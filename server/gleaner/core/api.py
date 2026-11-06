@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -29,6 +30,8 @@ from ..mailsvc.sender import send_platform_mail, send_user_mail
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, is_unique_violation, loads
 from ..storage.migrations import share_key
+from . import edits, monitor
+from .itemtypes import ALL_STATUSES, ITEM_TYPES, status_of, status_sql
 from .pipeline import Pipeline, item_public, owner_prefix
 from .templates import get_template, list_templates
 from .throttle import Throttle
@@ -42,8 +45,11 @@ from .validate import (
     as_str,
     body_of,
     guard,
+    invalid,
     path_id,
 )
+
+log = logging.getLogger(__name__)
 
 Publish = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -137,6 +143,38 @@ def _like(text: str) -> str:
 STATE_BATCH_MAX = 500
 
 
+def _version_snapshot(raw: Any) -> dict[str, Any]:
+    """版本快照的对外形状（IC-002 4.3）：来源内容，供工作台比较相邻版本。旧版本没有存正文时 body 为空。"""
+    snap = loads(raw, {})
+    attrs = snap.get("attrs") if isinstance(snap.get("attrs"), dict) else {}
+    return {
+        "title": snap.get("raw_title") or snap.get("title") or "",
+        "summary": snap.get("summary") or "",
+        "body": snap.get("body") or "",
+        "type": snap.get("item_type") or "",
+        "deadline_at": snap.get("deadline_at"),
+        "requirements": attrs.get("requirements") or "",
+        "start_at": attrs.get("start_at"),
+        "end_at": attrs.get("end_at"),
+        "location": attrs.get("location") or "",
+        "url": snap.get("url") or "",
+    }
+
+
+def _effective_type_is(t: str) -> str:
+    """生效类型（用户修改优先）等于 t 的 SQL 条件；修改值存为 JSON 字符串，如 "todo"。
+
+    依赖 _items_for 的别名：i = items，s = subscriptions（s.user_id 即当前用户）。t 只能是 ITEM_TYPES 之一。
+    """
+    assert t in ITEM_TYPES
+    return (
+        "COALESCE((SELECT et.value FROM user_item_edits et WHERE et.user_id = s.user_id "
+        "AND et.item_id = i.id AND et.field = 'type'), "
+        "'\"' || COALESCE(NULLIF(i.item_type, ''), 'notice') || '\"') = "
+        f"'\"{t}\"'"
+    )
+
+
 def _state_values(b: dict[str, Any]) -> dict[str, Any]:
     """从请求里取出要修改的个人状态字段（read_at 先放布尔值，由调用方换成操作时间）。"""
     vals: dict[str, Any] = {}
@@ -144,10 +182,20 @@ def _state_values(b: dict[str, Any]) -> dict[str, Any]:
         vals["read_at"] = bool(b["read"])
     if "starred" in b:
         vals["starred"] = int(bool(b["starred"]))
+    if "todo" in b and "done" in b:
+        raise BadRequest(422, "todo 与 done 不能同时提交", "invalid")
     if "todo" in b:
         if b["todo"] not in (None, "", "todo", "doing", "done"):
             raise BadRequest(422, "todo 只能是 todo / doing / done 或空", "invalid")
         vals["todo_status"] = b["todo"] or ""
+    if "done" in b:
+        if not isinstance(b["done"], bool):
+            raise BadRequest(422, "done 应为布尔值", "invalid")
+        vals["todo_status"] = "done" if b["done"] else "todo"
+    if "archived" in b:
+        if not isinstance(b["archived"], bool):
+            raise BadRequest(422, "archived 应为布尔值", "invalid")
+        vals["archived_at"] = b["archived"]
     if "hidden" in b:
         vals["hidden"] = int(bool(b["hidden"]))
     if "deadline_override" in b:
@@ -254,6 +302,55 @@ def _user_public(u: dict[str, Any]) -> dict[str, Any]:
 
 
 CLIP_MAX_TEXT = 100_000  # 插件上传正文上限（字符）
+CAPTURE_MAX_ITEMS = 50
+
+
+def _capture_snap(
+    it: dict[str, Any], name: str, page_url: str, page_title: str, platform: str, locator: str
+) -> dict[str, Any]:
+    """把插件提交的一条事项（IC-001 3.1）校验并转成流水线的快照；不合法抛 422，只影响这一条。"""
+    title = " ".join(as_str(it.get("title"), f"{name}.title", max_len=300).split())
+    if not title:
+        raise invalid(f"{name}.title", "不能为空")
+    text = as_str(it.get("text"), f"{name}.text", max_len=CLIP_MAX_TEXT, default="").strip()
+    url = as_str(it.get("url"), f"{name}.url", max_len=2048, default="").strip() or page_url
+    if not re.match(r"^https?://", url, re.I):
+        raise invalid(f"{name}.url", "只能是 http / https 链接")
+    item_type = it.get("type")
+    if item_type is not None and item_type not in ITEM_TYPES:
+        raise invalid(f"{name}.type", "只能是 todo / event / notice")
+    fields = as_dict(it.get("fields"), f"{name}.fields", default={})
+
+    def ts(k: str) -> float | None:
+        v = fields.get(k)
+        return None if v is None else as_float(v, f"{name}.fields.{k}", lo=0, hi=4_102_444_800)
+
+    return {
+        "kind": "clip",
+        "title": title,
+        "url": url,
+        "body": text,
+        "item_type": item_type,
+        "deadline_at": ts("deadline_at"),
+        "start_at": ts("start_at"),
+        "end_at": ts("end_at"),
+        "location": as_str(
+            fields.get("location"), f"{name}.fields.location", max_len=200, default=""
+        ).strip(),
+        "requirements": as_str(
+            fields.get("requirements"), f"{name}.fields.requirements", max_len=4000, default=""
+        ).strip(),
+        "course": as_str(
+            fields.get("course"), f"{name}.fields.course", max_len=100, default=""
+        ).strip(),
+        "attrs": {
+            "saved_from": "browser-extension",
+            "page_url": page_url,
+            "page_title": page_title,
+            "platform": platform,
+            "locator": locator,
+        },
+    }
 
 
 class API:
@@ -373,6 +470,12 @@ class API:
         add("GET", "/api/sources", a(self.list_sources))
         add("POST", "/api/sources", a(self.add_source))
         add("POST", "/api/clips", a(self.save_clip))
+        add("POST", "/api/captures", a(self.save_captures))
+        add("GET", "/api/monitor/due", a(self.monitor_due))
+        add("POST", "/api/monitor/results", a(self.monitor_results))
+        add("PATCH", "/api/items/{id}/fields", a(self.patch_fields))
+        add("POST", "/api/items/{id}/fields/resolve", a(self.resolve_fields))
+        add("PUT", "/api/items/{id}/monitor", a(self.put_monitor))
         add("POST", "/api/sources/preview", a(self.preview_source))
         add("PUT", "/api/sources/{id}", a(self.update_source))
         add("DELETE", "/api/sources/{id}", a(self.remove_source))
@@ -718,6 +821,8 @@ class API:
             for t in (
                 "deliveries",
                 "user_item_state",
+                "user_item_edits",
+                "item_monitors",
                 "op_log",
                 "rules",
                 "sent_mails",
@@ -753,14 +858,18 @@ class API:
         order: str = "",
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        sql = f"""SELECT i.*, st.read_at, st.starred, st.todo_status, st.hidden, st.not_important, st.deadline_override, st.note, st.score, st.priority, st.reasons,
-                    src.name AS src_name, src.type AS src_type, src.last_success_at AS src_last_success, src.status AS src_status
+        sql = f"""SELECT i.*, st.read_at, st.starred, st.todo_status, st.hidden, st.not_important, st.deadline_override, st.note, st.score, st.priority, st.reasons, st.archived_at,
+                    src.name AS src_name, src.type AS src_type, src.last_success_at AS src_last_success, src.status AS src_status,
+                    src.last_checked_at AS src_last_checked, src.last_change_at AS src_last_change, src.last_error AS src_last_error, src.next_fetch_at AS src_next_fetch
                   FROM items i
                   JOIN subscriptions s ON s.source_id = i.source_id AND s.user_id = ?
                   JOIN sources src ON src.id = i.source_id
                   LEFT JOIN user_item_state st ON st.item_id = i.id AND st.user_id = ?
                   WHERE i.kind != 'teacher' {where} {order} LIMIT {int(limit)}"""
         rows = await self.db.fetch(sql, uid, uid, *params)
+        ids = list(dict.fromkeys(r["id"] for r in rows))
+        all_edits = await edits.load(self.db, uid, ids)
+        all_mons = await monitor.load(self.db, uid, ids)
         out = []
         seen: set[int] = set()
         for r in rows:
@@ -791,8 +900,53 @@ class API:
             }
             state["score"] = state["score"] or 0
             state["priority"] = state["priority"] or "low"
-            out.append(item_public(r, state, src))
+            it = item_public(r, state, src)
+            it["state"]["archived"] = r.get("archived_at") is not None
+            self._decorate(it, r, all_edits.get(r["id"], {}), all_mons.get(r["id"]))
+            out.append(it)
         return out
+
+    @staticmethod
+    def _decorate(
+        it: dict[str, Any],
+        r: dict[str, Any],
+        item_edits: dict[str, tuple[Any, Any]],
+        mon: dict[str, Any] | None,
+    ) -> None:
+        """新基线的事项字段（IC-002 4.1）：生效值、修改明细与冲突、类型与状态、来源定位、监测状态。"""
+        values, detail, conflicts = edits.effective(r, item_edits, r.get("deadline_override"))
+        attrs = loads(r.get("attrs"), {})
+        origin = "capture" if r.get("src_type") == "clip" else "source"
+        it.update(
+            {
+                "type": values["type"],
+                "status": status_of(values["type"], r),
+                "title": values["title"],
+                "summary": values["summary"],
+                "deadline_at": values["deadline_at"],
+                "requirements": values["requirements"],
+                "start_at": values["start_at"],
+                "end_at": values["end_at"],
+                "location": values["location"],
+                "fields": detail,
+                "conflicts": conflicts,
+                "origin": origin,
+                "page_url": attrs.get("page_url") or r.get("url", ""),
+                "locator": attrs.get("locator", ""),
+                "monitor": monitor.public(
+                    mon,
+                    origin,
+                    {
+                        "status": r.get("src_status"),
+                        "last_success_at": r.get("src_last_success"),
+                        "last_checked_at": r.get("src_last_checked"),
+                        "last_change_at": r.get("src_last_change"),
+                        "last_error": r.get("src_last_error"),
+                        "next_fetch_at": r.get("src_next_fetch"),
+                    },
+                ),
+            }
+        )
 
     async def feed(self, req: Request, user: dict[str, Any]) -> Response:
         """分页收件箱。cursor = ``排序时间:id``（键集分页，翻页期间有新数据也不会重复或遗漏）。"""
@@ -804,6 +958,20 @@ class API:
                 return Response.error(422, "kind 取值不正确", "invalid")
             where += " AND i.kind = ?"
             params.append(q["kind"])
+        if q.get("type"):
+            if q["type"] not in ITEM_TYPES:
+                return Response.error(422, "type 只能是 todo / event / notice", "invalid")
+            where += " AND " + _effective_type_is(q["type"])
+        if q.get("status"):
+            if q["status"] not in ALL_STATUSES:
+                return Response.error(422, "status 取值不正确", "invalid")
+            where += " AND " + status_sql(q["status"], _effective_type_is)
+        if q.get("origin"):
+            if q["origin"] not in ("capture", "source"):
+                return Response.error(422, "origin 只能是 capture / source", "invalid")
+            where += (
+                " AND src.type = 'clip'" if q["origin"] == "capture" else " AND src.type != 'clip'"
+            )
         if q.get("course"):
             where += " AND LOWER(i.course) LIKE ? ESCAPE '!'"
             params.append(_like(as_str(q["course"], "course", max_len=100)))
@@ -891,14 +1059,15 @@ class API:
         if not await self._items_for(user["id"], " AND i.id = ?", (iid,)):
             return Response.error(404, "事项不存在")
         rows = await self.db.fetch(
-            "SELECT version, changed_fields, important, change_note, detected_at FROM item_versions WHERE item_id = ? ORDER BY version DESC",
+            "SELECT version, snapshot, changed_fields, important, change_note, detected_at FROM item_versions WHERE item_id = ? ORDER BY version DESC",
             iid,
         )
         return Response.json_body(
             {
                 "versions": [
                     {
-                        **r,
+                        **{k: v for k, v in r.items() if k != "snapshot"},
+                        "snapshot": _version_snapshot(r["snapshot"]),
                         "changed_fields": loads(r["changed_fields"], {}),
                         "important": bool(r["important"]),
                     }
@@ -962,6 +1131,8 @@ class API:
             else:
                 if "read_at" in vals:
                     vals["read_at"] = client_ts if vals["read_at"] else None
+                if "archived_at" in vals:
+                    vals["archived_at"] = client_ts if vals["archived_at"] else None
                 await self.db.execute(
                     "INSERT INTO user_item_state (user_id, item_id, updated_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
                     uid,
@@ -980,6 +1151,11 @@ class API:
                     "SELECT * FROM user_item_state WHERE user_id = ? AND item_id = ?", uid, item_id
                 )
                 assert st
+                if "deadline_override" in vals:
+                    # 旧接口改截止时间：同步为“截止时间”的用户修改（决策 D22）
+                    row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", item_id)
+                    assert row
+                    await edits.sync_deadline_override(self.db, uid, row, vals["deadline_override"])
                 result = {
                     "ok": True,
                     "item_id": item_id,
@@ -988,6 +1164,7 @@ class API:
                         "starred": bool(st["starred"]),
                         "todo": st["todo_status"],
                         "hidden": bool(st["hidden"]),
+                        "archived": st.get("archived_at") is not None,
                         "deadline_override": st["deadline_override"],
                         "note": st["note"],
                     },
@@ -1379,6 +1556,7 @@ class API:
         )
         if src:
             return src
+
         now = time.time()
         # 每人一个（唯一索引 ux_sources_clip）：并发保存时第二个插入什么也不做，再读出来即可
         await self.db.execute(
@@ -1400,6 +1578,205 @@ class API:
         src = await self.db.fetchone("SELECT * FROM sources WHERE id = ?", sid)
         assert src
         return src
+
+    # ---- 插件：同页多条事项批量保存（IC-001，决策 D19、D20） -------------------------
+
+    async def save_captures(self, req: Request, user: dict[str, Any]) -> Response:
+        """批量保存用户勾选的候选事项，逐条返回结果。
+
+        先校验整批（页面网址、条数、定位符），不合法就整批拒绝、什么都不保存；之后每条单独入库，
+        一条失败不影响其他条，顶层 ok 只有全部成功才为 true（US02：不虚报保存成功）。
+        """
+        b = body_of(req)
+        page = as_dict(b.get("page"), "page")
+        page_url = str(page.get("url") or "").strip()
+        if not re.match(r"^https?://", page_url, re.I) or len(page_url) > 2048:
+            return Response.error(422, "只能保存 http / https 网页", "bad_url")
+        page_title = " ".join(
+            as_str(page.get("title"), "page.title", max_len=300, default="").split()
+        )
+        platform = as_str(page.get("platform"), "page.platform", max_len=20, default="")
+        raw_items = as_list(b.get("items"), "items", max_len=CAPTURE_MAX_ITEMS)
+        if not raw_items:
+            raise invalid("items", "至少要有一条")
+        locators: list[str] = []
+        for i, it in enumerate(raw_items):
+            if not isinstance(it, dict):
+                raise invalid(f"items[{i}]", "应为对象")
+            loc = as_str(it.get("locator"), f"items[{i}].locator", max_len=200).strip()
+            if not loc:
+                raise invalid(f"items[{i}].locator", "不能为空")
+            locators.append(loc)
+        if len(set(locators)) != len(locators):
+            raise invalid("items", "locator 不能重复")
+        src = await self._clip_source(user)
+        page_key = normalize_url(page_url)
+        results = []
+        for i, (it, loc) in enumerate(zip(raw_items, locators, strict=True)):
+            res: dict[str, Any] = {"index": i, "locator": loc, "item_id": None, "type": None}
+            try:
+                snap = _capture_snap(it, f"items[{i}]", page_url, page_title, platform, loc)
+                snap["key"] = f"capture:{page_key}#{loc}"
+                snap["dedupe_url"] = snap["key"]
+                supported = (
+                    bool((it.get("monitor") or {}).get("supported"))
+                    if isinstance(it.get("monitor"), dict)
+                    else False
+                )
+                counts = await self.pipeline.ingest(
+                    {"source_id": src["id"], "status": "ok", "prev_status": "ok", "items": [snap]}
+                )
+                row = await self.db.fetchone(
+                    "SELECT id, item_type FROM items WHERE identity_key = ?",
+                    owner_prefix(user["id"]) + snap["key"],
+                )
+                if row is None:
+                    raise RuntimeError("事项没有写入")
+                res.update(
+                    {
+                        "status": next(
+                            (k for k in ("new", "changed") if counts.get(k)), "unchanged"
+                        ),
+                        "item_id": row["id"],
+                        "type": row["item_type"],
+                        "monitor": await monitor.on_capture(
+                            self.db, user["id"], row["id"], supported
+                        ),
+                        "error": None,
+                    }
+                )
+            except BadRequest as e:
+                res.update({"status": "error", "error": {"code": e.code, "message": e.message}})
+            except Exception:
+                log.exception("capture item %s failed", i)
+                res.update(
+                    {
+                        "status": "error",
+                        "error": {"code": "internal", "message": "保存失败，请稍后重试"},
+                    }
+                )
+            res.setdefault("monitor", None)
+            results.append(res)
+        failed = sum(1 for r in results if r["status"] == "error")
+        return Response.json_body(
+            {
+                "ok": failed == 0,
+                "saved": len(results) - failed,
+                "failed": failed,
+                "results": results,
+            }
+        )
+
+    # ---- 插件：事项级监测（IC-001 3.2、3.3，决策 D23） -------------------------------
+
+    async def monitor_due(self, req: Request, user: dict[str, Any]) -> Response:
+        limit = as_int(req.query.get("limit"), "limit", default=20, lo=1, hi=50)
+        tasks, nxt = await monitor.lease_due(self.db, user["id"], limit)
+        return Response.json_body({"tasks": tasks, "lease_s": monitor.LEASE_S, "next_due_at": nxt})
+
+    async def monitor_results(self, req: Request, user: dict[str, Any]) -> Response:
+        """插件回报重新获取的结果：成功的走流水线比较并记版本；失败只记原因，不更新最后成功时间。"""
+        raw = as_list(body_of(req).get("results"), "results", max_len=50)
+        if not raw:
+            raise invalid("results", "至少要有一条")
+        uid = user["id"]
+        out = []
+        for i, r in enumerate(raw):
+            res: dict[str, Any] = {"item_id": None, "status": "error", "last_success_at": None}
+            try:
+                if not isinstance(r, dict):
+                    raise invalid(f"results[{i}]", "应为对象")
+                iid = as_int(r.get("item_id"), f"results[{i}].item_id", lo=1)
+                res["item_id"] = iid
+                mon = await monitor.get(self.db, uid, iid)
+                row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", iid)
+                if not mon or not mon["supported"] or not mon["enabled"] or row is None:
+                    raise BadRequest(404, "该事项没有启用监测", "not_monitored")
+                if not isinstance(r.get("ok"), bool):
+                    raise invalid(f"results[{i}].ok", "应为布尔值")
+                if r["ok"]:
+                    res.update(await self._monitor_success(user, row, r, i))
+                else:
+                    err = as_dict(r.get("error"), f"results[{i}].error")
+                    code = err.get("code")
+                    if code not in monitor.ERROR_CODES:
+                        raise invalid(f"results[{i}].error.code", "取值不正确")
+                    msg = as_str(err.get("message"), "message", max_len=300, default="")
+                    last_ok = await monitor.record_failure(self.db, uid, iid, code, msg)
+                    if code == "unsupported":
+                        await monitor.on_capture(self.db, uid, iid, False)
+                    res.update({"status": "failed", "last_success_at": last_ok})
+                await self.publish(f"u.{uid}", {"type": "item_updated", "item_id": iid})
+            except BadRequest as e:
+                res["error"] = {"code": e.code, "message": e.message}
+            except Exception:
+                log.exception("monitor result %s failed", i)
+                res["error"] = {"code": "internal", "message": "处理失败"}
+            out.append(res)
+        return Response.json_body({"results": out})
+
+    async def _monitor_success(
+        self, user: dict[str, Any], row: dict[str, Any], r: dict[str, Any], i: int
+    ) -> dict[str, Any]:
+        attrs = loads(row.get("attrs"), {})
+        page_url = attrs.get("page_url") or row["url"]
+        hint = dict(r)
+        hint.setdefault("type", row.get("item_type") or None)  # 没给类型就沿用原类型，免得规则改判
+        snap = _capture_snap(
+            hint,
+            f"results[{i}]",
+            page_url,
+            attrs.get("page_title", ""),
+            attrs.get("platform", ""),
+            attrs.get("locator", ""),
+        )
+        snap["key"] = row["identity_key"].removeprefix(owner_prefix(user["id"]))
+        snap["dedupe_url"] = snap["key"]
+        counts = await self.pipeline.ingest(
+            {"source_id": row["source_id"], "status": "ok", "prev_status": "ok", "items": [snap]}
+        )
+        result = "changed" if counts.get("changed") else "unchanged"
+        at = await monitor.record_success(self.db, user["id"], row["id"], result)
+        return {"status": result, "last_success_at": at}
+
+    # ---- 工作台：字段修改、冲突与监测开关（IC-002，决策 D22、D23） --------------------
+
+    async def _own_item(self, req: Request, user: dict[str, Any]) -> dict[str, Any]:
+        iid = path_id(req)
+        if not await self._items_for(user["id"], " AND i.id = ?", (iid,)):
+            raise BadRequest(404, "事项不存在", "not_found")
+        row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", iid)
+        assert row
+        return row
+
+    async def _item_response(self, user: dict[str, Any], iid: int) -> Response:
+        await self.publish(f"u.{user['id']}", {"type": "item_updated", "item_id": iid})
+        items = await self._items_for(user["id"], " AND i.id = ?", (iid,))
+        return Response.json_body(items[0])
+
+    async def patch_fields(self, req: Request, user: dict[str, Any]) -> Response:
+        row = await self._own_item(req, user)
+        b = body_of(req)
+        set_ = as_dict(b.get("set"), "set", default={})
+        reset = as_list(b.get("reset"), "reset", max_len=len(edits.EDITABLE), default=[])
+        await edits.apply(self.db, user["id"], row, set_, [str(f) for f in reset])
+        return await self._item_response(user, row["id"])
+
+    async def resolve_fields(self, req: Request, user: dict[str, Any]) -> Response:
+        row = await self._own_item(req, user)
+        b = body_of(req)
+        field = as_str(b.get("field"), "field", max_len=40)
+        keep = as_str(b.get("keep"), "keep", max_len=10)
+        await edits.resolve(self.db, user["id"], row, field, keep)
+        return await self._item_response(user, row["id"])
+
+    async def put_monitor(self, req: Request, user: dict[str, Any]) -> Response:
+        row = await self._own_item(req, user)
+        enabled = body_of(req).get("enabled")
+        if not isinstance(enabled, bool):
+            raise invalid("enabled", "应为布尔值")
+        await monitor.set_enabled(self.db, user["id"], row["id"], enabled)
+        return await self._item_response(user, row["id"])
 
     async def source_login(self, req: Request, user: dict[str, Any]) -> Response:
         """来源登录：只保存登录后得到的 Cookie / Token（AES-GCM 加密），不保存统一认证密码。

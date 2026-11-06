@@ -21,7 +21,7 @@
 | 插件登录旧服务端账号，可配置服务器地址 | 插件连接本地后端，云账户不在当前 P0 | 本地连接鉴权与权限设计待验证；不据此删除现有安全措施 |
 | Chrome／Edge 共用 Manifest V3 实现 | 当前验收基线为 Chrome | Edge 历史兼容声明不代表首版验收承诺 |
 
-具体接口变更应在 R1/R2 实施时更新 [API 文档](protocols/rest-api-and-sync.md) 并记录兼容方式。本次仅统一文档，没有修改接口或插件代码。
+2026-11-06：后端新接口已就绪，契约见 [IC-001](architecture/IC-001-extension-to-backend.md)：`POST /api/captures` 批量保存（每条带 `locator`，逐条返回结果）、`GET /api/monitor/due` 与 `POST /api/monitor/results` 后台监测。旧 `POST /api/clips` 保留兼容。插件代码尚未迁移：需要按页面类型给出稳定的 `locator`，按逐条结果显示成功与失败，并在 Spike 02 验证后实现后台调度（同一主机请求间隔不少于 2 秒）。
 
 ## 权限、监测与验证
 

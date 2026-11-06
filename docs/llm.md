@@ -7,12 +7,13 @@ HTTP 请求一律走自研 HTTP 客户端（`net/http/client.py`，TLS 校验证
 
 | 变量 | 说明 |
 | --- | --- |
+| `GLEANER_LLM_ENABLED` | 启用开关，`1`／`true`／`yes` 才启用；默认关闭（决策 D25：具备模型配置不代表自动启用） |
 | `GLEANER_LLM_BASE_URL` | 服务商接口地址（不含 `/v1`）。必须是 https，本机地址（localhost / 127.0.0.1）除外，否则不启用，避免密钥明文传输 |
 | `GLEANER_LLM_MODEL` | 模型名 |
 | `GLEANER_LLM_API_KEY` | 密钥（只出现在请求头里，日志不记录） |
 | `GLEANER_LLM_PROVIDER` | `openai`（默认，`/v1/chat/completions`）或 `anthropic`（`/v1/messages`） |
 
-三项都配置才启用；没配置或调用失败时一律使用规则提取（`core/extract.py`），对用户没有任何影响。
+打开开关且三项都配置才启用（测试 `test_llm_is_off_unless_explicitly_enabled`）；未启用或调用失败时一律使用规则提取（`core/extract.py`），对用户没有任何影响。
 
 ## 2. 什么时候调用
 

@@ -34,6 +34,7 @@ async def test_openai_compatible_call_and_fallback(monkeypatch):
 
     srv = HTTPServer(router, ServerConfig(host="127.0.0.1", port=0))
     await srv.start()
+    monkeypatch.setenv("GLEANER_LLM_ENABLED", "1")
     monkeypatch.setenv("GLEANER_LLM_API_KEY", "sk-test")
     monkeypatch.setenv("GLEANER_LLM_MODEL", "some-model")
     monkeypatch.setenv("GLEANER_LLM_BASE_URL", f"http://127.0.0.1:{srv.port}/v1")
@@ -104,6 +105,7 @@ def ok(title, summary):
 
 
 def configure(monkeypatch, port, provider="openai"):
+    monkeypatch.setenv("GLEANER_LLM_ENABLED", "1")
     monkeypatch.setenv("GLEANER_LLM_API_KEY", "sk-test")
     monkeypatch.setenv("GLEANER_LLM_MODEL", "m")
     monkeypatch.setenv("GLEANER_LLM_BASE_URL", f"http://127.0.0.1:{port}")
@@ -176,6 +178,7 @@ async def test_circuit_breaker_and_cache(monkeypatch):
 
 
 async def test_plain_http_base_refused_and_anthropic(monkeypatch):
+    monkeypatch.setenv("GLEANER_LLM_ENABLED", "1")
     monkeypatch.setenv("GLEANER_LLM_API_KEY", "k")
     monkeypatch.setenv("GLEANER_LLM_MODEL", "m")
     monkeypatch.setenv("GLEANER_LLM_BASE_URL", "http://llm.example.com")
@@ -227,3 +230,16 @@ async def test_pipeline_skips_llm_for_unchanged_items(tmp_path, monkeypatch):
         )
         assert len(f.requests) == 2  # 正文变了才重新摘要
         await db.close()
+
+
+def test_llm_is_off_unless_explicitly_enabled(monkeypatch) -> None:
+    """决策 D25：配齐三项也不自动启用，必须 GLEANER_LLM_ENABLED=1。"""
+    monkeypatch.setenv("GLEANER_LLM_API_KEY", "sk-test")
+    monkeypatch.setenv("GLEANER_LLM_MODEL", "m")
+    monkeypatch.setenv("GLEANER_LLM_BASE_URL", "https://llm.example.com")
+    monkeypatch.delenv("GLEANER_LLM_ENABLED", raising=False)
+    assert not Summarizer().enabled
+    monkeypatch.setenv("GLEANER_LLM_ENABLED", "0")
+    assert not Summarizer().enabled
+    monkeypatch.setenv("GLEANER_LLM_ENABLED", "1")
+    assert Summarizer().enabled

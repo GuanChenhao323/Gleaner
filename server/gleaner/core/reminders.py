@@ -8,7 +8,7 @@ import time
 from typing import Any
 
 from ..mailsvc.sender import send_platform_mail
-from ..storage.db import Database
+from ..storage.db import Database, loads
 from .extract import TZ
 from .pipeline import Pipeline, item_public
 
@@ -21,17 +21,27 @@ async def send_due_reminders(db: Database, pipe: Pipeline, now: float | None = N
     now = now or time.time()
     sent = 0
     rows = await db.fetch(
-        """SELECT i.*, s.user_id AS uid, st.todo_status, st.deadline_override, st.hidden FROM items i
+        """SELECT i.*, s.user_id AS uid, st.todo_status, st.deadline_override, st.hidden, e.value AS edited_deadline
+           FROM items i
            JOIN subscriptions s ON s.source_id = i.source_id
            LEFT JOIN user_item_state st ON st.user_id = s.user_id AND st.item_id = i.id
-           WHERE i.deleted = 0 AND i.deadline_at IS NOT NULL AND i.deadline_at > ? AND i.deadline_at < ?""",
+           LEFT JOIN user_item_edits e ON e.user_id = s.user_id AND e.item_id = i.id AND e.field = 'deadline_at'
+           WHERE i.deleted = 0 AND (e.value IS NOT NULL
+                 OR (i.deadline_at IS NOT NULL AND i.deadline_at > ? AND i.deadline_at < ?))""",
         now,
         now + 24 * 3600 + 60,
     )
     for r in rows:
         if r.get("todo_status") == "done" or r.get("hidden"):
             continue
-        deadline = float(r.get("deadline_override") or r["deadline_at"])
+        # 用户改过截止时间以修改为准（决策 D22）；用户确认“没有截止时间”就不提醒
+        if r.get("edited_deadline") is not None:
+            edited = loads(r["edited_deadline"], None)
+            if not isinstance(edited, int | float):
+                continue
+            deadline = float(edited)
+        else:
+            deadline = float(r.get("deadline_override") or r["deadline_at"])
         left = deadline - now
         for kind, window in WINDOWS:
             if left > window or left <= 0:

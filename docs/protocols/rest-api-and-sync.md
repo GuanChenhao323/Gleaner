@@ -31,10 +31,13 @@
 | PUT | /api/me/password | `{old_password, new_password}`；其他设备全部退出，返回当前设备的新令牌 |
 | GET / DELETE | /api/me/sessions · /api/me/sessions/{id} | 已登录设备列表（标出当前设备）/ 吊销某个设备 |
 | DELETE | /api/account | 删除账号与全部数据（请求体 `{password}` 再次确认；含磁盘上的传输文件与 Broker 会话） |
-| GET | /api/feed?cursor=&kind=&filter=&q=&limit= | 收件箱，键集分页（cursor = `排序时间:id`） |
+| GET | /api/feed?cursor=&kind=&filter=&q=&limit=&type=&status=&origin= | 收件箱，键集分页（cursor = `排序时间:id`）；`type` 待办／日程／通知、`status` 处理状态、`origin=capture` 只看插件采集（[IC-002](../architecture/IC-002-backend-to-workbench.md)） |
 | GET | /api/sync?cursor= | seq 大于 cursor 的投递，每次最多 500 条 |
-| GET | /api/items/{id} · /versions | 详情（含正文）、修改历史 |
-| PUT | /api/items/{id}/state | 已读 / 收藏 / 待办 / 隐藏 / 修正截止 / 备注（`Idempotency-Key`；同一个键换了内容返回 422 `idempotency_mismatch`） |
+| GET | /api/items/{id} · /versions | 详情（含正文、生效值、`fields` 修改明细与 `conflicts`、`monitor` 监测状态）、来源版本（含每版 `snapshot`） |
+| PATCH | /api/items/{id}/fields | 修改字段 `{set: {...}, reset: [...]}`，与来源版本分开保存（决策 D22） |
+| POST | /api/items/{id}/fields/resolve | 处理冲突 `{field, keep: "mine" \| "source"}`；没有冲突 409 `no_conflict` |
+| PUT | /api/items/{id}/monitor | `{enabled}` 开关事项监测；不支持监测 409 `unsupported` |
+| PUT | /api/items/{id}/state | 已读 / 收藏 / 待办（或 `done`）/ 日程归档 `archived` / 隐藏 / 修正截止 / 备注（`Idempotency-Key`；同一个键换了内容返回 422 `idempotency_mismatch`） |
 | POST | /api/state/batch | 离线操作队列按顺序回放；每条单独返回 `status`，坏操作不影响其他操作；超过 500 条时 `truncated: true` |
 | POST | /api/items/{id}/feedback | “不重要”：降低来源权重 |
 | GET | /api/deadlines?from=&to= | 日历数据 |
@@ -43,7 +46,9 @@
 | GET / POST | /api/sources | 我的来源（含状态、304 命中率）/ 添加（模板或自定义网址，可 `via_agent`；复用已有公共来源时 `reused: true`；每人最多 200 个） |
 | POST | /api/sources/preview | 首次采集预览（不保存）；失败 422，`error` 为 `fetch_<原因>`（内网地址为 `fetch_blocked`） |
 | PUT / DELETE | /api/sources/{id} | 权重、静音、名称 / 取消订阅 |
-| POST | /api/clips | 浏览器插件“保存到收件箱”：`{url, title, text}`，进入个人来源“网页收藏”；同一网址再存记新版本（旧接口；当前多事项选择流程的迁移差距见 [插件说明](../browser-extension.md)） |
+| POST | /api/captures | 插件批量保存同页多条事项 `{page, items[]}`，身份 = 页面网址 + `locator`，逐条返回 `new`／`changed`／`unchanged`／`error`，全部成功才 `ok: true`（[IC-001](../architecture/IC-001-extension-to-backend.md)） |
+| GET / POST | /api/monitor/due · /api/monitor/results | 插件领取到期的监测任务（租用 5 分钟）/ 回报重新获取的结果；失败不更新最后成功检查时间（IC-001） |
+| POST | /api/clips | 旧接口：整页保存 `{url, title, text}`，进入个人来源“网页收藏”；同一网址再存记新版本。新插件改用 `/api/captures` |
 | POST | /api/sources/{id}/login · /refresh | 登录来源（只保存会话）/ 立即检查。请求体 `{username, password}`；Moodle 还可以用 `{token}`（用户从“偏好设置 → 安全密钥”复制的 32 位密钥，用于统一认证学校：先用 `core_webservice_get_site_info` 校验，格式错 422、无效 401） |
 | POST | /api/mail/send | 经已连接邮箱发信（`Idempotency-Key`） |
 | GET | /api/mail/sent | 发信记录 |

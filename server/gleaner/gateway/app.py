@@ -124,7 +124,7 @@ class Gateway:
             resp.headers["Access-Control-Allow-Headers"] = (
                 "Authorization, Content-Type, Idempotency-Key, X-Transfer-Token, Content-Range"
             )
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
             resp.headers["Access-Control-Expose-Headers"] = "X-Request-Id, X-Upstream"
             resp.headers.add("Vary", "Origin")
         resp.headers.setdefault("X-Request-Id", req.context.get("rid", ""))

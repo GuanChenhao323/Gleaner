@@ -14,8 +14,9 @@ from typing import Any
 
 from ..obs.metrics import REGISTRY
 from ..storage.db import Database, loads
-from .changes import classify, diff
+from .changes import EVENT_FIELDS, classify, diff, diff_fields
 from .extract import TZ, extract_deadline, extract_facts
+from .itemtypes import ITEM_TYPES, default_type
 from .scoring import UserProfile, in_quiet_hours, score_item
 from .summarize import Summarizer
 
@@ -300,6 +301,15 @@ class Pipeline:
             else self.summarizer.rule(snap.get("title", ""), body)
         )
         attrs = dict(snap.get("attrs") or {})
+        # 活动时间与地点（插件或采集器给出；不确定就为空，不猜）
+        for k in EVENT_FIELDS:
+            attrs[k] = snap.get(k) if snap.get(k) not in ("", None) else None
+        hint = snap.get("item_type")
+        item_type = (
+            hint
+            if hint in ITEM_TYPES
+            else default_type(snap.get("kind", "notice"), deadline, attrs["start_at"])
+        )
         attrs.update(
             {
                 "attachments": snap.get("attachments") or [],
@@ -313,6 +323,7 @@ class Pipeline:
         )
         return {
             "kind": snap.get("kind", "notice"),
+            "item_type": item_type,
             "course": snap.get("course") or source.get("course") or "",
             "title": s.title
             if snap.get("kind") in ("notice", "mail", "rss")
@@ -332,7 +343,10 @@ class Pipeline:
         if existing and via_alias and existing["source_id"] != source["id"]:
             return await self._merge(source, existing, snap)
         if existing is None:
-            h = dedupe_hash(source["id"], snap.get("url", ""), snap.get("title", ""))
+            # 插件采集的同页多条事项可能链接、标题都相同：用身份键代替链接，免得被当成重复内容
+            h = dedupe_hash(
+                source["id"], snap.get("dedupe_url") or snap.get("url", ""), snap.get("title", "")
+            )
             if await self.db.fetchone(
                 "SELECT id FROM items WHERE content_hash = ? AND source_id = ?", h, source["id"]
             ):
@@ -389,6 +403,8 @@ class Pipeline:
             "body": existing.get("body", ""),
             "url": existing.get("url", ""),
             "course": existing.get("course", ""),
+            "item_type": existing.get("item_type") or "",
+            **{k: old_attrs.get(k) for k in EVENT_FIELDS},
         }
         new_snap = {
             "title": fields["raw_title"],
@@ -398,8 +414,11 @@ class Pipeline:
             "body": fields["body"],
             "url": fields["url"],
             "course": fields["course"],
+            "item_type": fields["item_type"],
+            **{k: fields["attrs"].get(k) for k in EVENT_FIELDS},
         }
         changed = diff(old_snap, new_snap)
+        changed.update(diff_fields(old_snap, new_snap, (*EVENT_FIELDS, "item_type")))
         if not changed and not existing.get("deleted"):
             return None
         if "title" in changed or "body" in changed:
@@ -425,7 +444,7 @@ class Pipeline:
         }
         async with self.db.transaction():  # 事项更新与新版本记录要么都写入，要么都不写
             await self.db.execute(
-                "UPDATE items SET title = ?, raw_title = ?, summary = ?, body = ?, url = ?, course = ?, deadline_at = ?, attrs = ?, version = ?, deleted = 0, updated_at = ? WHERE id = ?",
+                "UPDATE items SET title = ?, raw_title = ?, summary = ?, body = ?, url = ?, course = ?, deadline_at = ?, attrs = ?, item_type = ?, version = ?, deleted = 0, updated_at = ? WHERE id = ?",
                 fields["title"],
                 fields["raw_title"],
                 fields["summary"],
@@ -434,6 +453,7 @@ class Pipeline:
                 fields["course"],
                 fields["deadline_at"],
                 json.dumps(attrs, ensure_ascii=False, default=str),
+                fields["item_type"],
                 version,
                 now,
                 existing["id"],
@@ -693,7 +713,17 @@ def _snapshot(fields: dict[str, Any]) -> str:
     return json.dumps(
         {
             k: fields.get(k)
-            for k in ("title", "raw_title", "deadline_at", "url", "course", "summary", "attrs")
+            for k in (
+                "title",
+                "raw_title",
+                "item_type",
+                "deadline_at",
+                "url",
+                "course",
+                "summary",
+                "body",
+                "attrs",
+            )
         },
         ensure_ascii=False,
         default=str,
