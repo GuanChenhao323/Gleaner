@@ -76,7 +76,7 @@ async def _loop_every(seconds: float, fn: Callable[[], Awaitable[Any]]) -> None:
 
 async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.0.0.0") -> Running:
     db = db or await Database(cfg.db_url).connect()
-    hub = BusHub(cfg.node_id or "core")
+    hub = BusHub(cfg.node_id or "core", secret=security.bus_secret())
     run = Running("core")
 
     async def route(topic: str, payload: dict[str, Any]) -> None:
@@ -93,6 +93,7 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
     TransferService(db, cfg.data_dir, api.user_of, notify).register(router)
     agents = AgentHub(db, pipe)
     api.agent_hub = agents
+    api.collectors_online = lambda: len(hub.live_nodes("collector"))
     router.add("GET", "/agent", websocket_route(agents.on_websocket))
     router.add("GET", "/metrics", metrics_handler())
 
@@ -155,7 +156,14 @@ async def start_push(
     cfg: Config, node_id: str, port: int, db: Database | None = None, *, host: str = "0.0.0.0"
 ) -> Running:
     db = db or await Database(cfg.db_url).connect()
-    bus = BusClient(node_id, "push", cfg.bus_host, cfg.bus_port, meta={"port": port})
+    bus = BusClient(
+        node_id,
+        "push",
+        cfg.bus_host,
+        cfg.bus_port,
+        meta={"port": port},
+        secret=security.bus_secret(),
+    )
     node = PushNode(db, bus, node_id)
 
     def status() -> dict[str, Any]:
@@ -245,7 +253,9 @@ async def start_broker(cfg: Config, *, host: str = "0.0.0.0", port: int | None =
         broker2_srv = await asyncio.start_server(broker._on_conn, host, cfg.mqtt_tls_port, ssl=tls)
     else:
         broker2_srv = None
-    bus = BusClient(f"broker-{cfg.node_id}", "broker", cfg.bus_host, cfg.bus_port)
+    bus = BusClient(
+        f"broker-{cfg.node_id}", "broker", cfg.bus_host, cfg.bus_port, secret=security.bus_secret()
+    )
 
     def on_publish(topic: str, data: Any, src: str) -> None:
         import json as _json
@@ -327,7 +337,7 @@ async def start_collector(
     cfg: Config, node_id: str, db: Database | None = None, *, host: str = "0.0.0.0"
 ) -> Running:
     db = db or await Database(cfg.db_url).connect()
-    bus = BusClient(node_id, "collector", cfg.bus_host, cfg.bus_port)
+    bus = BusClient(node_id, "collector", cfg.bus_host, cfg.bus_port, secret=security.bus_secret())
 
     async def publish(msg: dict[str, Any]) -> None:
         await bus.publish("extract.result", msg)
@@ -371,7 +381,7 @@ async def start_collector(
 
 async def start_mailsvc(cfg: Config, node_id: str, db: Database | None = None) -> Running:
     db = db or await Database(cfg.db_url).connect()
-    bus = BusClient(node_id, "mail", cfg.bus_host, cfg.bus_port)
+    bus = BusClient(node_id, "mail", cfg.bus_host, cfg.bus_port, secret=security.bus_secret())
 
     async def publish(msg: dict[str, Any]) -> None:
         await bus.publish("extract.result", msg)

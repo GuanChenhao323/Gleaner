@@ -41,6 +41,9 @@ REPLAYED = REGISTRY.counter("gleaner_ws_replayed_total", "断线补发的消息�
 
 HIGH_WATER = 256 * 1024  # 发送缓冲超过此值：丢弃低优先级消息，稍后让客户端增量同步
 MAX_BUFFER = 2 * 1024 * 1024  # 仍然超过：断开慢客户端，保护整个节点
+REPLAY_MAX = (
+    500  # 断线期间积压超过此数：不在 WebSocket 上逐条补发，改让客户端走 REST 增量同步（可分页）
+)
 
 
 class Peer(Protocol):
@@ -218,6 +221,13 @@ class PushNode:
             self._gauges()
 
     async def _replay(self, conn: ClientConn, last: int) -> int:
+        backlog = await self.db.fetchval(
+            "SELECT COUNT(*) FROM deliveries WHERE user_id = ? AND seq > ?", conn.uid, last
+        )
+        if int(backlog or 0) > REPLAY_MAX:
+            # 一次补发几千条会占满发送缓冲、拖慢同节点其他用户；REST 同步按页拉取，超出保留期还会返回 reset
+            await self._send(conn, {"type": "resync_hint", "since": last}, force=True)
+            return 0
         n = 0
         while True:
             rows = await self.db.fetch(

@@ -272,6 +272,8 @@ class API:
         self.fetcher = fetcher or Fetcher(min_interval=0.2)
         self.data_dir = data_dir
         self.agent_hub: Any = None
+        # 在线采集节点数（core 内嵌 Hub 时由 services 注入）；None 表示不检查
+        self.collectors_online: Callable[[], int] | None = None
         # 防爆破：同一邮箱 15 分钟内失败 5 次封 1 分钟起（翻倍）；同一 IP 15 分钟内失败 30 次封 5 分钟起
         self.login_by_email = Throttle(limit=5, window=900, base_block=60)
         self.login_by_ip = Throttle(limit=30, window=900, base_block=300)
@@ -1490,7 +1492,19 @@ class API:
         via_agent = False
         if self.agent_hub is not None:
             via_agent = await self.agent_hub.request_fetch(user["id"], sid)
-        return Response.json_body({"ok": True, "via_agent": via_agent})
+        if not via_agent and self.collectors_online is not None and self.collectors_online() == 0:
+            # 已排队（next_fetch_at = 0），采集节点恢复后会最先检查；如实告诉用户现在没在检查。
+            # 用 202 而不是 503：网关把上游 503 计为被动健康检查失败，会误把 core 摘除
+            return Response.json_body(
+                {
+                    "ok": True,
+                    "via_agent": False,
+                    "checking": False,
+                    "message": "采集服务暂时不可用，恢复后会自动检查这个来源",
+                },
+                202,
+            )
+        return Response.json_body({"ok": True, "via_agent": via_agent, "checking": True})
 
     # ---- 邮件 ------------------------------------------------------------------
 

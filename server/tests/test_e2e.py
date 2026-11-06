@@ -664,3 +664,78 @@ async def test_browser_extension_clip_and_page_subscription(stack):
             return v if len(v) >= 2 else None
 
         await until(page_changed, 20)
+
+
+async def test_unconfirmed_ingest_is_resent(tmp_path, db_url):
+    """BUS-3：采集结果发出去了但没入库（core 宕机 / 入库失败），下一次检查不能因为内容哈希或 304 跳过。"""
+    from gleaner.collector.fetcher import Fetcher
+    from gleaner.core.pipeline import Pipeline
+    from gleaner.core.templates import TEMPLATES, render
+    from gleaner.storage.db import Database, loads
+
+    fm.STATE.__dict__.update(fm.State().__dict__)
+    srv = fm.serve(0, "127.0.0.1")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    db = await Database(db_url("hash.db")).connect()
+    fetcher = Fetcher(HTTPClient(), min_interval=0)
+    try:
+        t = render(next(t for t in TEMPLATES if t["id"] == "college_news"))
+        sid = await db.insert(
+            "sources",
+            {
+                "type": "web",
+                "name": "news",
+                "endpoint": f"http://127.0.0.1:{srv.server_address[1]}/news/",
+                "config": json.dumps(t["config"]),
+                "created_at": time.time(),
+            },
+        )
+
+        async def check() -> dict:
+            row = await db.fetchone("SELECT * FROM sources WHERE id = ?", sid)
+            return await engine.check_source(db, fetcher, row)
+
+        first = await check()
+        assert first["status"] == "ok" and first["items"] and first["content_hash"]
+        # 结果“丢了”：没有调用 ingest。内容哈希尚未确认，下一次检查必须重新发出完整结果
+        again = await check()
+        assert again["status"] == "ok" and len(again["items"]) == len(first["items"])
+        assert again["stats"]["requests"] >= 1
+        # 入库成功后确认哈希，之后内容不变就不再发
+        await Pipeline(db, lambda *_: asyncio.sleep(0)).ingest(again)
+        row = await db.fetchone("SELECT content_hash, stats FROM sources WHERE id = ?", sid)
+        assert row["content_hash"] == loads(row["stats"], {})["published_hash"]
+        assert (await check())["status"] == "not_modified"
+    finally:
+        await fetcher.close()
+        await db.close()
+        srv.shutdown()
+
+
+async def test_large_backlog_gets_resync_hint_instead_of_replay(stack, monkeypatch):
+    """断线期间积压太多时，推送节点不逐条补发，改让客户端走 REST 增量同步。"""
+    from gleaner.push import node as push_node
+
+    gw = f"http://127.0.0.1:{stack['gw'].info['port']}"
+    async with HTTPClient() as c:
+        r = await c.post(
+            gw + "/api/auth/register",
+            json_body={"email": "backlog@test.edu", "password": "password1", "agree_privacy": True},
+        )
+        token = r.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        await c.post(gw + "/api/sources", headers=auth, json_body={"template": "college_news"})
+
+        async def backlog():
+            s = (await c.get(gw + "/api/sync?cursor=0", headers=auth)).json()
+            return s if len(s["deliveries"]) >= 2 else None
+
+        await until(backlog, 20)
+    monkeypatch.setattr(push_node, "REPLAY_MAX", 1)
+    ws = await connect(f"ws://127.0.0.1:{stack['gw'].info['port']}/ws?token={token}")
+    await ws.send(json.dumps({"type": "hello", "token": token, "last_seq": 0}))
+    hint = await recv_until(ws, lambda m: m["type"] in ("resync_hint", "welcome"))
+    assert hint["type"] == "resync_hint" and hint["since"] == 0
+    welcome = await recv_until(ws, lambda m: m["type"] == "welcome")
+    assert welcome["replayed"] == 0
+    await ws.close()

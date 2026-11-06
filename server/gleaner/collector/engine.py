@@ -73,7 +73,15 @@ async def save_session(db: Database, source_id: int, user_id: int, sess: SourceS
 
 
 async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> dict[str, Any]:
-    """检查一个来源，更新抓取状态，返回发往业务服务的结果消息。"""
+    """检查一个来源，更新抓取状态，返回发往业务服务的结果消息。
+
+    内容哈希 ``sources.content_hash`` 由业务服务在入库成功后写入（见 ``Pipeline.ingest``），采集端只记
+    “已发出的哈希” ``stats.published_hash``。两者不一致说明上次的结果没有入库（core 宕机或入库失败），
+    这次就不用 HTTP 条件请求缓存、也不按哈希跳过，保证这批事项会再发一次。
+    """
+    stats0 = loads(row.get("stats"), {})
+    published = stats0.get("published_hash")
+    unconfirmed = bool(published) and published != row.get("content_hash")
     src = SourceInfo(
         id=row["id"],
         type=row["type"],
@@ -83,7 +91,7 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
         etag=row.get("etag"),
         last_modified=row.get("last_modified"),
         content_hash=row.get("content_hash"),
-        cache=loads(row.get("stats"), {}).get("http_cache", {}),
+        cache={} if unconfirmed else stats0.get("http_cache", {}),
     )
     conn = CONNECTORS.get(src.type)
     sess, cred_user = await load_session(db, src.id, row.get("owner_id"))
@@ -121,8 +129,10 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
     )
     if res.status == "need_login":
         interval = MAX_INTERVAL  # 不再反复请求，等用户重新登录
-    stats = loads(row.get("stats"), {})
+    stats = stats0
     stats["http_cache"] = src.cache
+    if res.content_hash is not None:  # 本次发出的（或与已确认相同、无需再发的）内容哈希
+        stats["published_hash"] = res.content_hash
     stats["last"] = {
         "requests": res.requests,
         "not_modified": res.not_modified,
@@ -141,7 +151,7 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
     await db.execute(
         """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? = 1 THEN ? ELSE last_success_at END,
            last_change_at = CASE WHEN ? = 1 THEN ? ELSE last_change_at END, last_error = ?, fail_count = CASE WHEN ? = 1 THEN fail_count + 1 ELSE 0 END,
-           interval_s = ?, next_fetch_at = ?, content_hash = COALESCE(?, content_hash), stats = ? WHERE id = ?""",
+           interval_s = ?, next_fetch_at = ?, stats = ? WHERE id = ?""",
         status,
         now,
         int(not failed),
@@ -152,7 +162,6 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
         int(failed),
         interval,
         now + interval * jitter,
-        res.content_hash if changed else None,
         json.dumps(stats, ensure_ascii=False, default=str),
         src.id,
     )
@@ -167,6 +176,7 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
         "error_kind": res.error_kind,
         "checked_at": now,
         "complete": res.complete,
+        "content_hash": res.content_hash if changed else None,
         "items": [i.to_dict() for i in res.items] if changed else [],
         "stats": stats["last"],
     }

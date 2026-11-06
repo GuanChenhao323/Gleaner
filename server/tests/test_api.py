@@ -432,3 +432,27 @@ async def test_put_rules_is_atomic_and_validated(stack):
         )
         assert r.status == 422
         assert len((await c.get(gw + "/api/rules", headers=auth)).json()["rules"]) == 2
+
+
+async def test_refresh_without_collector_says_so(stack):
+    """BUS-7：没有在线采集节点时“立即检查”如实告诉用户只是排队（202，checking=false），而不是假装在查。
+
+    不用 503：网关会把上游 503 计入被动健康检查，把 core 摘除。"""
+    gw = gw_of(stack)
+    api = stack["core"].info["api"]
+    async with HTTPClient() as c:
+        auth = await register(c, gw, "nocollector@test.edu")
+        sid = (
+            await c.post(gw + "/api/sources", headers=auth, json_body={"template": "college_rss"})
+        ).json()["source"]["id"]
+        assert stack["core"].info["hub"].live_nodes("collector")
+        assert api.collectors_online() >= 1
+        online = api.collectors_online
+        api.collectors_online = lambda: 0
+        try:
+            r = await c.post(gw + f"/api/sources/{sid}/refresh", headers=auth)
+            assert r.status == 202 and r.json()["checking"] is False and r.json()["message"]
+            r = await c.get(gw + "/api/sources", headers=auth)  # 网关没有因此摘除 core
+            assert r.status == 200
+        finally:
+            api.collectors_online = online

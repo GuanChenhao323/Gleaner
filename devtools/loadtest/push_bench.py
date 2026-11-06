@@ -119,7 +119,7 @@ async def measure(
     push_names = [n for n in cluster.procs if n.startswith("push")]
     cl = Clients(cluster.gateway_url, cluster.push_port(0) if direct else None)
     open_s = await cl.open(users, ramp)
-    bus = BusClient("bench", "bench", *cluster.bus)
+    bus = BusClient("bench", "bench", *cluster.bus, secret=security.bus_secret())
     bus.start()
     await bus.wait_connected()
     await asyncio.sleep(2)

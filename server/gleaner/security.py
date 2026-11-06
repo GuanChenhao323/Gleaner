@@ -28,6 +28,14 @@ def secret() -> bytes:
     return os.environ.get("GLEANER_SECRET", _DEV_SECRET).encode()
 
 
+def bus_secret() -> bytes:
+    """节点接入总线（NODE_JOIN）的认证密钥：GLEANER_BUS_SECRET，未设置时由 GLEANER_SECRET 派生。"""
+    explicit = os.environ.get("GLEANER_BUS_SECRET")
+    if explicit:
+        return explicit.encode()
+    return hmac.new(secret(), b"gleaner-bus-v1", hashlib.sha256).digest()
+
+
 def hash_password(pw: str) -> str:
     return _ph.hash(pw)
 

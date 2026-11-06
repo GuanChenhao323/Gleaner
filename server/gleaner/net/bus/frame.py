@@ -96,10 +96,17 @@ class FrameDecoder:
             del self._buf[:total]
             body = frame_bytes[HEADER.size :]
             if flags & Flags.COMPRESSED:
+                # 解压后同样受 MAX_PAYLOAD 限制：防止几 KB 的“压缩炸弹”展开成几 GB
+                d = zlib.decompressobj()
                 try:
-                    body = zlib.decompress(body)
+                    out_body = d.decompress(body, MAX_PAYLOAD + 1)
                 except zlib.error as e:
                     raise BusProtocolError("bad compressed payload") from e
+                if len(out_body) > MAX_PAYLOAD or d.unconsumed_tail:
+                    raise BusProtocolError("decompressed payload too large")
+                if not d.eof:
+                    raise BusProtocolError("bad compressed payload")
+                body = out_body
             try:
                 ft = FrameType(ftype)
             except ValueError as e:

@@ -117,8 +117,8 @@ class _SourceCard extends ConsumerWidget {
               onSelected: (v) async {
                 try {
                   if (v == 'refresh') {
-                    await api.refreshSource(s.id);
-                    if (context.mounted) toast(context, '已加入检查队列');
+                    final r = await api.refreshSource(s.id);
+                    if (context.mounted) toast(context, r['checking'] == false ? (r['message'] ?? '已排队，稍后检查').toString() : '已加入检查队列');
                   } else if (v == 'login') {
                     if (context.mounted) await showLogin(context, ref, s);
                   } else if (v == 'mute') {

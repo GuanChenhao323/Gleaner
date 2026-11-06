@@ -110,7 +110,11 @@ class Api {
       _map('POST', '/api/sources/$id/login', data: {'username': user, 'password': pw, 'smtp': ?smtp});
   /// 统一认证（CAS / SSO）的 Moodle：粘贴“偏好设置 → 安全密钥”里的密钥，不经手统一认证密码。
   Future<Map<String, dynamic>> sourceLoginToken(int id, String token) => _map('POST', '/api/sources/$id/login', data: {'token': token});
-  Future<void> refreshSource(int id) => _req('POST', '/api/sources/$id/refresh');
+  /// 立即检查。返回服务端说明：采集服务不在线时 checking=false，只是排队。
+  Future<Map<String, dynamic>> refreshSource(int id) async {
+    final b = await _req('POST', '/api/sources/$id/refresh');
+    return b is Map ? Map<String, dynamic>.from(b) : const {};
+  }
 
   // ---- 邮件 ----
   Future<Map<String, dynamic>> sendMail(Map<String, dynamic> body, String key) => _map('POST', '/api/mail/send', data: body, headers: {'Idempotency-Key': key});

@@ -188,6 +188,11 @@ class Pipeline:
                 counts[kind] += 1
         if msg.get("complete"):
             counts["removed"] = await self._detect_removed(source, seen)
+        if isinstance(msg.get("content_hash"), str):
+            # 全部写入成功才确认内容哈希；中途失败或 core 宕机时采集端下次会重发（见 check_source）
+            await self.db.execute(
+                "UPDATE sources SET content_hash = ? WHERE id = ?", msg["content_hash"], sid
+            )
         return counts
 
     @contextlib.asynccontextmanager
