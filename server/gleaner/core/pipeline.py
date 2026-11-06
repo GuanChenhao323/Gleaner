@@ -267,7 +267,10 @@ class Pipeline:
                 ), True
         return None, False
 
-    async def _enrich(self, source: dict[str, Any], snap: dict[str, Any]) -> dict[str, Any]:
+    async def _enrich(
+        self, source: dict[str, Any], snap: dict[str, Any], *, use_llm: bool = True
+    ) -> dict[str, Any]:
+        """抽取截止时间、事实与摘要。``use_llm=False`` 时只用规则（已有事项先比较内容，变了才调大模型）。"""
         body = snap.get("body") or ""
         published = snap.get("published_at")
         deadline = snap.get("deadline_at")
@@ -288,8 +291,8 @@ class Pipeline:
                 deadline, dl_text = m.at.timestamp(), m.text
         s = (
             await self.summarizer.summarize(snap.get("title", ""), body)
-            if snap.get("kind") != "teacher"
-            else self.summarizer.rule(snap["title"], body)
+            if use_llm and snap.get("kind") != "teacher"
+            else self.summarizer.rule(snap.get("title", ""), body)
         )
         attrs = dict(snap.get("attrs") or {})
         attrs.update(
@@ -298,6 +301,7 @@ class Pipeline:
                 "requirements": snap.get("requirements") or "",
                 "facts": extract_facts(f"{snap.get('title', '')} {body}"),
                 "summary_by": s.by,
+                "summary_model": s.model,
                 "deadline_text": dl_text,
                 "channels": [source["type"]],
             }
@@ -368,8 +372,9 @@ class Pipeline:
             if fields["kind"] != "teacher":
                 await self._fanout(source, row, kind="item")
             return "new"
-        # 已有事项：逐字段比较
-        fields = await self._enrich(source, snap)
+        # 已有事项：先只用规则抽取并逐字段比较，内容没变就不调大模型（以前每次来源变化都会给
+        # 全部未变的事项重新摘要，结果随即丢弃）
+        fields = await self._enrich(source, snap, use_llm=False)
         old_attrs = loads(existing.get("attrs"), {})
         old_snap = {
             "title": existing["raw_title"] or existing["title"],
@@ -392,6 +397,16 @@ class Pipeline:
         changed = diff(old_snap, new_snap)
         if not changed and not existing.get("deleted"):
             return None
+        if "title" in changed or "body" in changed:
+            # 标题或正文变了：重新摘要（大模型可用时用大模型）
+            fields = await self._enrich(source, snap)
+        else:
+            # 只有截止时间、附件等变化：保留原来的标题与摘要（可能是大模型生成的）
+            fields["title"] = existing["title"]
+            fields["summary"] = existing.get("summary", fields["summary"])
+            for k in ("summary_by", "summary_model"):
+                if k in old_attrs:
+                    fields["attrs"][k] = old_attrs[k]
         important, note = classify(changed) if changed else (False, "重新出现")
         version = int(existing["version"]) + 1
         attrs = {
