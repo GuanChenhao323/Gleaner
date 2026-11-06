@@ -1,29 +1,29 @@
-# 里程碑计划与状态
+# 当前里程碑与验收状态
 
-按约定原本“一次只做一个里程碑”；本轮按组长要求一次性实现了 P0、P1、P2 与全部核心技术模块，
-因此下面每个里程碑都标为 **已实现 · 待组内验收**，验收时请按“验收方式”逐项确认后改为“已完成”。
+更新：2026-11-03。产品范围唯一依据为 [产品定义](product-definition.md)，课程交付依据为 [项目提案](proposal.md)。旧 M1–M12、旧 P0/P1/P2 及测试数量见 [历史记录](archive/milestones-before-2026-11-03.md)，不沿用为当前产品完成状态。
 
-状态说明：✅ 已完成 · 🟡 已实现待验收 · ⏳ 未开始 · ⚠️ 部分完成（见备注）
+## 产品实施计划
 
-| # | 里程碑 | 内容 | 状态 | 验收方式 |
+状态“待核验”表示已有相关实现，但尚未按新基线逐项审计；不等同于未开始，也不等同于已实现。负责人及日期待团队排期。本次文档统一没有运行产品验收。
+
+| 编号 | 交付关口 | 对应需求 | 现状与下一步 | 验收证据要求 |
 | --- | --- | --- | --- | --- |
-| M1 | 协议基础 | HTTP/1.1 服务端与客户端（chunked、keep-alive、条件请求、Range）、WebSocket、内部二进制总线、Prometheus 指标 | 🟡 | `pytest tests/test_http.py tests/test_websocket.py tests/test_bus.py`；与 requests / websockets 库互通 |
-| M2 | MVP（P0） | 账号、校园模板、网页 / RSS 采集与变化监测、统一收件箱、WebSocket 实时推送与未读同步、来源状态 | 🟡 | `pytest tests/test_e2e.py -k notices`；`python devtools/dev_all.py --seed` 后浏览器走一遍 |
-| M3 | Moodle 与变更跟随（P1） | 来源登录与会话（只存会话）、Moodle Web Service + 网页解析、作业列表与日历、事项版本与重要变更、截止抽取与提醒 | 🟡 | `test_full_demo_path`；fake_moodle 管理台“提前 2 天” |
-| M4 | 推送可靠性（P1） | 推送节点手写反应器（epoll/select）、MQTT 3.1.1 Broker（QoS 0/1、持久会话、保留、ACL、WebSocket 传输）、断线补发、故障转移、离线缓存与操作回放 | 🟡 | `pytest tests/test_mqtt.py`；e2e 中结束推送节点后重连补发 |
-| M5 | 邮件（P1） | IMAP IDLE、POP3、SMTP STARTTLS 发信（附件、防重复）、跨渠道合并 | 🟡 | `pytest tests/test_mail.py`；`test_mail_merge_and_send` |
-| M6 | 个性化与看板（P1） | 规则打分与分级推送、免打扰、每日摘要、不重要反馈、自定义看板 | 🟡 | `pytest tests/test_core.py`；客户端看板编辑 |
-| M7 | P2 加分项 | 课程与教师信息、大模型摘要（可选）、扫码传输（分块、断点续传、校验）、本地采集代理、自研 DNS | 🟡 | `test_transfer_chunked_resume_and_range`、`test_local_agent_long_connection`、`test_dns.py` |
-| M8 | 部署与运维 | Docker Compose、Prometheus + Grafana 面板与告警、CI、HTTPS / MQTT TLS | 🟡 | `docker compose --profile dev up -d --build` 后 `python devtools/compose_demo.py` 全部通过（PostgreSQL、GreenMail 实测）；HTTPS 证书与 CI 部署待云服务器 |
-| M9 | 评估 | Autobahn、5000 连接压测、对比实验 1–5、故障注入、Wireshark 抓包 | ⚠️ | Windows 与 Linux（WSL 2）数据齐全：select/epoll 曲线、反应器 5000 连接、tc netem、网关多 worker，见 docs/evaluation；官方 Autobahn 已通过（asyncio 版 0 失败）；跨机器扩容、抓包待补 |
-| M10 | 上线与用户 | 云服务器、域名证书、内测、≥ 50 名真实用户、SUS 问卷 | ⏳ | — |
-| M11 | 真实平台接入 | 先接 MUST Moodle（授权登记 → 探测 → 本人登录 → 适配解析 → 24 小时验收）；之后接飞书国际版 Lark | 🟡 | MUST 已授权并完成探测（统一认证 CAS，需选登录方案）；见 `docs/integrations/must-moodle.md` |
-| M12 | 浏览器插件 | Chrome / Edge 插件：保存当前页面到收件箱、订阅页面更新（整页监测 / RSS） | 🟡 | 服务端与插件已实现并用测试页验证；待在真实 Chrome / Edge 里加载试用；见 `docs/browser-extension.md` |
+| R0 | 来源、首发平台和质量基线 | 第 9 节、Spike 01/02 | 待确认：列明页面类型、采集／监测能力、样例、平台和提取质量阈值 | 支持矩阵、程序方案测试结果；效果不足时记录 LLM 评估结论 |
+| R1 | 选择采集与结构化保存 | F01–F04、US01–US04 | 待核验：已有剪藏接口与解析逻辑；需核对同页多事项勾选、三类分类、失败反馈与持久化 | 场景 A；未选内容不保存、后端不可用不报成功、缺失字段不编造 |
+| R2 | 管理、身份与来源追溯 | F04–F06、US04–US06 | 待核验：已有 Flutter 和事项状态逻辑；需核对新类型、状态、字段编辑与事项级去重 | 场景 C；同 URL 多事项、重复采集、用户修改及重启保留 |
+| R3 | 有条件的主动变化监测 | F07–F09、US07–US09 | 待核验：已有采集与版本模块；需验证关掉目标标签页后的重新获取及运行恢复 | 场景 B；新旧版本、差异、最后成功检查时间、认证过期和网络失败 |
+| R4 | 当前 MVP 综合验收 | 全部 P0、场景 A/B/C | 待 R0–R3 证据齐全；旧演示通过不能替代 | 本地约定环境稳定复现三场景；真实页面按授权单独验证 |
 
-## 当前测试基线（2026-10-22）
+P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
 
-- 服务端：`pytest` 151 项通过、2 项跳过（跳过的是需要 PostgreSQL 的 `test_storage_pg.py`）；Windows 与 Linux / WSL 2 各跑一遍；`ruff check`、`ruff format --check` 通过。
-- PostgreSQL：`GLEANER_TEST_PG=postgresql://… pytest tests/test_core.py tests/test_e2e.py tests/test_mail.py tests/test_storage_pg.py` 40 项通过。
-- compose：`docker compose -f deploy/docker-compose.yml --profile dev up -d --build` 后 `python devtools/compose_demo.py` 全部步骤通过。
-- 客户端：`flutter analyze` 无问题；`flutter test` 6 项通过；`flutter build web --release` 成功。
-- 端到端：同进程组合 fake_moodle + 业务 + 2 个推送节点 + 网关 + Broker + 采集 + 邮件服务，覆盖三个演示时刻。
+## 课程技术交付状态
+
+| 对应交付 | 既有证据位置 | 当前处理 |
+| --- | --- | --- |
+| C01–C04 | `docs/protocols/`、历史 M1/M3–M7/M12、仓库测试 | 保留历史实现声明；按模块复核，不重复标成未实现；复用到产品需单独验收 |
+| C03/C05 性能与故障评估 | `docs/evaluation/`、历史 M9 | 保留已记录结果；跨机器扩容、抓包等缺口继续单独跟踪 |
+| C05 部署与用户 | 历史 M8/M10 | 云证书、CI 部署、真实用户仍有未完成项；课程要求调整待组长与老师确认 |
+
+## 状态更新规则
+
+每次推进记录：需求编号、改动位置、执行命令或手动步骤、环境、实际结果和未解决问题。只有对应验收标准满足且证据可复现时，才标为已完成；测试通过时间必须写明，不把历史结果当成本轮结果。

@@ -1,6 +1,6 @@
 # 跨设备扫码传输 与 本地采集代理
 
-## 一、扫码传输（P2）
+## 一、扫码传输（课程技术模块）
 
 实现：`server/gleaner/transfer/service.py`、`client/lib/features/transfer/transfer_page.dart`。
 测试：`server/tests/test_core.py::test_transfer_chunked_resume_and_range`。
@@ -21,7 +21,7 @@
 - 只接受从已接收位置继续的块：起点不等于已接收字节数时返回 409 与当前进度；重复的旧块幂等忽略。
 - 单文件上限 512 MiB；文件名取 basename 防路径穿越。
 
-## 二、本地采集代理（P2）
+## 二、本地采集代理（课程技术模块）
 
 实现：`agent/gleaner_agent.py`（代理）、`server/gleaner/core/agent_hub.py`（云端入口）、网关 `/agent` 转发。
 测试：`server/tests/test_e2e.py::test_local_agent_long_connection`。
