@@ -89,7 +89,7 @@ flowchart TB
 
 网络安全门槛：对远端目标与**每一次重定向**都检查授权域名/路径、DNS 解析地址、TLS 主机名与私网地址限制；统一处理 Robots / 站点接入约束；包括 robots、重定向、重试在内的所有请求必须计入限流预算。当前仓库部分 Cookie Domain、`Retry-After` 与跳转限流行为需要在实施时加强。
 
-按仓库 `CLAUDE.md`，服务端生产代码应复用 `server/gleaner/net/http/`，不得引入 `requests`、`httpx`、`aiohttp`、FastAPI 等替代已有自研协议组件。V1 不增加用于远端保活的 WebSocket、MQTT Broker，也不另建分布式监测集群。
+暂时不按仓库 `CLAUDE.md`，服务端生产代码不复用 `server/gleaner/net/http/`，优先使用现成的网络库完成次功能。
 
 技术参考：[R1 RFC 6265（Cookie）](https://www.rfc-editor.org/rfc/rfc6265.html)、[R2 Chrome cookies API](https://developer.chrome.com/docs/extensions/reference/api/cookies)、[R3 Chrome alarms 与 MV3 生命周期](https://developer.chrome.com/docs/extensions/reference/api/alarms)。
 
