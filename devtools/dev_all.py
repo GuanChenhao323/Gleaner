@@ -36,7 +36,9 @@ os.environ.setdefault("GLEANER_HOST_INTERVAL", "0.1")
 os.environ.setdefault("GLEANER_DB", f"sqlite:///{ROOT / 'data' / 'dev.db'}")
 os.environ.setdefault("GLEANER_DATA_DIR", str(ROOT / "data"))
 os.environ.setdefault("GLEANER_STATIC_DIR", str(ROOT / "client" / "build" / "web"))
-os.environ.setdefault("GLEANER_CORS_ORIGINS", "*")
+# 本地后端只接受本机来源与本机 Host（防 DNS 重绑定，IC-003 §3.1）；flutter run 的端口不固定
+os.environ.setdefault("GLEANER_CORS_ORIGINS", "http://localhost:*,http://127.0.0.1:*")
+os.environ.setdefault("GLEANER_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
 # 本地开发连 127.0.0.1 上的 fake_moodle 与假邮件服务器：允许内网地址（生产环境默认禁止，防 SSRF）
 os.environ.setdefault("GLEANER_EGRESS_ALLOW_PRIVATE", "1")
 # 平台发信账号（注册验证码、每日摘要邮件）：开发期发到假邮件服务器

@@ -45,8 +45,26 @@ HEAD ──Content-Length──▶ BODY_LENGTH ──读满──▶ HEAD
 - 连接超时与读取超时分开；错误分类：`connect` / `timeout` / `dns` / `tls` / `protocol`。
 - 复用的空闲连接可能已被对端关闭（没收到任何响应字节就 EOF）：幂等方法自动换新连接重试一次。
 - 自动处理 1xx、重定向（301/302/303 POST→GET）、gzip / deflate、Cookie Jar（RFC 6265 子集）。
+- 重定向到别的源（协议、主机或端口不同）时，去掉调用方显式给的 `Authorization`、`Proxy-Authorization`、`Cookie`（RFC 9110 §15.4）。
+- Cookie Jar 按 RFC 6265 §5.3 存储模型校验（`net/http/cookies.py`）：
+  - `Domain` 必须与请求主机域匹配（§5.1.3），不接受顶级域或单标签域，IP 地址只能是 host-only；
+  - 明文响应不能设置或覆盖 `Secure` Cookie（RFC 6265bis）；名称为空、含控制字符的整条忽略；
+  - 默认路径与路径匹配按 §5.1.4；`Max-Age` 不合法时忽略、≤ 0 立即删除；保存 `SameSite`；
+  - 每个域最多 50 条、总数最多 3000 条，超出淘汰最早创建的（§6.1）。
+
+### 采集抓取器（`collector/fetcher.py`）
+
+- 重定向由抓取器逐跳跟随（最多 5 跳）：robots.txt、每一跳、每一次重试都经过同一个按主机限速器（同一主机两次请求开始时间至少间隔 `GLEANER_HOST_INTERVAL` 或 Crawl-delay）。
+- robots.txt 按 RFC 9309：连续 user-agent 行组成一组，有本程序（gleaner）的组只用它，否则用 `*` 组；支持 `Allow`、`*` 与结尾 `$`，取最长匹配，等长时 Allow 优先；4xx 视为不限制，5xx 或网络错误视为全部禁止（5 分钟后重取）。
+- `Retry-After`（RFC 9110 §10.2.3）支持秒数与 HTTP-date。不超过 30 秒就在本次检查里等够再重试；更长则记为该主机的最早访问时间，并把等待时间交给采集调度，来源的下次检查不早于它。
+- 测试：`tests/test_fetch_compliance.py`。
 - 可注入自研 DNS 解析器（`GLEANER_USE_OWN_DNS=1`）。
 - 统计 `connections_opened` / `connections_reused`，用于“有无连接池”对比实验。
+
+## 3.1 网关的本地访问控制
+
+- `GLEANER_ALLOWED_HOSTS`（逗号分隔，不含端口）：设置后网关只接受这些 `Host`，其他返回 400 `bad_host`。本地后端用它防 DNS 重绑定（恶意网页把自己的域名解析到 127.0.0.1）。`devtools/dev_all.py` 默认 `localhost,127.0.0.1,[::1]`；compose 部署按实际域名配置，未设置时不检查。
+- `GLEANER_CORS_ORIGINS`：来源白名单；`http://localhost:*` 这样以 `:*` 结尾的项放行该主机任意端口（`flutter run` 端口不固定）。`dev_all.py` 默认只放行本机来源，不再用 `*`。
 
 ## 4. 条件请求与 Range（RFC 9110 §13、§14）
 

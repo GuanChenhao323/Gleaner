@@ -72,6 +72,7 @@ class FetchResult:
     requests: int = 0
     not_modified: int = 0
     bytes: int = 0
+    retry_after: float | None = None  # 服务端要求的最短等待（Retry-After），下次检查不早于此
 
 
 class Context:

@@ -429,6 +429,7 @@ async def start_gateway(
         trust_proxy=cfg.trust_proxy,
         mqtt=mqtt,
         cors_origins=tuple(o.strip() for o in cfg.cors_origins.split(",") if o.strip()),
+        allowed_hosts=tuple(h.strip() for h in cfg.allowed_hosts.split(",") if h.strip()),
     )
     core.start()
     push.start()

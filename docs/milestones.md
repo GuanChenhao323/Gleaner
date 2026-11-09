@@ -21,6 +21,13 @@
 - 验证（Windows 11，Python 3.14，SQLite）：`pytest -q` 192 passed、3 skipped；`ruff check .`、`ruff format --check .` 通过。PostgreSQL 16（WSL Docker，Python 3.12）：数据库相关测试 68 passed。新增测试 `tests/test_captures.py`。
 - 未完成：插件改用新接口、各页面 `locator` 取法与后台监测调度（插件负责人，Spike 01／02）；工作台按类型、状态、冲突与监测状态展示（工作台负责人）；分类规则替换（分类负责人）。在这些完成前，R1–R3 仍为“待核验”，场景 A／B／C 没有端到端运行。
 
+### 2026-11-09 · 通信层补强（IC-003 后端部分前置条件）
+
+- 依据：IC-003 第 3.1 节（本地控制接口的 Host／CORS 校验）与第 10 节列出的复用门槛；对应课程交付 C01。
+- 改动：Cookie Jar 按 RFC 6265 §5.3 校验 Domain、Secure 与数量上限；HTTP 客户端跨源重定向不转发凭证；抓取器逐跳重定向限速、RFC 9309 robots.txt、Retry-After 支持 HTTP-date 且不截短；网关 `GLEANER_ALLOWED_HOSTS` 与按端口通配的 CORS 白名单。
+- 验证（Windows 11，Python 3.14）：`pytest -q` 202 passed、3 skipped（另加网关实测用例后 `tests/test_fetch_compliance.py` 11 passed）；ruff 通过；PostgreSQL 16 数据库相关测试 68 passed。本机已有另一套环境占用 1883／8080，`dev_all.py` 没有完整重启验证，Host 校验以测试中的真实网关验证。
+- 未完成：IC-003 的监测模块（A）本身、Cookie 导入的站点白名单；`architecture.md` 与 `CLAUDE.md` 的库使用冲突待确认（Q09）。
+
 P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
 
 ## 课程技术交付状态

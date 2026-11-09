@@ -153,7 +153,11 @@ class HTTPClient:
                 if len(history) >= max_redirects:
                     raise HTTPError("protocol", "too many redirects")
                 history.append(url)
-                url = urljoin(url, resp.headers["Location"])
+                new_url = urljoin(url, resp.headers["Location"])
+                if _origin(new_url) != _origin(url) and headers:
+                    # 跳到别的源：不把调用方显式给的凭证带过去（RFC 9110 §15.4 安全考虑）
+                    headers = _without_credentials(headers)
+                url = new_url
                 if resp.status == 303 or (resp.status in (301, 302) and method == "POST"):
                     method, body = "GET", b""
                 continue
@@ -228,7 +232,7 @@ class HTTPClient:
                 break
         if cookies is not None:
             for sc in resp.headers.get_all("Set-Cookie"):
-                cookies.set_from_header(sc, host, parts.path or "/")
+                cookies.set_from_header(sc, host, parts.path or "/", scheme == "https")
         enc = resp.headers.get("Content-Encoding", "").lower()
         if enc in ("gzip", "x-gzip") and resp.body:
             try:
@@ -326,3 +330,16 @@ class HTTPClient:
                 )
             if not data:
                 raise HTTPError("protocol", "incomplete response")
+
+
+_CREDENTIAL_HEADERS = ("authorization", "proxy-authorization", "cookie")
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    p = urlsplit(url)
+    scheme = p.scheme.lower()
+    return scheme, (p.hostname or "").lower(), p.port or (443 if scheme == "https" else 80)
+
+
+def _without_credentials(headers: dict[str, str] | Headers) -> Headers:
+    return Headers((k, v) for k, v in headers.items() if k.lower() not in _CREDENTIAL_HEADERS)

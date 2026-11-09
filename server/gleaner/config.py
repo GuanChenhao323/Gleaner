@@ -33,6 +33,7 @@ class Config:
         default_factory=lambda: _env("GLEANER_MQTT_WS_UPSTREAM", "broker=127.0.0.1:8083")
     )
     cors_origins: str = field(default_factory=lambda: _env("GLEANER_CORS_ORIGINS", ""))
+    allowed_hosts: str = field(default_factory=lambda: _env("GLEANER_ALLOWED_HOSTS", ""))
     mqtt_tls_port: int = field(default_factory=lambda: int(_env("GLEANER_MQTT_TLS_PORT", "0")))
     core_upstreams: str = field(
         default_factory=lambda: _env("GLEANER_CORE_UPSTREAMS", "core-1=127.0.0.1:8081")

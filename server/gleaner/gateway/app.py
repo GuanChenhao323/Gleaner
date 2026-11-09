@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from .. import security
 from ..net.egress import is_public
@@ -70,6 +71,27 @@ def client_ip(req: Request, trust_proxy: bool) -> str:
     return req.peer[0] if req.peer else "?"
 
 
+def _origin_allowed(origin: str, allowed: tuple[str, ...]) -> bool:
+    """CORS 来源白名单。``*`` 放行所有来源；``http://localhost:*`` 这样以 ``:*`` 结尾的项放行该主机的任意端口。"""
+    if origin in allowed or "*" in allowed:
+        return True
+    p = urlsplit(origin)
+    if not p.scheme or not p.hostname:
+        return False
+    return f"{p.scheme}://{p.hostname}:*" in allowed
+
+
+def _host_allowed(host_header: str, allowed: tuple[str, ...]) -> bool:
+    if not allowed:
+        return True
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        host = host[: host.find("]") + 1]
+    else:
+        host = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return host in allowed
+
+
 class Gateway:
     def __init__(
         self,
@@ -82,11 +104,14 @@ class Gateway:
         trust_proxy: bool = False,
         mqtt: UpstreamPool | None = None,
         cors_origins: tuple[str, ...] = (),
+        allowed_hosts: tuple[str, ...] = (),
     ) -> None:
         self.core = core
         self.push = push
         self.mqtt = mqtt
         self.cors_origins = cors_origins
+        # 本地后端防 DNS 重绑定：设置后只接受这些 Host（不含端口，小写）；空表示不检查
+        self.allowed_hosts = tuple(h.lower() for h in allowed_hosts)
         self.client = HTTPClient(
             connect_timeout=2.0, read_timeout=30.0, per_host_limit=64, total_limit=512
         )
@@ -110,9 +135,13 @@ class Gateway:
         t0 = time.perf_counter()
         route = "api" if req.path.startswith("/api/") else "ws" if req.path == "/ws" else "static"
         origin = req.headers.get("Origin")
-        allow_origin = (
-            origin if origin and (origin in self.cors_origins or "*" in self.cors_origins) else None
-        )
+        allow_origin = origin if origin and _origin_allowed(origin, self.cors_origins) else None
+        if not _host_allowed(req.headers.get("Host", ""), self.allowed_hosts):
+            # 恶意网页把自己的域名解析到 127.0.0.1 时，Host 是它的域名：拒绝（IC-003 §3.1）
+            resp = Response.error(400, "Host 不在允许列表中", "bad_host")
+            resp.headers["Cache-Control"] = "no-store"
+            REQS.inc(1, route, "400")
+            return resp
         if allow_origin and req.method == "OPTIONS":
             # CORS 预检：开发时 flutter run -d chrome 与网关不同源
             resp = Response(204)

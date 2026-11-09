@@ -231,6 +231,12 @@ HTTP keep-alive 仅复用 TCP 连接；应用会话由服务器和 Cookie 共同
 - 当前 robots 获取及 HTTP 客户端内部重定向不由同一个 Fetcher 外层限速循环逐跳管理；新执行器必须统一约束每次请求。
 - 既有 CookieJar 为 RFC 子集，未实现浏览器分区语义；V1 明确拒绝分区 Cookie，不声称通用浏览器会话兼容。
 
+2026-11-09 后端（C）已处理前三项，测试见 `server/tests/test_fetch_compliance.py`：
+- Cookie Domain 必须与请求主机域匹配，拒绝顶级域、IP 上级域、明文响应设置或覆盖 Secure Cookie、控制字符；每域 50 条、总数 3000 条上限；保存 SameSite。**站点白名单**（只接受适配器登记的 Cookie 名与主机）属于监测模块 A 的导入校验，仍待实现。
+- `Retry-After` 支持秒数与 HTTP-date；超过 30 秒不再截短，记为该主机的 `not_before` 并通过 `FetchError.retry_after` 让采集调度推迟整个来源。
+- `Fetcher` 自己逐跳跟随重定向：robots.txt、每一跳、每一次重试都经过同一个按主机限速器；跨源跳转去掉 Authorization／Cookie 与条件请求头。robots.txt 按 RFC 9309 解析（分组、Allow、`*`／`$`、最长匹配），无法获取（5xx／网络错误）视为全部禁止。
+- 第四项（分区 Cookie）维持现状：拒绝，不实现。
+
 ## 11. 依据
 
 仓库：`CLAUDE.md`、`docs/product-definition.md`、IC-001、IC-002、`docs/browser-extension.md`、`docs/protocols/http.md`、`docs/integrations/must-moodle.md`、`server/gleaner/collector/{fetcher,session}.py`、`server/gleaner/net/http/cookies.py`（审阅 main 于 2026-11-07）。接入文档仍有历史 Web Service token 方案，本契约不依赖其可用性，也不删除该历史记录。

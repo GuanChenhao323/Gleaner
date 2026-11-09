@@ -110,6 +110,7 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
             error=str(e),
             error_kind=e.kind,
             complete=False,
+            retry_after=e.retry_after,
         )
     except Exception as e:  # 解析器异常不能拖垮引擎
         log.exception("connector crashed for source %s", src.id)
@@ -148,6 +149,9 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
         res.status
     ]
     jitter = random.uniform(0.9, 1.1)
+    next_at = now + interval * jitter
+    if res.retry_after:
+        next_at = max(next_at, now + res.retry_after)  # 服务端的 Retry-After 不能被缩短
     await db.execute(
         """UPDATE sources SET status = ?, last_checked_at = ?, last_success_at = CASE WHEN ? = 1 THEN ? ELSE last_success_at END,
            last_change_at = CASE WHEN ? = 1 THEN ? ELSE last_change_at END, last_error = ?, fail_count = CASE WHEN ? = 1 THEN fail_count + 1 ELSE 0 END,
@@ -161,7 +165,7 @@ async def check_source(db: Database, fetcher: Fetcher, row: dict[str, Any]) -> d
         res.error or None,
         int(failed),
         interval,
-        now + interval * jitter,
+        next_at,
         json.dumps(stats, ensure_ascii=False, default=str),
         src.id,
     )
