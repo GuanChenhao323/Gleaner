@@ -65,7 +65,7 @@ async def test_pinned_ip_sni_cookie_scope_and_all_hops_paced():
         assert all(req.url.host == "1.1.1.1" for _, req in log)
         assert all(req.headers["host"] == "moodle.must.edu.mo" for _, req in log)
         assert all(req.extensions["sni_hostname"] == "moodle.must.edu.mo" for _, req in log)
-        assert "cookie" not in log[0][1].headers
+        assert log[0][1].headers["cookie"] == "MoodleSession=SYNTHETIC_SECRET"
         assert log[1][1].headers["cookie"] == "MoodleSession=SYNTHETIC_SECRET"
         assert "SYNTHETIC_SECRET" not in repr(events) and "id=7" not in repr(events)
         assert not t._client.cookies
@@ -287,5 +287,42 @@ async def test_pacing_does_not_spend_connection_budget():
     try:
         assert (await t.fetch(plan(), None)).status == 200
         assert len(log) == 2
+    finally:
+        await t.close()
+
+
+async def test_robots_uses_only_approved_session_and_cache_isolates_generations():
+    def handler(r):
+        if r.url.path == "/robots.txt":
+            return (
+                200,
+                {"set-cookie": "MoodleSession=ROTATED; Path=/; Secure; HttpOnly"},
+                b"User-agent: *\nAllow: /",
+            )
+        return 200, {}, b"ok"
+
+    t, auth, _, log, _, _ = setup(handler)
+    c = auth.create(1, "b")
+    auth.import_cookies(
+        c.auth_id,
+        [cookie()],
+        backend_epoch=auth.backend_epoch,
+        expected_revision=0,
+        request_id="one",
+    )
+    try:
+        await t.fetch(plan(), await auth.acquire(c.auth_id))
+        assert log[1][1].headers["cookie"] == "MoodleSession=ROTATED"
+        auth.import_cookies(
+            c.auth_id,
+            [cookie("SECOND")],
+            backend_epoch=auth.backend_epoch,
+            expected_revision=c.revision,
+            request_id="two",
+            reason="manual_reauthorize",
+        )
+        await t.fetch(plan(), await auth.acquire(c.auth_id))
+        assert [r.url.path for _, r in log].count("/robots.txt") == 2
+        assert log[2][1].headers["cookie"] == "MoodleSession=SECOND"
     finally:
         await t.close()

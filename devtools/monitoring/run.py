@@ -21,7 +21,7 @@ from gleaner.monitoring.models import Clock, MonitorError, SitePolicy
 from gleaner.monitoring.registry import Registry
 from gleaner.monitoring.scheduler import Scheduler
 from gleaner.monitoring.store import Store
-from gleaner.monitoring.transport import HTTPXTransport
+from gleaner.monitoring.transport import HTTPXTransport, resolve
 from gleaner.net.http import Request, Response
 from gleaner.net.http.message import Headers
 from gleaner.net.http.server import HTTPServer, ServerConfig
@@ -29,6 +29,7 @@ from gleaner.net.http.server import HTTPServer, ServerConfig
 from devtools.fake_moodle.monitoring_fixture import MonitoringFixture
 
 from .bridge_stub import normalize_cookies
+from .dns import CloudflareDNS
 from .report import Report, RunAudit
 from .sink_stub import DebugSink
 
@@ -109,6 +110,9 @@ class Harness:
         self.transport = HTTPXTransport(
             self.policy,
             self.auth,
+            resolver=CloudflareDNS(self.policy.host)
+            if getattr(self.args, "dns", "system") == "cloudflare"
+            else resolve,
             get_not_before=lambda: self.store.meta("host_not_before", 0),
             set_not_before=lambda t: self.store.put_meta("host_not_before", t),
             event=lambda e: self.report.append("request", e),
@@ -138,6 +142,7 @@ class Harness:
                 "adapter": MoodleAdapter.version,
                 "commit": commit,
                 "duration_s": self.args.duration,
+                "dns_mode": getattr(self.args, "dns", "system"),
                 "started_at": self.clock.utc(),
             },
         )
@@ -394,6 +399,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--chrome-version", default="not_recorded")
+    parser.add_argument(
+        "--dns",
+        choices=("system", "cloudflare"),
+        default="system",
+        help="Explicit debug DoH for Fake-IP DNS environments",
+    )
     parser.add_argument("--exit-on-finish", action="store_true")
     options = parser.parse_args()
     if options.real and (not options.target or options.duration < 7800):
@@ -404,4 +415,6 @@ if __name__ == "__main__":
         parser.error(
             "real page content is memory-only; persistent databases are for synthetic tests"
         )
+    if not options.real and options.dns != "system":
+        parser.error("debug DoH is only available for an explicit real Moodle target")
     asyncio.run(main(options))

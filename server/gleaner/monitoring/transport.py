@@ -59,6 +59,7 @@ class HTTPXTransport:
         self._lock, self._global = asyncio.Lock(), asyncio.Semaphore(4)
         self._next_start = 0.0
         self._robots: tuple[float, RobotsRules] | None = None
+        self._robots_identity: tuple[str, int] | None = None
         # httpx logs full request URLs at INFO; this component emits a fixed, redacted event instead.
         for name in ("httpx", "httpcore"):
             logging.getLogger(name).setLevel(logging.WARNING)
@@ -264,9 +265,14 @@ class HTTPXTransport:
             raise MonitorError("unsupported")
         try:
             async with asyncio.timeout(self.total_timeout):
-                if self._robots is None or self._robots[0] <= self.clock.mono():
+                identity = (auth.auth_id, auth.generation) if auth else None
+                if (
+                    self._robots is None
+                    or self._robots[0] <= self.clock.mono()
+                    or identity != self._robots_identity
+                ):
                     _, status, _, body = await self._chain(
-                        self.policy.origin + "/robots.txt", None, kind="robots"
+                        self.policy.origin + "/robots.txt", auth, kind="robots"
                     )
                     if status == 200:
                         rules = parse_robots(body.decode("utf-8", "replace"), "gleanermonitor")
@@ -275,6 +281,7 @@ class HTTPXTransport:
                     else:
                         raise MonitorError("robots_unavailable", retryable=True)
                     self._robots = (self.clock.mono() + 3600, rules)
+                    self._robots_identity = identity
                 rules = self._robots[1]
                 path = urlsplit(url).path + (
                     "?" + urlsplit(url).query if urlsplit(url).query else ""

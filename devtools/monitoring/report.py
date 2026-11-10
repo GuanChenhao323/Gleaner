@@ -46,6 +46,7 @@ class Report:
                 "adapter",
                 "commit",
                 "duration_s",
+                "dns_mode",
                 "started_at",
             },
             "summary": {

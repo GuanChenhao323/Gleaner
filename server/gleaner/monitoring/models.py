@@ -34,7 +34,7 @@ class Clock:
 class SitePolicy:
     origin: str = "https://moodle.must.edu.mo"
     adapter_id: str = "must_moodle_assignment_v1"
-    paths: tuple[str, ...] = ("/mod/assign/view.php", "/robots.txt", "/my/", "/")
+    paths: tuple[str, ...] = ("/mod/assign/view.php", "/robots.txt")
     cookie_names: tuple[str, ...] = ("MoodleSession",)
     min_interval_s: float = 600
     host_gap_s: float = 2
