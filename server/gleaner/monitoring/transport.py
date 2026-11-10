@@ -96,7 +96,9 @@ class HTTPXTransport:
                 parsed = ipaddress.ip_address(address)
             except ValueError:
                 raise MonitorError("blocked") from None
-            if not (parsed.is_loopback if allowed_local else is_public(address)):
+            if not (
+                parsed.is_loopback if allowed_local else is_public(address) and parsed.is_global
+            ):
                 raise MonitorError("blocked")
         ip = addresses[0]
         authority = f"[{ip}]" if ":" in ip else ip
@@ -117,7 +119,6 @@ class HTTPXTransport:
             left = self.get_not_before() - self.clock.utc()
             if left > 0:
                 raise MonitorError("rate_limited", retryable=True, retry_after_s=left)
-            await self.clock.sleep(self._next_start - self.clock.mono())
             headers = {
                 "Host": urlsplit(url).netloc,
                 "User-Agent": "GleanerMonitor/1.0",
@@ -125,15 +126,22 @@ class HTTPXTransport:
                 "Accept": "text/html, text/plain",
                 "Connection": "close",
             }
-            if lease is not None:
-                headers["Cookie"] = self.auth.header(lease, url)
             crawl_delay = self._robots[1].crawl_delay if self._robots else 0
-            self._next_start = self.clock.mono() + max(self.policy.host_gap_s, crawl_delay)
-            started = self.clock.mono()
             async with asyncio.timeout(self.connect_timeout) as connecting:
                 pinned, _ = await self._ip(url)
+                await self.clock.sleep(self._next_start - self.clock.mono())
+                if lease is not None:
+                    headers["Cookie"] = self.auth.header(lease, url)
+                started = self.clock.mono()
+                self._next_start = started + max(self.policy.host_gap_s, crawl_delay)
 
                 async def trace(name: str, info: dict[str, Any]) -> None:
+                    nonlocal started
+                    if name == "http11.send_request_headers.started":
+                        started = self.clock.mono()
+                        self._next_start = max(
+                            self._next_start, started + max(self.policy.host_gap_s, crawl_delay)
+                        )
                     if name == "connection.start_tls.complete" or (
                         urlsplit(url).scheme == "http" and name == "connection.connect_tcp.complete"
                     ):
@@ -159,6 +167,28 @@ class HTTPXTransport:
             chunks: list[bytes] = []
             decoded = 0
             try:
+                if lease is not None:
+                    self.auth.update_cookies(lease, response.headers.get_list("set-cookie"), url)
+                status = response.status_code
+                delay = parse_retry_after(response.headers.get("retry-after"), self.clock.utc())
+                if status == 429 or (status == 503 and delay is not None):
+                    delay = self.policy.min_interval_s if delay is None else delay
+                    self.set_not_before(max(self.get_not_before(), self.clock.utc() + delay))
+                    self.event(
+                        {
+                            "kind": kind,
+                            "path": urlsplit(url).path,
+                            "status": status,
+                            "wire_bytes": 0,
+                            "decoded_bytes": 0,
+                            "started_mono": started,
+                            "finished_mono": self.clock.mono(),
+                            "utc": self.clock.utc(),
+                        }
+                    )
+                    raise MonitorError("rate_limited", retryable=True, retry_after_s=delay)
+                if status >= 500:
+                    raise MonitorError("upstream_5xx", retryable=True)
                 encoding = response.headers.get("content-encoding", "").lower().strip()
                 if encoding not in ("", "identity", "gzip", "deflate"):
                     raise MonitorError("unsupported_encoding")
@@ -182,8 +212,6 @@ class HTTPXTransport:
                     chunks.append(piece)
                 if decoder and (not decoder.eof or decoder.unused_data):
                     raise MonitorError("bad_encoding")
-                if lease is not None:
-                    self.auth.update_cookies(lease, response.headers.get_list("set-cookie"), url)
                 selected = {
                     key: response.headers[key]
                     for key in ("content-type", "location", "retry-after")
@@ -202,13 +230,6 @@ class HTTPXTransport:
                         "utc": self.clock.utc(),
                     }
                 )
-                if status in (429, 503):
-                    delay = parse_retry_after(selected.get("retry-after"), self.clock.utc())
-                    if delay is not None:
-                        self.set_not_before(max(self.get_not_before(), self.clock.utc() + delay))
-                        raise MonitorError("rate_limited", retryable=True, retry_after_s=delay)
-                if status >= 500:
-                    raise MonitorError("upstream_5xx", retryable=True)
                 return status, selected, b"".join(chunks)
             finally:
                 await response.aclose()
@@ -218,6 +239,7 @@ class HTTPXTransport:
     async def _chain(
         self, url: str, lease: AuthLease | None, *, kind: str
     ) -> tuple[str, int, dict[str, str], bytes]:
+        target_url = url
         for hop in range(4):
             status, headers, body = await self._one(url, lease, kind=kind)
             if status not in (301, 302, 303, 307, 308):
@@ -229,7 +251,9 @@ class HTTPXTransport:
             p = urlsplit(nxt)
             if p.hostname == "login.must.edu.mo" or p.path.startswith("/login/"):
                 raise MonitorError("auth_required")
-            self.policy.canonical(nxt)
+            approved = self.policy.canonical(nxt, target=kind == "content")
+            if kind == "content" and approved != target_url:
+                raise MonitorError("blocked")
             url = nxt
         raise MonitorError("redirect_limit")
 

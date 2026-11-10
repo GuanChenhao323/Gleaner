@@ -96,7 +96,8 @@ async def test_redirect_boundaries(location, code):
 
 
 @pytest.mark.parametrize(
-    "address", ["127.0.0.1", "169.254.169.254", "10.0.0.1", "::ffff:127.0.0.1", "224.0.0.1"]
+    "address",
+    ["127.0.0.1", "169.254.169.254", "10.0.0.1", "::ffff:127.0.0.1", "224.0.0.1", "100.64.0.1"],
 )
 async def test_bad_dns_never_connects(address):
     async def resolver(host, port):
@@ -120,7 +121,7 @@ async def test_rebinding_on_second_hop_is_blocked():
         return ["1.1.1.1"] if calls < 3 else ["127.0.0.1"]
 
     def handler(r):
-        return (404, {}, b"") if r.url.path == "/robots.txt" else (302, {"location": "/my/"}, b"")
+        return (404, {}, b"") if r.url.path == "/robots.txt" else (302, {"location": URL}, b"")
 
     t, _, _, log, _, _ = setup(handler, resolver=resolver)
     try:
@@ -219,3 +220,55 @@ async def test_missing_baseline_and_redirect_limit():
             assert len(log) <= 5
         finally:
             await t.close()
+
+
+async def test_content_redirect_cannot_change_target_id():
+    t, _, _, log, _, _ = setup(
+        lambda r: (
+            (404, {}, b"")
+            if r.url.path == "/robots.txt"
+            else (302, {"location": "/mod/assign/view.php?id=8"}, b"")
+        )
+    )
+    try:
+        with pytest.raises(MonitorError, match="blocked"):
+            await t.fetch(plan(), None)
+        assert len(log) == 2
+    finally:
+        await t.close()
+
+
+async def test_dns_delay_cannot_shorten_actual_request_gap():
+    calls = 0
+
+    async def slow_first(host, port):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            clock.advance(1.9)
+        return ["1.1.1.1"]
+
+    t, _, clock, log, events, _ = setup(
+        lambda r: (404, {}, b"") if r.url.path == "/robots.txt" else (200, {}, b"ok"),
+        resolver=slow_first,
+    )
+    try:
+        await t.fetch(plan(), None)
+        assert log[1][0] - log[0][0] >= 2
+        assert [e["started_mono"] for e in events] == [at for at, _ in log]
+    finally:
+        await t.close()
+
+
+@pytest.mark.parametrize("retry_after", [None, "3600"])
+async def test_robots_rate_limit_persists_before_reading_body(retry_after):
+    stream = Stream(b"late", delay=1)
+    headers = {"retry-after": retry_after} if retry_after else {}
+    t, _, clock, log, _, state = setup(lambda r: (429, headers, stream), total_timeout=0.05)
+    try:
+        with pytest.raises(MonitorError, match="rate_limited"):
+            await t.fetch(plan(), None)
+        assert state["not_before"] >= clock.utc() + (3600 if retry_after else 600)
+        assert len(log) == 1 and stream.closed
+    finally:
+        await t.close()

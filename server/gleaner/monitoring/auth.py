@@ -6,7 +6,9 @@ import asyncio
 import hashlib
 import hmac
 import json
+import math
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -41,12 +43,17 @@ class AuthManager:
         self.contexts: dict[str, AuthContext] = {}
         self._presence: dict[str, tuple[int, float, bool]] = {}
         self._imports: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+        self.persist_metadata: Callable[[dict[str, Any]], None] = lambda _: None
+
+    def _save(self, auth_id: str) -> None:
+        self.persist_metadata(self.metadata(auth_id))
 
     def create(self, owner_id: int, bridge_id: str, cookie_store_id: str = "0") -> AuthContext:
         if not bridge_id or not cookie_store_id:
             raise MonitorError("binding_denied")
         ctx = AuthContext(str(uuid4()), owner_id, bridge_id, cookie_store_id)
         self.contexts[ctx.auth_id] = ctx
+        self._save(ctx.auth_id)
         return ctx
 
     def context(self, auth_id: str) -> AuthContext:
@@ -95,6 +102,7 @@ class AuthManager:
             was_verified=metadata["was_verified"],
         )
         self.contexts[c.auth_id] = c
+        self._save(c.auth_id)
         return c
 
     def import_cookies(
@@ -163,14 +171,16 @@ class AuthManager:
                     or record.get("same_site", "")
                     not in ("strict", "lax", "none", "unspecified", "no_restriction")
                     or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + value + domain + path)
-                    or any(ch in value for ch in ";\r\n")
+                    or any(ord(ch) < 33 or ord(ch) > 126 or ch in ';"\\,' for ch in value)
                     or len(name) + len(value) > 4096
                 ):
                     raise MonitorError("cookie_scope_denied")
                 if not isinstance(session, bool) or (session and expires is not None):
                     raise MonitorError("invalid")
                 if not session and (
-                    not isinstance(expires, (int, float)) or expires <= self.clock.utc()
+                    not isinstance(expires, (int, float))
+                    or not math.isfinite(expires)
+                    or expires <= self.clock.utc()
                 ):
                     raise MonitorError("auth_required")
                 ident = (domain, path, name)
@@ -198,22 +208,23 @@ class AuthManager:
         c.confirmed_same_account = confirmed_same_account
         reply = self.metadata(auth_id)
         self._imports[key] = (digest, reply.copy())
+        self._save(auth_id)
         return reply
 
     async def acquire(self, auth_id: str) -> AuthLease:
         c = self.context(auth_id)
         if c.state not in ("unverified", "valid") or not len(c.jar):
+            c.state = "auth_required"
+            self._save(auth_id)
             raise MonitorError("auth_required")
         return AuthLease(auth_id, c.generation, self.policy.origin, self)
 
     def current(self, lease: AuthLease) -> AuthContext:
         c = self.context(lease.auth_id)
-        if (
-            lease.opaque_handle is not self
-            or c.generation != lease.generation
-            or c.state not in ("valid", "unverified")
-        ):
+        if lease.opaque_handle is not self or c.generation != lease.generation:
             raise MonitorError("superseded")
+        if c.state not in ("valid", "unverified"):
+            raise MonitorError("auth_required")
         return c
 
     def header(self, lease: AuthLease, url: str) -> str:
@@ -225,6 +236,7 @@ class AuthManager:
         )
         if not value:
             c.state = "auth_required"
+            self._save(c.auth_id)
             raise MonitorError("auth_required")
         return value
 
@@ -233,36 +245,39 @@ class AuthManager:
         for header in headers:
             if any(ord(ch) < 32 or ord(ch) == 127 for ch in header):
                 continue
-            candidate = CookieJar()
-            if not candidate.set_from_header(header, self.policy.host, urlsplit(url).path, True):
-                continue
-            records = candidate.to_list()
-            name = header.partition("=")[0].strip()
-            # Deletion needs scope validation as well (the temporary jar removes expired entries).
-            if not records:
-                sanitized = header.replace("Max-Age=0", "Max-Age=1").replace(
-                    "max-age=0", "max-age=1"
-                )
-                candidate.set_from_header(sanitized, self.policy.host, "/", True)
-                records = candidate.to_list()
-            if name not in self.policy.cookie_names or not records:
-                continue
-            r = records[0]
+            parts = header.split(";")
+            name, separator, value = parts[0].strip().partition("=")
+            attrs = {}
+            duplicate = False
+            for part in parts[1:]:
+                key, _, val = part.strip().partition("=")
+                key = key.lower()
+                duplicate = duplicate or key in attrs
+                attrs[key] = val.strip()
+            # Validate scope before expiry processing; deletion cookies need the same checks.
             if (
-                r["domain"] != self.policy.host
-                or not r["host_only"]
-                or not r["secure"]
-                or r["path"] != "/"
+                not separator
+                or name not in self.policy.cookie_names
+                or duplicate
+                or "domain" in attrs
+                or "partitioned" in attrs
+                or "secure" not in attrs
+                or attrs.get("path") != "/"
+                or any(ord(ch) < 33 or ord(ch) > 126 or ch in ';"\\,' for ch in value)
             ):
                 continue
             if c.jar.set_from_header(header, self.policy.host, urlsplit(url).path, True):
                 c.revision += 1
+        if not len(c.jar):
+            c.state = "auth_required"
+        self._save(c.auth_id)
 
     def verify(self, lease: AuthLease, principal_key: str | None) -> None:
         c = self.current(lease)
         if c.principal_key and principal_key and c.principal_key != principal_key:
             c.jar.clear()
             c.state = "auth_required"
+            self._save(c.auth_id)
             raise MonitorError("account_mismatch")
         if (
             c.state == "unverified"
@@ -271,12 +286,15 @@ class AuthManager:
             and not c.confirmed_same_account
         ):
             c.state = "auth_required"
+            self._save(c.auth_id)
             raise MonitorError("account_confirmation_required")
         c.principal_key = principal_key or c.principal_key
         c.was_verified, c.state = True, "valid"
+        self._save(c.auth_id)
 
     def require_auth(self, auth_id: str) -> None:
         self.context(auth_id).state = "auth_required"
+        self._save(auth_id)
 
     async def revoke(self, auth_id: str, expected_revision: int) -> None:
         c = self.context(auth_id)
@@ -288,10 +306,12 @@ class AuthManager:
         c.generation += 1
         c.revision += 1
         c.state = "revoked"
+        self._save(auth_id)
 
     def close(self) -> None:
         for c in self.contexts.values():
             c.jar.clear()
             c.state = "needs_credentials"
             c.generation += 1
+            self._save(c.auth_id)
         self._imports.clear()

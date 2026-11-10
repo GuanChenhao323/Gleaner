@@ -96,7 +96,14 @@ class MoodleAdapter:
         main = soup.select_one("#region-main")
         assignment_id = parse_qs(urlsplit(source.canonical_url).query)["id"][0]
         expected_locator = f"moodle:assign:{assignment_id}"
-        correct_type = body is not None and body.get("id") == "page-mod-assign-view"
+        correct_type = (
+            body is not None
+            and body.get("id") == "page-mod-assign-view"
+            and response.final_url == source.canonical_url
+        )
+        cmids = [c for c in (body.get("class", []) if body else []) if str(c).startswith("cmid-")]
+        if cmids and f"cmid-{assignment_id}" not in cmids:
+            correct_type = False
         # An authenticated but structurally unknown page is not an empty assignment.
         available = bool(correct_type and title and intro and main)
         entries = []
