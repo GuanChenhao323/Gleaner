@@ -69,9 +69,13 @@ class HTTPXTransport:
         self.total_timeout, self.connect_timeout = total_timeout, connect_timeout
         self.inspect_access = inspect_access
         if registered_target_fallback and (
-            policy.origin != "https://moodle.must.edu.mo" or len(policy.target_urls) != 1
+            policy.origin != "https://moodle.must.edu.mo"
+            or len(policy.target_urls) != 1
+            or inspect_access is None
         ):
-            raise ValueError("registered-target fallback requires one explicit MUST Moodle target")
+            raise ValueError(
+                "registered-target fallback requires one explicit MUST Moodle target and an authentication inspector"
+            )
         self.registered_target_fallback, self.policy_event = (
             registered_target_fallback,
             policy_event,

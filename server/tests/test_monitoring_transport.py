@@ -382,7 +382,11 @@ async def test_registered_target_fallback_is_explicit_bounded_and_logged():
         )
 
     t, auth, _, log, _, _ = setup(
-        handler, policy=policy, registered_target_fallback=True, policy_event=decisions.append
+        handler,
+        policy=policy,
+        registered_target_fallback=True,
+        policy_event=decisions.append,
+        inspect_access=MoodleAdapter().inspect,
     )
     c = auth.create(1, "b")
     auth.import_cookies(
@@ -444,3 +448,9 @@ async def test_registered_target_policy_does_not_override_rules_or_other_failure
 def test_registered_target_policy_rejects_unbounded_configuration():
     with pytest.raises(ValueError, match="one explicit"):
         setup(lambda r: (200, {}, b""), registered_target_fallback=True)
+    with pytest.raises(ValueError, match="authentication inspector"):
+        setup(
+            lambda r: (200, {}, b""),
+            policy=SitePolicy(target_urls=(URL,)),
+            registered_target_fallback=True,
+        )
