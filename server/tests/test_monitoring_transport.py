@@ -5,7 +5,7 @@ import pytest
 from monitoring_helpers import FakeClock, Stream, cookie
 
 from gleaner.monitoring.auth import AuthManager
-from gleaner.monitoring.models import FetchPlan, MonitorError, SitePolicy
+from gleaner.monitoring.models import Clock, FetchPlan, MonitorError, SitePolicy
 from gleaner.monitoring.transport import HTTPXTransport
 from gleaner.net.http.message import http_date
 
@@ -270,5 +270,22 @@ async def test_robots_rate_limit_persists_before_reading_body(retry_after):
             await t.fetch(plan(), None)
         assert state["not_before"] >= clock.utc() + (3600 if retry_after else 600)
         assert len(log) == 1 and stream.closed
+    finally:
+        await t.close()
+
+
+async def test_pacing_does_not_spend_connection_budget():
+    from dataclasses import replace
+
+    t, _, _, log, _, _ = setup(
+        lambda r: (404, {}, b"") if r.url.path == "/robots.txt" else (200, {}, b"ok"),
+        connect_timeout=0.1,
+        total_timeout=2,
+    )
+    t.clock = Clock()
+    t.policy = replace(t.policy, host_gap_s=0.2)
+    try:
+        assert (await t.fetch(plan(), None)).status == 200
+        assert len(log) == 2
     finally:
         await t.close()

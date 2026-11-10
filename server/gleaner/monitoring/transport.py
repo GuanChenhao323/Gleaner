@@ -119,6 +119,8 @@ class HTTPXTransport:
             left = self.get_not_before() - self.clock.utc()
             if left > 0:
                 raise MonitorError("rate_limited", retryable=True, retry_after_s=left)
+            # Pacing belongs to the overall request budget, not the DNS/TCP/TLS budget.
+            await self.clock.sleep(self._next_start - self.clock.mono())
             headers = {
                 "Host": urlsplit(url).netloc,
                 "User-Agent": "GleanerMonitor/1.0",
@@ -129,7 +131,6 @@ class HTTPXTransport:
             crawl_delay = self._robots[1].crawl_delay if self._robots else 0
             async with asyncio.timeout(self.connect_timeout) as connecting:
                 pinned, _ = await self._ip(url)
-                await self.clock.sleep(self._next_start - self.clock.mono())
                 if lease is not None:
                     headers["Cookie"] = self.auth.header(lease, url)
                 started = self.clock.mono()
