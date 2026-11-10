@@ -351,3 +351,19 @@ async def test_robots_login_or_unknown_html_is_not_permission(status, body, expe
         assert len(log) == 1
     finally:
         await t.close()
+
+
+@pytest.mark.parametrize(
+    "location,expected",
+    [("/my/?ticket=SYNTHETIC_SECRET", "/my/"), ("/SYNTHETIC_SECRET", "[unapproved_path]")],
+)
+async def test_redirect_diagnostics_do_not_log_parameters_or_unknown_paths(location, expected):
+    t, _, _, _, events, _ = setup(lambda r: (303, {"location": location}, b"redirect"))
+    try:
+        with pytest.raises(MonitorError, match="blocked"):
+            await t.fetch(plan(), None)
+        assert events[0]["redirect_path"] == expected
+        assert events[0]["redirect_same_origin"] is True
+        assert "SYNTHETIC_SECRET" not in repr(events)
+    finally:
+        await t.close()

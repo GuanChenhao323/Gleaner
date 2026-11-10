@@ -20,6 +20,8 @@ class Report:
                 "started_mono",
                 "finished_mono",
                 "utc",
+                "redirect_path",
+                "redirect_same_origin",
             },
             "observation": {
                 "check_id",

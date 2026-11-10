@@ -230,6 +230,32 @@ class HTTPXTransport:
                     if key in response.headers
                 }
                 status = response.status_code
+                redirect_diagnostic = {}
+                if status in (301, 302, 303, 307, 308) and "location" in selected:
+                    try:
+                        destination = urlsplit(urljoin(url, selected["location"]))
+                        known_paths = {
+                            "/robots.txt",
+                            "/mod/assign/view.php",
+                            "/login/index.php",
+                            "/my/",
+                            "/",
+                        }
+                        redirect_diagnostic = {
+                            "redirect_path": destination.path
+                            if destination.path in known_paths
+                            else "[unapproved_path]",
+                            "redirect_same_origin": destination.scheme
+                            == urlsplit(self.policy.origin).scheme
+                            and destination.hostname == self.policy.host
+                            and (destination.port or 443)
+                            == (urlsplit(self.policy.origin).port or 443),
+                        }
+                    except ValueError:
+                        redirect_diagnostic = {
+                            "redirect_path": "[invalid]",
+                            "redirect_same_origin": False,
+                        }
                 self.event(
                     {
                         "kind": kind,
@@ -240,6 +266,7 @@ class HTTPXTransport:
                         "started_mono": started,
                         "finished_mono": self.clock.mono(),
                         "utc": self.clock.utc(),
+                        **redirect_diagnostic,
                     }
                 )
                 return status, selected, b"".join(chunks)
