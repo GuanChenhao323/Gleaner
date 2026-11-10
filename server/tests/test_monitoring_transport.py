@@ -4,6 +4,7 @@ import httpx
 import pytest
 from monitoring_helpers import FakeClock, Stream, cookie
 
+from gleaner.monitoring.adapters.moodle import MoodleAdapter
 from gleaner.monitoring.auth import AuthManager
 from gleaner.monitoring.models import Clock, FetchPlan, MonitorError, SitePolicy
 from gleaner.monitoring.transport import HTTPXTransport
@@ -49,7 +50,7 @@ def setup(handler, **kwargs):
 async def test_pinned_ip_sni_cookie_scope_and_all_hops_paced():
     def handler(req):
         if req.url.path == "/robots.txt":
-            return 200, {}, b"User-agent: *\nAllow: /"
+            return 200, {"content-type": "text/plain"}, b"User-agent: *\nAllow: /"
         return 200, {"content-type": "text/html"}, b"<p>ok</p>"
 
     t, auth, _, log, events, _ = setup(handler)
@@ -195,7 +196,7 @@ async def test_entire_request_deadline_and_cancel_cleanup():
     ],
 )
 async def test_robots_fail_closed(robot_status, robot_body, code):
-    t, _, _, log, _, _ = setup(lambda r: (robot_status, {}, robot_body))
+    t, _, _, log, _, _ = setup(lambda r: (robot_status, {"content-type": "text/plain"}, robot_body))
     try:
         with pytest.raises(MonitorError, match=code):
             await t.fetch(plan(), None)
@@ -296,7 +297,10 @@ async def test_robots_uses_only_approved_session_and_cache_isolates_generations(
         if r.url.path == "/robots.txt":
             return (
                 200,
-                {"set-cookie": "MoodleSession=ROTATED; Path=/; Secure; HttpOnly"},
+                {
+                    "set-cookie": "MoodleSession=ROTATED; Path=/; Secure; HttpOnly",
+                    "content-type": "text/plain",
+                },
                 b"User-agent: *\nAllow: /",
             )
         return 200, {}, b"ok"
@@ -324,5 +328,26 @@ async def test_robots_uses_only_approved_session_and_cache_isolates_generations(
         await t.fetch(plan(), await auth.acquire(c.auth_id))
         assert [r.url.path for _, r in log].count("/robots.txt") == 2
         assert log[2][1].headers["cookie"] == "MoodleSession=SECOND"
+    finally:
+        await t.close()
+
+
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (200, b'<form id="login"></form>', "auth_required"),
+        (401, b"unauthorized", "auth_required"),
+        (200, b"<html>Unknown page</html>", "robots_unavailable"),
+    ],
+)
+async def test_robots_login_or_unknown_html_is_not_permission(status, body, expected):
+    t, _, _, log, _, _ = setup(
+        lambda r: (status, {"content-type": "text/html"}, body),
+        inspect_access=MoodleAdapter().inspect,
+    )
+    try:
+        with pytest.raises(MonitorError, match=expected):
+            await t.fetch(plan(), None)
+        assert len(log) == 1
     finally:
         await t.close()

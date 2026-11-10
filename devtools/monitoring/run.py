@@ -107,6 +107,7 @@ class Harness:
         self.sink = DebugSink(self.store)
         self.handoff = Handoff(self.store, self.auth, self.sink)
         self.sink.fence = self.handoff.current
+        adapter = MoodleAdapter()
         self.transport = HTTPXTransport(
             self.policy,
             self.auth,
@@ -116,9 +117,14 @@ class Harness:
             get_not_before=lambda: self.store.meta("host_not_before", 0),
             set_not_before=lambda t: self.store.put_meta("host_not_before", t),
             event=lambda e: self.report.append("request", e),
+            inspect_access=adapter.inspect,
         )
         self.scheduler = Scheduler(
-            self.registry, self.transport, self.handoff, clock=self.clock
+            self.registry,
+            self.transport,
+            self.handoff,
+            adapter=adapter,
+            clock=self.clock,
         )
         if self.fixture:
             self.fake_credentials()

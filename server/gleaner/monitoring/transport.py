@@ -17,7 +17,15 @@ import httpx  # noqa: TID251 — user-approved exception, scoped to this transpo
 from ..collector.fetcher import RobotsRules, parse_retry_after, parse_robots
 from ..net.egress import is_public
 from .auth import AuthManager
-from .models import AuthLease, Clock, FetchPlan, MonitorError, SafeResponse, SitePolicy
+from .models import (
+    AccessVerdict,
+    AuthLease,
+    Clock,
+    FetchPlan,
+    MonitorError,
+    SafeResponse,
+    SitePolicy,
+)
 
 Resolver = Callable[[str, int], Awaitable[list[str]]]
 
@@ -40,6 +48,7 @@ class HTTPXTransport:
         get_not_before: Callable[[], float] = lambda: 0,
         set_not_before: Callable[[float], None] = lambda _: None,
         event: Callable[[dict], None] = lambda _: None,
+        inspect_access: Callable[[SafeResponse], AccessVerdict] | None = None,
         max_wire: int = 4 * 1024 * 1024,
         max_decoded: int = 8 * 1024 * 1024,
         total_timeout: float = 30,
@@ -56,6 +65,7 @@ class HTTPXTransport:
         )
         self.max_wire, self.max_decoded = max_wire, max_decoded
         self.total_timeout, self.connect_timeout = total_timeout, connect_timeout
+        self.inspect_access = inspect_access
         self._lock, self._global = asyncio.Lock(), asyncio.Semaphore(4)
         self._next_start = 0.0
         self._robots: tuple[float, RobotsRules] | None = None
@@ -271,11 +281,27 @@ class HTTPXTransport:
                     or self._robots[0] <= self.clock.mono()
                     or identity != self._robots_identity
                 ):
-                    _, status, _, body = await self._chain(
+                    final, status, headers, body = await self._chain(
                         self.policy.origin + "/robots.txt", auth, kind="robots"
                     )
+                    robots_response = SafeResponse(
+                        status, final, headers.get("content-type", ""), body
+                    )
+                    if status == 401 or (
+                        self.inspect_access
+                        and self.inspect_access(robots_response).state == "auth_required"
+                    ):
+                        raise MonitorError("auth_required")
                     if status == 200:
-                        rules = parse_robots(body.decode("utf-8", "replace"), "gleanermonitor")
+                        if (
+                            headers.get("content-type", "").split(";")[0].strip().lower()
+                            != "text/plain"
+                        ):
+                            raise MonitorError("robots_unavailable", retryable=True)
+                        try:
+                            rules = parse_robots(body.decode("utf-8-sig"), "gleanermonitor")
+                        except UnicodeDecodeError:
+                            raise MonitorError("robots_unavailable", retryable=True) from None
                     elif 400 <= status < 500:
                         rules = RobotsRules()
                     else:
