@@ -1,10 +1,10 @@
 # Moodle 后台监测验证版：四阶段开发与验收
 
-负责人：监测模块负责人（用户）；开发与验证：Codex；资料检索与独立核对：Luna-max
+负责人：ren；开发与验证：Codex；资料检索与独立核对：Luna-max
 日期：2026-11-09
 
 开发分支：`codex/monitoring-v1-validation`；起点：`9927609`。
-状态：开发前计划，尚未开始实现或执行本计划的验收。
+状态：实施中，阶段 1。验收按下方证据逐项更新。
 依据：[IC-003](../architecture/IC-003-monitoring-module.md)、[模块架构](../architecture/monitoring_module/architecture.md)、[OpenAPI](../protocols/monitoring-v1.openapi.yaml)、[MUST 接入登记](../integrations/must-moodle.md)。
 
 ## 1. 目标与非目标
@@ -25,7 +25,7 @@
 
 ### 已确定的开发方式
 
-- 用户已明确允许本模块使用现成 HTTP 库。选择 `HTTPX AsyncClient + asyncio`，保留 `RemoteTransport` 边界；阶段 1 同步相关文档与 Ruff 的局部例外，其他模块的自研协议约束继续有效。
+- 用户已明确允许本模块使用现成 HTTP 库。选择 `HTTPX AsyncClient + asyncio`，保留 `RemoteTransport` 边界；例外记录在本计划与 Ruff 局部导入说明中，其他模块的自研协议约束继续有效。按用户缩小后的文档范围，不修改 CLAUDE.md 或 IC-003；其中网络实现的差异由本轮明确授权覆盖，协议语义仍遵守 IC-003。
 - 使用现有 BeautifulSoup/lxml、pytest/pytest-asyncio、Ruff、fake_moodle 和 CI。先沿用 Python 3.12 基线，记录实际依赖版本；无需新增分布式队列或独立生产服务。
 - 首批为 `/mod/assign/view.php` 作业详情页，实际测试目标从授权会话内已允许的页面选取；课程页仅用于定位入口。未验证的页面保持 unsupported。
 - 本轮用户已授权通过 Computer Use / 现有 Cookie-Editor 使用其受控的 Moodle 会话进行真实验证，无需重复申请同一授权。沿用已登记的只读路径和速率，不扩大账号或来源范围；合作授权材料/有效期的缺口如实保留，不编造学校授权信息。现有会话失效且需要本人登录或验证码时，仅暂停真实访问，继续可独立完成的本地工作。
@@ -95,7 +95,6 @@ Computer Use 用于浏览器和调试工具操作；Chrome DevTools 查看浏览
 
 ```text
 仓库根目录/
-├── CLAUDE.md                                      [修改] 监测模块 HTTPX 例外与自主开发约定
 ├── server/
 │   ├── pyproject.toml                             [修改] HTTPX 依赖与限定路径的 Ruff 例外
 │   ├── gleaner/monitoring/
@@ -123,7 +122,6 @@ Computer Use 用于浏览器和调试工具操作；Chrome DevTools 查看浏览
 │   │   └── report.py                             [新增] 分层脱敏报告与验收记录
 │   └── fake_moodle/                              [修改] 必需的本地受控场景与合成结构样例
 └── docs/
-    ├── architecture/IC-003-monitoring-module.md   [修改] 网络库决策、验证版与正式联调边界
     ├── architecture/monitoring_module/            [修改] 架构一致性及计划/运行说明链接
     ├── integrations/must-moodle.md               [修改] 核实后的授权元数据、支持矩阵和手动验证说明
     ├── open-questions.md                         [修改] 记录已确定的库选择及仍待正式联调的事项
@@ -141,7 +139,7 @@ Computer Use 用于浏览器和调试工具操作；Chrome DevTools 查看浏览
 
 ### 阶段 1 · 单页突破
 
-- [ ] S1-01：IC-003、架构、CLAUDE、待决问题与 Ruff 对本模块使用 HTTPX 的规则一致；例外没有放开其他生产目录的禁用库。
+- [ ] S1-01：本计划明确记录对 IC-003 网络实现选择的用户授权例外，模块架构与 Ruff 局部规则相符；保留 IC-003 协议语义，例外没有放开其他生产目录的禁用库。
 - [ ] S1-02：调试命令、依赖版本、独立数据目录和本地启动方法已记录；自动测试/CI 被限制在本地替身，不会请求真实学校。
 - [ ] S1-03：本轮用户授权、受控测试会话、允许页面和速率已记录，与实际执行配置一致；学校合作登记中待补信息仍如实标记。仅接受已批准的精确主机、路径及最小 Cookie 集，无凭证或实际范围不一致时停止真实访问，不尝试自动登录或扩大授权。
 - [ ] S1-04：通过受控本机输入使用内存 Cookie，完整保留作用域属性；凭证不出现在命令行参数、Git、日志、报告、业务库或子代理输入中。
@@ -189,7 +187,7 @@ Computer Use 用于浏览器和调试工具操作；Chrome DevTools 查看浏览
 ### 最终收尾
 
 - [ ] F-01：新增自动测试、相关旧监测/采集回归及服务端全量 pytest、Ruff 检查/格式检查通过；必验项所依赖的用例没有被 skip/xfail 掩盖。
-- [ ] F-02：Luna-max 完成独立审查，Codex 复核并处理有效问题；审查意见与真实执行证据分别记录，不以模型结论代替测试。
+- [ ] F-02：Terra-max 完成独立审查，Codex 复核并处理有效问题；审查意见与真实执行证据分别记录，不以模型结论代替测试。
 - [ ] F-03：本计划逐项证据索引、支持页面矩阵、运行/恢复说明及相关文档已更新，真实内容和凭证未进入提交；正式联调缺口仍清楚列明。
 - [ ] F-04：其余全部必验项通过且打勾；小步提交齐全，最终 diff 经复核，完成提交后工作区无本任务遗留未提交改动；最后提交号记录于交付说明。
 

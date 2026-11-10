@@ -1,0 +1,297 @@
+"""Memory-only credentials, browser presence, and execution generation fences."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import secrets
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import urlsplit
+from uuid import uuid4
+
+from ..net.http.cookies import Cookie, CookieJar
+from .models import AuthLease, Clock, MonitorError, SitePolicy
+
+
+@dataclass
+class AuthContext:
+    auth_id: str
+    owner_id: int
+    bridge_id: str
+    cookie_store_id: str
+    state: str = "needs_credentials"
+    revision: int = 0
+    generation: int = 1
+    principal_key: str | None = field(default=None, repr=False)
+    confirmed_same_account: bool = False
+    was_verified: bool = False
+    jar: CookieJar = field(default_factory=CookieJar, repr=False)
+    network_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+
+class AuthManager:
+    def __init__(self, policy: SitePolicy, clock: Clock | None = None) -> None:
+        self.policy = policy
+        self.clock = clock or Clock()
+        self.backend_epoch = str(uuid4())
+        self._key = secrets.token_bytes(32)
+        self.contexts: dict[str, AuthContext] = {}
+        self._presence: dict[str, tuple[int, float, bool]] = {}
+        self._imports: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+
+    def create(self, owner_id: int, bridge_id: str, cookie_store_id: str = "0") -> AuthContext:
+        if not bridge_id or not cookie_store_id:
+            raise MonitorError("binding_denied")
+        ctx = AuthContext(str(uuid4()), owner_id, bridge_id, cookie_store_id)
+        self.contexts[ctx.auth_id] = ctx
+        return ctx
+
+    def context(self, auth_id: str) -> AuthContext:
+        if auth_id not in self.contexts:
+            raise MonitorError("not_found")
+        return self.contexts[auth_id]
+
+    def presence(self, bridge_id: str, sequence: int, enabled: bool = True) -> float:
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+            raise MonitorError("invalid")
+        previous = self._presence.get(bridge_id)
+        if previous:
+            if sequence < previous[0]:
+                raise MonitorError("revision_conflict")
+            if sequence == previous[0]:
+                return previous[1]
+        lease = self.clock.mono() + 180
+        self._presence[bridge_id] = (sequence, lease, enabled)
+        return lease
+
+    def online(self, bridge_id: str) -> bool:
+        p = self._presence.get(bridge_id)
+        return bool(p and p[2] and p[1] > self.clock.mono())
+
+    def metadata(self, auth_id: str) -> dict[str, Any]:
+        c = self.context(auth_id)
+        return {
+            "auth_id": c.auth_id,
+            "owner_id": c.owner_id,
+            "bridge_id": c.bridge_id,
+            "cookie_store_id": c.cookie_store_id,
+            "state": c.state,
+            "revision": c.revision,
+            "generation": c.generation,
+            "was_verified": c.was_verified,
+        }
+
+    def restore(self, metadata: dict[str, Any]) -> AuthContext:
+        c = AuthContext(
+            metadata["auth_id"],
+            metadata["owner_id"],
+            metadata["bridge_id"],
+            metadata["cookie_store_id"],
+            revision=metadata["revision"] + 1,
+            generation=metadata["generation"] + 1,
+            was_verified=metadata["was_verified"],
+        )
+        self.contexts[c.auth_id] = c
+        return c
+
+    def import_cookies(
+        self,
+        auth_id: str,
+        cookies: list[dict[str, Any]],
+        *,
+        backend_epoch: str,
+        expected_revision: int,
+        request_id: str,
+        reason: str = "initial",
+        confirmed_same_account: bool = False,
+    ) -> dict[str, Any]:
+        c = self.context(auth_id)
+        if backend_epoch != self.backend_epoch:
+            raise MonitorError("stale_backend")
+        if not request_id or reason not in (
+            "initial",
+            "backend_restart",
+            "auth_recovery",
+            "manual_reauthorize",
+        ):
+            raise MonitorError("invalid")
+        raw = json.dumps(
+            [cookies, expected_revision, reason, confirmed_same_account], sort_keys=True
+        ).encode()
+        if len(raw) > 262144:
+            raise MonitorError("too_large")
+        digest = hmac.new(self._key, raw, hashlib.sha256).hexdigest()
+        key = (auth_id, request_id)
+        if key in self._imports:
+            old, reply = self._imports[key]
+            if old != digest:
+                raise MonitorError("idempotency_conflict")
+            return reply.copy()
+        if expected_revision != c.revision:
+            raise MonitorError("revision_conflict")
+        if c.state == "valid" and reason != "manual_reauthorize":
+            raise MonitorError("active_session")
+        if c.was_verified and c.principal_key is None and not confirmed_same_account:
+            raise MonitorError("account_confirmation_required")
+        jar, seen = CookieJar(), set()
+        if not isinstance(cookies, list) or not cookies:
+            raise MonitorError("invalid")
+        for record in cookies:
+            try:
+                name, value = record["name"], record["value"]
+                domain, path = record["domain"], record["path"]
+                host_only, secure = record["host_only"], record["secure"]
+                session, expires = record["session"], record["expires_at"]
+                if (
+                    record.get("partitionKey") is not None
+                    or record.get("partition_key") is not None
+                    or record.get("partitioned")
+                ):
+                    raise MonitorError("partitioned_cookie_unsupported")
+                if not all(isinstance(v, str) for v in (name, value, domain, path)):
+                    raise MonitorError("invalid")
+                if (
+                    name not in self.policy.cookie_names
+                    or domain != self.policy.host
+                    or host_only is not True
+                    or secure is not True
+                    or not path.startswith("/")
+                    or path != "/"
+                    or record.get("same_site", "")
+                    not in ("strict", "lax", "none", "unspecified", "no_restriction")
+                    or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + value + domain + path)
+                    or any(ch in value for ch in ";\r\n")
+                    or len(name) + len(value) > 4096
+                ):
+                    raise MonitorError("cookie_scope_denied")
+                if not isinstance(session, bool) or (session and expires is not None):
+                    raise MonitorError("invalid")
+                if not session and (
+                    not isinstance(expires, (int, float)) or expires <= self.clock.utc()
+                ):
+                    raise MonitorError("auth_required")
+                ident = (domain, path, name)
+                if ident in seen:
+                    raise MonitorError("invalid")
+                seen.add(ident)
+                cookie = Cookie(
+                    name,
+                    value,
+                    domain,
+                    path,
+                    expires,
+                    secure=True,
+                    http_only=bool(record["http_only"]),
+                    host_only=True,
+                    same_site=record.get("same_site", ""),
+                )
+                jar = CookieJar([*map(lambda x: Cookie(**x), jar.to_list()), cookie])
+            except (KeyError, TypeError, ValueError):
+                raise MonitorError("invalid") from None
+        c.jar.clear()
+        c.jar, c.state = jar, "unverified"
+        c.generation += 1
+        c.revision += 1
+        c.confirmed_same_account = confirmed_same_account
+        reply = self.metadata(auth_id)
+        self._imports[key] = (digest, reply.copy())
+        return reply
+
+    async def acquire(self, auth_id: str) -> AuthLease:
+        c = self.context(auth_id)
+        if c.state not in ("unverified", "valid") or not len(c.jar):
+            raise MonitorError("auth_required")
+        return AuthLease(auth_id, c.generation, self.policy.origin, self)
+
+    def current(self, lease: AuthLease) -> AuthContext:
+        c = self.context(lease.auth_id)
+        if (
+            lease.opaque_handle is not self
+            or c.generation != lease.generation
+            or c.state not in ("valid", "unverified")
+        ):
+            raise MonitorError("superseded")
+        return c
+
+    def header(self, lease: AuthLease, url: str) -> str:
+        c, p = self.current(lease), urlsplit(url)
+        if lease.approved_origin != self.policy.origin or p.hostname != self.policy.host:
+            raise MonitorError("binding_denied")
+        value = c.jar.header_for(
+            self.policy.host, p.path, p.scheme == "https" or self.policy.local_test
+        )
+        if not value:
+            c.state = "auth_required"
+            raise MonitorError("auth_required")
+        return value
+
+    def update_cookies(self, lease: AuthLease, headers: list[str], url: str) -> None:
+        c = self.current(lease)
+        for header in headers:
+            if any(ord(ch) < 32 or ord(ch) == 127 for ch in header):
+                continue
+            candidate = CookieJar()
+            if not candidate.set_from_header(header, self.policy.host, urlsplit(url).path, True):
+                continue
+            records = candidate.to_list()
+            name = header.partition("=")[0].strip()
+            # Deletion needs scope validation as well (the temporary jar removes expired entries).
+            if not records:
+                sanitized = header.replace("Max-Age=0", "Max-Age=1").replace(
+                    "max-age=0", "max-age=1"
+                )
+                candidate.set_from_header(sanitized, self.policy.host, "/", True)
+                records = candidate.to_list()
+            if name not in self.policy.cookie_names or not records:
+                continue
+            r = records[0]
+            if (
+                r["domain"] != self.policy.host
+                or not r["host_only"]
+                or not r["secure"]
+                or r["path"] != "/"
+            ):
+                continue
+            if c.jar.set_from_header(header, self.policy.host, urlsplit(url).path, True):
+                c.revision += 1
+
+    def verify(self, lease: AuthLease, principal_key: str | None) -> None:
+        c = self.current(lease)
+        if c.principal_key and principal_key and c.principal_key != principal_key:
+            c.jar.clear()
+            c.state = "auth_required"
+            raise MonitorError("account_mismatch")
+        if (
+            c.state == "unverified"
+            and c.was_verified
+            and principal_key is None
+            and not c.confirmed_same_account
+        ):
+            c.state = "auth_required"
+            raise MonitorError("account_confirmation_required")
+        c.principal_key = principal_key or c.principal_key
+        c.was_verified, c.state = True, "valid"
+
+    def require_auth(self, auth_id: str) -> None:
+        self.context(auth_id).state = "auth_required"
+
+    async def revoke(self, auth_id: str, expected_revision: int) -> None:
+        c = self.context(auth_id)
+        if c.state == "revoked":
+            return
+        if c.revision != expected_revision:
+            raise MonitorError("revision_conflict")
+        c.jar.clear()
+        c.generation += 1
+        c.revision += 1
+        c.state = "revoked"
+
+    def close(self) -> None:
+        for c in self.contexts.values():
+            c.jar.clear()
+            c.state = "needs_credentials"
+            c.generation += 1
+        self._imports.clear()

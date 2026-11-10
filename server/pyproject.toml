@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Gleaner（拾课）服务端：自研多协议信息接入与推送网关"
 requires-python = ">=3.12"
 dependencies = [
+  "httpx>=0.28.1,<0.29", # 仅 monitoring/transport.py 使用；本轮用户明确允许
   "msgpack>=1.0",
   "feedparser>=6.0",
   "beautifulsoup4>=4.12",
@@ -49,7 +50,7 @@ ignore = ["ANN401", "RUF001", "RUF002", "RUF003", "E501", "TID252"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "requests".msg = "server/ 禁止使用现成 HTTP 库，用 gleaner.net.http"
-"httpx".msg = "禁止"
+"httpx".msg = "仅 monitoring/transport.py 的显式局部例外获准使用，其他生产模块禁止"
 "aiohttp".msg = "禁止"
 "urllib3".msg = "禁止"
 "h11".msg = "禁止"
