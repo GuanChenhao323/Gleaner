@@ -49,6 +49,7 @@ class Report:
                 "commit",
                 "duration_s",
                 "dns_mode",
+                "robots_fallback",
                 "started_at",
             },
             "summary": {
@@ -64,6 +65,7 @@ class Report:
                 "elapsed_utc_s",
             },
             "interruption": {"utc", "mono", "reason"},
+            "policy": {"kind", "reason", "scope", "utc"},
         }
         if kind not in allowed or set(data) - allowed[kind]:
             raise ValueError("report_field_denied")

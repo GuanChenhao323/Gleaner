@@ -118,6 +118,9 @@ class Harness:
             set_not_before=lambda t: self.store.put_meta("host_not_before", t),
             event=lambda e: self.report.append("request", e),
             inspect_access=adapter.inspect,
+            registered_target_fallback=getattr(self.args, "robots_fallback", "strict")
+            == "registered-target",
+            policy_event=lambda e: self.report.append("policy", e),
         )
         self.scheduler = Scheduler(
             self.registry,
@@ -149,6 +152,7 @@ class Harness:
                 "commit": commit,
                 "duration_s": self.args.duration,
                 "dns_mode": getattr(self.args, "dns", "system"),
+                "robots_fallback": getattr(self.args, "robots_fallback", "strict"),
                 "started_at": self.clock.utc(),
             },
         )
@@ -412,6 +416,12 @@ if __name__ == "__main__":
         help="Explicit debug DoH for Fake-IP DNS environments",
     )
     parser.add_argument("--exit-on-finish", action="store_true")
+    parser.add_argument(
+        "--robots-fallback",
+        choices=("strict", "registered-target"),
+        default="strict",
+        help="Explicit single-target grant for the verified MUST robots-to-dashboard redirect only",
+    )
     options = parser.parse_args()
     if options.real and (not options.target or options.duration < 7800):
         parser.error(
@@ -423,4 +433,8 @@ if __name__ == "__main__":
         )
     if not options.real and options.dns != "system":
         parser.error("debug DoH is only available for an explicit real Moodle target")
+    if not options.real and options.robots_fallback != "strict":
+        parser.error(
+            "registered-target fallback is only available for one explicit real Moodle target"
+        )
     asyncio.run(main(options))

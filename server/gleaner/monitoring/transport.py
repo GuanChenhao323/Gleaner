@@ -49,6 +49,8 @@ class HTTPXTransport:
         set_not_before: Callable[[float], None] = lambda _: None,
         event: Callable[[dict], None] = lambda _: None,
         inspect_access: Callable[[SafeResponse], AccessVerdict] | None = None,
+        registered_target_fallback: bool = False,
+        policy_event: Callable[[dict], None] = lambda _: None,
         max_wire: int = 4 * 1024 * 1024,
         max_decoded: int = 8 * 1024 * 1024,
         total_timeout: float = 30,
@@ -66,6 +68,14 @@ class HTTPXTransport:
         self.max_wire, self.max_decoded = max_wire, max_decoded
         self.total_timeout, self.connect_timeout = total_timeout, connect_timeout
         self.inspect_access = inspect_access
+        if registered_target_fallback and (
+            policy.origin != "https://moodle.must.edu.mo" or len(policy.target_urls) != 1
+        ):
+            raise ValueError("registered-target fallback requires one explicit MUST Moodle target")
+        self.registered_target_fallback, self.policy_event = (
+            registered_target_fallback,
+            policy_event,
+        )
         self._lock, self._global = asyncio.Lock(), asyncio.Semaphore(4)
         self._next_start = 0.0
         self._robots: tuple[float, RobotsRules] | None = None
@@ -290,6 +300,26 @@ class HTTPXTransport:
             p = urlsplit(nxt)
             if p.hostname == "login.must.edu.mo" or p.path.startswith("/login/"):
                 raise MonitorError("auth_required")
+            if (
+                kind == "robots"
+                and self.inspect_access
+                and self.inspect_access(
+                    SafeResponse(status, url, headers.get("content-type", ""), body)
+                ).state
+                == "auth_required"
+            ):
+                raise MonitorError("auth_required")
+            if (
+                kind == "robots"
+                and hop == 0
+                and status == 303
+                and lease is not None
+                and self.registered_target_fallback
+                and nxt == self.policy.origin + "/my/"
+            ):
+                # This is an unusable robots response, NOT a grant from the dashboard.
+                # The caller explicitly opted into the separately registered single-target policy.
+                raise MonitorError("robots_dashboard_redirect")
             approved = self.policy.canonical(nxt, target=kind == "content")
             if kind == "content" and approved != target_url:
                 raise MonitorError("blocked")
@@ -308,31 +338,50 @@ class HTTPXTransport:
                     or self._robots[0] <= self.clock.mono()
                     or identity != self._robots_identity
                 ):
-                    final, status, headers, body = await self._chain(
-                        self.policy.origin + "/robots.txt", auth, kind="robots"
-                    )
-                    robots_response = SafeResponse(
-                        status, final, headers.get("content-type", ""), body
-                    )
-                    if status == 401 or (
-                        self.inspect_access
-                        and self.inspect_access(robots_response).state == "auth_required"
-                    ):
-                        raise MonitorError("auth_required")
-                    if status == 200:
-                        if (
-                            headers.get("content-type", "").split(";")[0].strip().lower()
-                            != "text/plain"
-                        ):
-                            raise MonitorError("robots_unavailable", retryable=True)
-                        try:
-                            rules = parse_robots(body.decode("utf-8-sig"), "gleanermonitor")
-                        except UnicodeDecodeError:
-                            raise MonitorError("robots_unavailable", retryable=True) from None
-                    elif 400 <= status < 500:
-                        rules = RobotsRules()
+                    try:
+                        final, status, headers, body = await self._chain(
+                            self.policy.origin + "/robots.txt", auth, kind="robots"
+                        )
+                    except MonitorError as error:
+                        if error.code != "robots_dashboard_redirect":
+                            raise
+                        p = urlsplit(url)
+                        target_path = p.path + ("?" + p.query if p.query else "")
+                        rules = parse_robots(
+                            f"User-agent: GleanerMonitor\nDisallow: /\nAllow: {target_path}$",
+                            "gleanermonitor",
+                        )
+                        self.policy_event(
+                            {
+                                "kind": "robots_fallback",
+                                "reason": "dashboard_redirect",
+                                "scope": "one_registered_target",
+                                "utc": self.clock.utc(),
+                            }
+                        )
                     else:
-                        raise MonitorError("robots_unavailable", retryable=True)
+                        robots_response = SafeResponse(
+                            status, final, headers.get("content-type", ""), body
+                        )
+                        if status == 401 or (
+                            self.inspect_access
+                            and self.inspect_access(robots_response).state == "auth_required"
+                        ):
+                            raise MonitorError("auth_required")
+                        if status == 200:
+                            if (
+                                headers.get("content-type", "").split(";")[0].strip().lower()
+                                != "text/plain"
+                            ):
+                                raise MonitorError("robots_unavailable", retryable=True)
+                            try:
+                                rules = parse_robots(body.decode("utf-8-sig"), "gleanermonitor")
+                            except UnicodeDecodeError:
+                                raise MonitorError("robots_unavailable", retryable=True) from None
+                        elif 400 <= status < 500:
+                            rules = RobotsRules()
+                        else:
+                            raise MonitorError("robots_unavailable", retryable=True)
                     self._robots = (self.clock.mono() + 3600, rules)
                     self._robots_identity = identity
                 rules = self._robots[1]

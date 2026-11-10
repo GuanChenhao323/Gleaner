@@ -19,7 +19,8 @@ def plan():
 
 def setup(handler, **kwargs):
     clock = FakeClock()
-    auth = AuthManager(SitePolicy(), clock)
+    policy = kwargs.pop("policy", SitePolicy())
+    auth = AuthManager(policy, clock)
     log, events = [], []
     state = {"not_before": 0}
 
@@ -34,7 +35,7 @@ def setup(handler, **kwargs):
         return ["203.0.113.1"] if kwargs.pop("bad_ip", False) else ["1.1.1.1"]
 
     transport = HTTPXTransport(
-        SitePolicy(),
+        policy,
         auth,
         clock=clock,
         resolver=kwargs.pop("resolver", resolver),
@@ -367,3 +368,79 @@ async def test_redirect_diagnostics_do_not_log_parameters_or_unknown_paths(locat
         assert "SYNTHETIC_SECRET" not in repr(events)
     finally:
         await t.close()
+
+
+async def test_registered_target_fallback_is_explicit_bounded_and_logged():
+    policy = SitePolicy(target_urls=(URL,))
+    decisions = []
+
+    def handler(r):
+        return (
+            (303, {"location": "/my/"}, b"redirect")
+            if r.url.path == "/robots.txt"
+            else (200, {}, b"ok")
+        )
+
+    t, auth, _, log, _, _ = setup(
+        handler, policy=policy, registered_target_fallback=True, policy_event=decisions.append
+    )
+    c = auth.create(1, "b")
+    auth.import_cookies(
+        c.auth_id, [cookie()], backend_epoch=auth.backend_epoch, expected_revision=0, request_id="i"
+    )
+    try:
+        assert (await t.fetch(plan(), await auth.acquire(c.auth_id))).status == 200
+        assert [r.url.path for _, r in log] == ["/robots.txt", "/mod/assign/view.php"]
+        assert decisions[0]["scope"] == "one_registered_target"
+        assert t._robots[1].allowed("/mod/assign/view.php?id=7")
+        assert not t._robots[1].allowed("/mod/assign/view.php?id=8")
+        wrong = FetchPlan("s", 1, c.generation, "c2", URL.replace("id=7", "id=8"), (1,))
+        with pytest.raises(MonitorError):
+            await t.fetch(wrong, await auth.acquire(c.auth_id))
+        assert len(log) == 2
+    finally:
+        await t.close()
+
+
+@pytest.mark.parametrize(
+    "status,headers,body,code",
+    [
+        (200, {"content-type": "text/plain"}, b"User-agent: *\nDisallow: /", "robots_denied"),
+        (200, {"content-type": "text/html"}, b'<form id="login"></form>', "auth_required"),
+        (200, {"content-type": "text/html"}, b"<html>unknown</html>", "robots_unavailable"),
+        (401, {}, b"denied", "auth_required"),
+        (503, {}, b"unavailable", "upstream_5xx"),
+        (303, {"location": "https://evil.example/my/"}, b"", "blocked"),
+        (303, {"location": "/my/?ticket=secret"}, b"", "blocked"),
+        (
+            303,
+            {"location": "/my/", "content-type": "text/html"},
+            b'<form id="login"></form>',
+            "auth_required",
+        ),
+    ],
+)
+async def test_registered_target_policy_does_not_override_rules_or_other_failures(
+    status, headers, body, code
+):
+    t, auth, _, log, _, _ = setup(
+        lambda r: (status, headers, body),
+        policy=SitePolicy(target_urls=(URL,)),
+        registered_target_fallback=True,
+        inspect_access=MoodleAdapter().inspect,
+    )
+    c = auth.create(1, "b")
+    auth.import_cookies(
+        c.auth_id, [cookie()], backend_epoch=auth.backend_epoch, expected_revision=0, request_id="i"
+    )
+    try:
+        with pytest.raises(MonitorError, match=code):
+            await t.fetch(plan(), await auth.acquire(c.auth_id))
+        assert len(log) == 1
+    finally:
+        await t.close()
+
+
+def test_registered_target_policy_rejects_unbounded_configuration():
+    with pytest.raises(ValueError, match="one explicit"):
+        setup(lambda r: (200, {}, b""), registered_target_fallback=True)

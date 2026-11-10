@@ -30,6 +30,7 @@ mkdir -p data/monitoring
 .venv/bin/python -m devtools.monitoring.run --real \
   --target 'https://moodle.must.edu.mo/mod/assign/view.php?id=<已授权目标ID>' \
   --dns cloudflare \
+  --robots-fallback registered-target \
   --chrome-version '<实际Chrome版本>' \
   --report data/monitoring/real.jsonl
 ```
@@ -38,7 +39,7 @@ mkdir -p data/monitoring
 
 本机代理会把系统 DNS 和普通 UDP DNS 转成非公网 Fake-IP，出站保护会拒绝这些地址。上例显式使用调试 DoH：向固定的 Cloudflare 解析入口查询公开域名，保留其 TLS/SNI 校验，不发送任何 Moodle 凭证；返回地址仍须通过公网检查，连接 Moodle 时继续校验 Moodle 证书。其他环境可省略该参数，默认使用系统 DNS；失败不会自动切换方式。未修改本机代理或系统设置。
 
-公开探测已确认 MUST 的 robots 入口会跳转登录。监测轮次使用同一个已批准的 Moodle 会话读取该入口，缓存按认证上下文和代际隔离；登录页、401 和未知 HTML 均不能当作访问许可，也不会跟随 CAS 登录跳转。
+实测 MUST 的 robots 入口在匿名时跳转登录，携带会话时首跳 303 到个人首页 `/my/`，没有直接提供可解析规则。默认 `strict` 会停止检查。上例显式启用本轮已授权目标策略：仅针对这个已验证的同源、无参数跳转，允许访问唯一登记的完整作业 URL；不请求个人首页，且单独记录 `policy` 事件。明确的 Disallow、登录证据、401、未知 HTML、5xx/网络错误及其他跳转继续阻断。该配置依据本轮精确目标授权，不能解释为站点允许全部访问；缓存仍按认证上下文和代际隔离。
 
 出现认证失效、缺轮、暂停或超过预算的间隔会使长测不通过。恢复必要条件后应重新开一轮，不能拼接结果。点击“停止并清理凭证”结束检查；状态页保留用于核对，终端 Ctrl+C 关闭调试服务。停止不会退出 Chrome 中的 Moodle 账号。
 
