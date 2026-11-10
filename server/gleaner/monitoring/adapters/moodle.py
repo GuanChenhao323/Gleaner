@@ -91,12 +91,22 @@ class MoodleAdapter:
     ) -> ObservationBatch:
         soup = self._html(response)
         body = soup.body
-        # Moodle 3.x uses the page-header H1 for the COURSE, and region-main H2 for the activity.
-        title = soup.select_one("#region-main h2, #region-main h1")
-        if title is None:
-            title = soup.select_one(".page-header-headings h1, #page-header h1")
         intro = soup.select_one("#intro .no-overflow, #intro")
         main = soup.select_one("#region-main")
+        # Verified MUST structure: activity H2 is a direct child of the main landmark.
+        # Nested intro headings and the course H1 must never substitute for a missing title.
+        content = (
+            main
+            if main and main.get("role") == "main"
+            else main.select_one('[role="main"]')
+            if main
+            else None
+        )
+        title = (
+            content.find("h2", recursive=False)
+            if content and content.get("id") != "intro" and not content.find_parent(id="intro")
+            else None
+        )
         assignment_id = parse_qs(urlsplit(source.canonical_url).query)["id"][0]
         expected_locator = f"moodle:assign:{assignment_id}"
         correct_type = (
@@ -108,7 +118,7 @@ class MoodleAdapter:
         if f"cmid-{assignment_id}" not in cmids:
             correct_type = False
         # An authenticated but structurally unknown page is not an empty assignment.
-        available = bool(correct_type and title and intro and main)
+        available = bool(correct_type and title and title.get_text(strip=True) and intro and main)
         entries = []
         for target in source.targets:
             if not target.enabled:

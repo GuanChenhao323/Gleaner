@@ -33,8 +33,8 @@ class MonitoringFixture:
         text = "Read chapter 3" if self.scenario == "changed" else "Read chapter 2"
         body = f"""<html><body id="page-mod-assign-view" class="cmid-7"><div class="logininfo">
         <a href="/user/profile.php?id=42">Synthetic student</a><a href="/login/logout.php">Logout</a></div>
-        <div class="page-header-headings"><h1>Test course</h1></div><main id="region-main"><h2>Test assignment</h2>
-        <div id="intro"><div class="no-overflow">{text}</div></div></main></body></html>"""
+        <div class="page-header-headings"><h1>Test course</h1></div><section id="region-main"><div role="main"><h2>Test assignment</h2>
+        <div id="intro"><div class="no-overflow">{text}</div></div></div></section></body></html>"""
         return Response(
             200,
             body=body.encode(),

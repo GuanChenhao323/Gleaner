@@ -5,9 +5,9 @@ from gleaner.monitoring.models import FetchPlan, MonitorSource, MonitorTarget, S
 def page(title="Task A", text="Read chapter 2", noise="Monday"):
     return f"""<html><body id="page-mod-assign-view" class="cmid-7"><div class="logininfo">
     <a href="/user/profile.php?id=42">Synthetic student</a><a href="/login/logout.php?sesskey=SECRET">Logout</a>
-    </div><div class="page-header-headings"><h1>{title}</h1></div>
-    <main id="region-main"><div id="intro"><div class="no-overflow">{text}</div></div>
-    <div class="submissionstatustable">PRIVATE SUBMISSION</div></main><footer>{noise}</footer></body></html>""".encode()
+    </div><div class="page-header-headings"><h1>Synthetic course</h1></div>
+    <section id="region-main"><div role="main"><h2>{title}</h2><div id="intro"><div class="no-overflow">{text}</div></div>
+    <div class="submissionstatustable">PRIVATE SUBMISSION</div></div></section><footer>{noise}</footer></body></html>""".encode()
 
 
 def select(body, locator="moodle:assign:7"):
@@ -63,14 +63,17 @@ def test_scripts_and_forms_are_not_observations():
 
 
 def test_moodle_course_header_is_not_assignment_title():
-    body = page(title="Synthetic course").replace(
-        b'<main id="region-main">', b'<main id="region-main"><h2>Synthetic assignment</h2>'
-    )
+    body = page(title="Synthetic assignment", text="<h2>Instructions</h2><p>Read chapter 2</p>")
     _, batch = select(body)
     assert batch.entries[0].title == "Synthetic assignment"
     assert select(body.replace(b"cmid-7", b"cmid-8"))[1].entries[0].error == {
         "code": "parse_failed"
     }
     assert select(body.replace(b"cmid-7", b"unknown"))[1].entries[0].error == {
+        "code": "parse_failed"
+    }
+    missing_title = body.replace(b"<h2>Synthetic assignment</h2>", b"")
+    assert select(missing_title)[1].entries[0].error == {"code": "parse_failed"}
+    assert select(missing_title.replace(b"<h2>Instructions</h2>", b""))[1].entries[0].error == {
         "code": "parse_failed"
     }
