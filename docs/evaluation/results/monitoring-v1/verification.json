@@ -1,0 +1,164 @@
+{
+  "status": "awaiting_macos_unlock_and_live_acceptance",
+  "development_complete": false,
+  "recorded_at_utc": "2026-11-10T01:45:19.101514+00:00",
+  "code_commit": "8a28dd893c914a295491c0f983429ca29b19dff7",
+  "branch": "codex/monitoring-v1-validation",
+  "checklist": {
+    "total": 39,
+    "passed": [
+      "S1-01",
+      "S1-02",
+      "S1-04",
+      "S1-06",
+      "S1-07",
+      "S2-01",
+      "S2-02",
+      "S2-03",
+      "S2-04",
+      "S2-05",
+      "S2-06",
+      "S2-07",
+      "S3-01",
+      "S3-02",
+      "S3-03",
+      "S3-04",
+      "S3-05",
+      "S3-06",
+      "S3-07",
+      "S3-08",
+      "S3-09",
+      "S3-10",
+      "S3-11",
+      "S3-12",
+      "S3-13",
+      "S3-14",
+      "F-01",
+      "F-02",
+      "F-03"
+    ],
+    "pending": [
+      "S1-03",
+      "S1-05",
+      "S2-08",
+      "S4-01",
+      "S4-02",
+      "S4-03",
+      "S4-04",
+      "S4-05",
+      "S4-06",
+      "F-04"
+    ]
+  },
+  "tests": {
+    "command": "python -m pytest -q (cwd: server)",
+    "passed": 284,
+    "failed": 0,
+    "skipped": 3,
+    "monitoring_passed": 81,
+    "monitoring_skipped": 0,
+    "duration_s": 111.1,
+    "skip_details": [
+      {
+        "test": "test_concurrent_schema_init",
+        "reason": "未设置 GLEANER_TEST_PG"
+      },
+      {
+        "test": "test_reconnect_after_server_drops_connection",
+        "reason": "未设置 GLEANER_TEST_PG"
+      },
+      {
+        "test": "test_pool_runs_statements_concurrently",
+        "reason": "未设置 GLEANER_TEST_PG"
+      }
+    ]
+  },
+  "environment": {
+    "python": "3.14.7",
+    "httpx": "0.28.1",
+    "httpcore": "1.0.9",
+    "pytest": "9.2.0",
+    "ruff": "0.17.4",
+    "chrome": "157.0.8103.50",
+    "database": "SQLite"
+  },
+  "lint": {
+    "ruff_check": "passed",
+    "ruff_format_check": "passed"
+  },
+  "review": {
+    "model": "gpt-6.1-terra",
+    "reasoning_effort": "max",
+    "status": "all_reported_substantive_findings_addressed",
+    "areas": [
+      "target redirect scope",
+      "long-run gaps and receipts",
+      "DNS/HTTP pacing and budgets",
+      "Retry-After and robots authentication",
+      "restart and persisted receipts",
+      "cookie deletion",
+      "activity title structure",
+      "opaque credential handles",
+      "debug DoH",
+      "backoff state"
+    ]
+  },
+  "computer_use": {
+    "mode": "local synthetic site",
+    "run_id": "285c1ce7-e5c2-4cf2-83e2-ffb91a5eade4",
+    "evidence": "local-fault-scenarios.jsonl",
+    "scenario_assertions_passed": true,
+    "scenarios": [
+      "hidden cookie input cleared",
+      "initial content read",
+      "unchanged content",
+      "changed content",
+      "waiting_browser without fake failure",
+      "auth_required without unchanged",
+      "recovery",
+      "stop and clear credentials"
+    ],
+    "summary": {
+      "record": "summary",
+      "run_id": "285c1ce7-e5c2-4cf2-83e2-ffb91a5eade4",
+      "finished_at": 1794274933.261577,
+      "elapsed_s": 64.26769450004213,
+      "elapsed_utc_s": 64.26869606971741,
+      "successful_rounds": 26,
+      "failed_rounds": 1,
+      "missed_rounds": 0,
+      "interruptions": [
+        "bridge_paused"
+      ],
+      "passed": false,
+      "reason": "stopped_or_failed"
+    },
+    "summary_note": "passed=false is expected: this is a short deliberate pause/auth-failure test, not the 130-minute acceptance run."
+  },
+  "real_browser_dom": {
+    "checked": true,
+    "page_type": "Moodle assignment detail",
+    "title_structure": "#region-main main landmark > h2",
+    "identity_marker": "cmid-<target>",
+    "body_region": "#intro",
+    "raw_content_saved": false
+  },
+  "public_network_probe": {
+    "credentials_sent": false,
+    "system_dns": "non-public Fake-IP; correctly blocked",
+    "udp_public_dns": "also returned Fake-IP",
+    "explicit_cloudflare_doh": "one validated public A record; Moodle TLS connection succeeded",
+    "robots_status": 303,
+    "redirect_origin": "https://moodle.must.edu.mo",
+    "redirect_path": "/login/index.php",
+    "redirect_followed": false,
+    "body_saved": false
+  },
+  "live_acceptance": {
+    "credentials_imported": false,
+    "assignment_fetch_verified": false,
+    "long_run_started": false,
+    "blocked_by": "Mac is locked; native Computer Use cannot operate Cookie-Editor. User unlock requested.",
+    "next_step": "Unlock Mac, import the authorized Moodle session through the local hidden input, then run read-only target verification and an uninterrupted 130-minute acceptance run."
+  }
+}
