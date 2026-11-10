@@ -44,7 +44,7 @@ HTML = """<!doctype html><meta charset="utf-8"><title>Monitoring validation</tit
 <script>
 const token='__TOKEN__';
 async function send(body){const r=await fetch('/control',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Token':token},body:JSON.stringify(body)});const d=await r.json();document.getElementById('message').textContent=d.message||d.error||'已执行';await refresh();}
-document.getElementById('import').onclick=async()=>{const input=document.getElementById('cookies');let value=input.value;input.value='';try{await send({action:'import',cookies:JSON.parse(value)});}catch(e){document.getElementById('message').textContent='导入格式无效';}value='';};
+document.getElementById('import').onclick=async()=>{const input=document.getElementById('cookies');let value=input.value;input.value='';try{const records=JSON.parse(value);const approved=records.filter(c=>c.name==='MoodleSession'&&c.domain==='__COOKIE_HOST__');await send({action:'import',cookies:approved});}catch(e){document.getElementById('message').textContent='导入格式无效';}value='';};
 document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>send({action:b.dataset.action}));
 async function refresh(){const r=await fetch('/state');document.getElementById('state').textContent=JSON.stringify(await r.json(),null,2);}
 refresh();setInterval(refresh,2000);
@@ -204,7 +204,9 @@ class Harness:
         if request.method == "GET" and request.path == "/":
             response = Response(
                 200,
-                body=HTML.replace("__TOKEN__", self.token).encode(),
+                body=HTML.replace("__TOKEN__", self.token)
+                .replace("__COOKIE_HOST__", self.policy.host)
+                .encode(),
                 headers=Headers({"Content-Type": "text/html; charset=utf-8"}),
             )
         elif request.method == "GET" and request.path == "/state":
