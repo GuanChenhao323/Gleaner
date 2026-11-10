@@ -91,7 +91,10 @@ class MoodleAdapter:
     ) -> ObservationBatch:
         soup = self._html(response)
         body = soup.body
-        title = soup.select_one(".page-header-headings h1, #page-header h1")
+        # Moodle 3.x uses the page-header H1 for the COURSE, and region-main H2 for the activity.
+        title = soup.select_one("#region-main h2, #region-main h1")
+        if title is None:
+            title = soup.select_one(".page-header-headings h1, #page-header h1")
         intro = soup.select_one("#intro .no-overflow, #intro")
         main = soup.select_one("#region-main")
         assignment_id = parse_qs(urlsplit(source.canonical_url).query)["id"][0]
@@ -102,7 +105,7 @@ class MoodleAdapter:
             and response.final_url == source.canonical_url
         )
         cmids = [c for c in (body.get("class", []) if body else []) if str(c).startswith("cmid-")]
-        if cmids and f"cmid-{assignment_id}" not in cmids:
+        if f"cmid-{assignment_id}" not in cmids:
             correct_type = False
         # An authenticated but structurally unknown page is not an empty assignment.
         available = bool(correct_type and title and intro and main)

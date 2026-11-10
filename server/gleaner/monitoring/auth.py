@@ -32,6 +32,7 @@ class AuthContext:
     was_verified: bool = False
     jar: CookieJar = field(default_factory=CookieJar, repr=False)
     network_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    lease_handle: object = field(default_factory=object, repr=False)
 
 
 class AuthManager:
@@ -204,6 +205,7 @@ class AuthManager:
         c.jar.clear()
         c.jar, c.state = jar, "unverified"
         c.generation += 1
+        c.lease_handle = object()
         c.revision += 1
         c.confirmed_same_account = confirmed_same_account
         reply = self.metadata(auth_id)
@@ -217,11 +219,11 @@ class AuthManager:
             c.state = "auth_required"
             self._save(auth_id)
             raise MonitorError("auth_required")
-        return AuthLease(auth_id, c.generation, self.policy.origin, self)
+        return AuthLease(auth_id, c.generation, self.policy.origin, c.lease_handle)
 
     def current(self, lease: AuthLease) -> AuthContext:
         c = self.context(lease.auth_id)
-        if lease.opaque_handle is not self or c.generation != lease.generation:
+        if lease.opaque_handle is not c.lease_handle or c.generation != lease.generation:
             raise MonitorError("superseded")
         if c.state not in ("valid", "unverified"):
             raise MonitorError("auth_required")
@@ -306,6 +308,7 @@ class AuthManager:
         c.generation += 1
         c.revision += 1
         c.state = "revoked"
+        c.lease_handle = object()
         self._save(auth_id)
 
     def close(self) -> None:
@@ -313,5 +316,6 @@ class AuthManager:
             c.jar.clear()
             c.state = "needs_credentials"
             c.generation += 1
+            c.lease_handle = object()
             self._save(c.auth_id)
         self._imports.clear()

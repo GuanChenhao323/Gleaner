@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 from monitoring_helpers import FakeClock, cookie
@@ -191,3 +191,17 @@ async def test_valid_scoped_deletion_clears_credentials(expiry):
     assert not len(c.jar) and c.state == "auth_required"
     with pytest.raises(MonitorError, match="auth_required"):
         await auth.acquire(c.auth_id)
+
+
+async def test_opaque_lease_does_not_expose_manager_or_cross_context():
+    auth, c, _ = make()
+    import_one(auth, c)
+    lease = await auth.acquire(c.auth_id)
+    assert not hasattr(lease.opaque_handle, "contexts")
+    other = auth.create(1, "bridge")
+    import_one(auth, other)
+    with pytest.raises(MonitorError, match="superseded"):
+        auth.current(replace(lease, auth_id=other.auth_id, generation=other.generation))
+    await auth.revoke(c.auth_id, c.revision)
+    with pytest.raises(MonitorError, match="superseded"):
+        auth.current(replace(lease, generation=c.generation))

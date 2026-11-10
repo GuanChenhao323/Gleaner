@@ -15,6 +15,8 @@ from monitoring_helpers import cookie
 from gleaner.monitoring.auth import AuthManager
 from gleaner.monitoring.models import FetchPlan, MonitorError, SitePolicy
 from gleaner.monitoring.transport import HTTPXTransport
+from gleaner.net.http import Request
+from gleaner.net.http.message import Headers
 
 
 def certificate(tmp_path):
@@ -159,3 +161,72 @@ async def test_debug_harness_persistent_restart_and_receipt_report(tmp_path):
         assert second.context.state == "unverified"
     finally:
         await second.close()
+
+
+async def test_debug_input_origin_scope_and_secret_storage(tmp_path):
+    import json
+
+    args = Namespace(
+        real=False,
+        target="",
+        database=str(tmp_path / "debug.db"),
+        port=0,
+        report=str(tmp_path / "report.jsonl"),
+        duration=7800,
+        chrome_version="synthetic",
+        exit_on_finish=True,
+    )
+    harness = Harness(args)
+    await harness.setup()
+    host = harness.origin.removeprefix("http://")
+    chrome_cookie = {
+        "name": "MoodleSession",
+        "value": "SYNTHETIC_PRIVATE_COOKIE",
+        "domain": "127.0.0.1",
+        "path": "/",
+        "secure": True,
+        "httpOnly": True,
+        "hostOnly": True,
+        "sameSite": "lax",
+        "session": True,
+    }
+    body = json.dumps(
+        {"action": "import", "cookies": [chrome_cookie, {"name": "unrelated", "value": "discard"}]}
+    ).encode()
+    headers = {
+        "Host": host,
+        "Origin": "https://evil.example",
+        "X-Debug-Token": harness.token,
+        "Content-Type": "application/json",
+    }
+    try:
+        denied = await harness.handle(
+            Request(method="POST", target="/control", body=body, headers=Headers(headers))
+        )
+        assert denied.status == 403
+        headers["Origin"] = harness.origin
+        accepted = await harness.handle(
+            Request(method="POST", target="/control", body=body, headers=Headers(headers))
+        )
+        assert accepted.status == 200 and accepted.headers["Cache-Control"] == "no-store"
+        assert len(harness.context.jar) == 1
+        assert "SYNTHETIC_PRIVATE_COOKIE" not in json.dumps(harness.state())
+        assert b"SYNTHETIC_PRIVATE_COOKIE" not in (tmp_path / "debug.db").read_bytes()
+        assert "SYNTHETIC_PRIVATE_COOKIE" not in (tmp_path / "report.jsonl").read_text()
+        navigation = await harness.handle(
+            Request(
+                target="/",
+                method="GET",
+                headers=Headers(
+                    {
+                        "Host": host,
+                        "Sec-Fetch-Site": "cross-site",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Dest": "document",
+                    }
+                ),
+            )
+        )
+        assert navigation.status == 200
+    finally:
+        await harness.close()

@@ -3,7 +3,7 @@ from gleaner.monitoring.models import FetchPlan, MonitorSource, MonitorTarget, S
 
 
 def page(title="Task A", text="Read chapter 2", noise="Monday"):
-    return f"""<html><body id="page-mod-assign-view"><div class="logininfo">
+    return f"""<html><body id="page-mod-assign-view" class="cmid-7"><div class="logininfo">
     <a href="/user/profile.php?id=42">Synthetic student</a><a href="/login/logout.php?sesskey=SECRET">Logout</a>
     </div><div class="page-header-headings"><h1>{title}</h1></div>
     <main id="region-main"><div id="intro"><div class="no-overflow">{text}</div></div>
@@ -60,3 +60,17 @@ def test_login_forbidden_unknown_and_missing():
 def test_scripts_and_forms_are_not_observations():
     _, batch = select(page(text="Hello<script>EVIL()</script><form>credential</form><p>World</p>"))
     assert batch.entries[0].text == "Hello\nWorld"
+
+
+def test_moodle_course_header_is_not_assignment_title():
+    body = page(title="Synthetic course").replace(
+        b'<main id="region-main">', b'<main id="region-main"><h2>Synthetic assignment</h2>'
+    )
+    _, batch = select(body)
+    assert batch.entries[0].title == "Synthetic assignment"
+    assert select(body.replace(b"cmid-7", b"cmid-8"))[1].entries[0].error == {
+        "code": "parse_failed"
+    }
+    assert select(body.replace(b"cmid-7", b"unknown"))[1].entries[0].error == {
+        "code": "parse_failed"
+    }

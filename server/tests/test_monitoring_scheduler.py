@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -199,3 +200,21 @@ async def test_restart_restores_bindings_and_waits_for_credentials(tmp_path):
     assert await scheduler.tick() == 0
     assert store.source(s.source.source_id).runtime_status == "waiting_auth"
     store.close()
+
+
+async def test_concurrent_ticks_do_not_overlap_requests():
+    s = system()
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def delay():
+        started.set()
+        await release.wait()
+
+    s.transport.during = delay
+    first = asyncio.create_task(s.scheduler.tick())
+    await started.wait()
+    assert await asyncio.gather(*(s.scheduler.tick() for _ in range(10))) == [0] * 10
+    release.set()
+    await first
+    assert len(s.transport.calls) == 1
+    s.store.close()
