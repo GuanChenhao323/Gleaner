@@ -128,6 +128,7 @@ async def test_failures_cooldown_and_authentication_pause():
     assert s.store.source(s.source.source_id).next_due_at >= s.clock.utc() + 1800
     wake(s, 1799)
     assert await s.scheduler.tick() == 0
+    assert s.store.source(s.source.source_id).runtime_status == "backoff"
     wake(s, 1)
     s.transport.error = None
     s.transport.body = b'<form id="login"></form>'

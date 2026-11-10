@@ -42,7 +42,9 @@ class Scheduler:
             context = self.auth.contexts.get(source.auth_id)
             if context is None or context.state not in ("valid", "unverified"):
                 return "waiting_auth"
-        if self.store.meta("host_not_before", 0) > self.clock.utc():
+        if self.store.meta("host_not_before", 0) > self.clock.utc() or (
+            source.failures > 0 and source.next_due_at > self.clock.utc()
+        ):
             return "backoff"
         return "ready"
 
