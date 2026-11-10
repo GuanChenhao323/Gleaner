@@ -21,7 +21,18 @@
 | 插件登录旧服务端账号，可配置服务器地址 | 插件连接本地后端，云账户不在当前 P0 | 本地连接鉴权与权限设计待验证；不据此删除现有安全措施 |
 | Chrome／Edge 共用 Manifest V3 实现 | 当前验收基线为 Chrome | Edge 历史兼容声明不代表首版验收承诺 |
 
-2026-11-06：后端新接口已就绪，契约见 [IC-001](architecture/IC-001-extension-to-backend.md)：`POST /api/captures` 批量保存（每条带 `locator`，逐条返回结果）、`GET /api/monitor/due` 与 `POST /api/monitor/results` 后台监测。旧 `POST /api/clips` 保留兼容。插件代码尚未迁移：需要按页面类型给出稳定的 `locator`，按逐条结果显示成功与失败，并在 Spike 02 验证后实现后台调度（同一主机请求间隔不少于 2 秒）。
+2026-11-06：后端新接口已就绪，契约见 [IC-001](architecture/IC-001-extension-to-backend.md)。
+
+### 2026-11-09 插件实现状态（`extension/` v0.2.0）
+
+| 能力 | 实现 | 验证 |
+| --- | --- | --- |
+| 候选识别（F01、US01） | `candidates.js`：Moodle 页面识别活动（`cmid:<id>`）与讨论（`forum:d:<id>`），活动页本身是一条；普通网页的列表条目用条目链接 `href:<路径与查询>`；识别不到列表时整页为一条（`page`）；选中文字保存为一条（`t:<标题哈希>`，不支持监测）。Moodle 作业、测验等默认判为待办 | 测试页 `devtools/extension_harness`：Moodle 作业列表识别 3 条、学院通知列表识别 3 条 |
+| 勾选与批量保存（F02、US02） | 弹窗列出候选，默认不勾选（只有一条时默认勾选）；调用 `POST /api/captures`，逐条显示“已保存／已更新／没有变化／失败原因” | 测试页实测：勾选 2 条只保存 2 条；再次保存显示“没有变化”、不产生重复记录；后端不可用时显示“保存失败：连不上本地后端” |
+| 后台监测（F07–F09、US07、US09） | `background.js`：`chrome.alarms` 每 5 分钟唤醒，`GET /api/monitor/due` 领取到期任务，同一页面只取一次，用浏览器自己的会话只读 GET，在 offscreen 文档里用同一套识别规则按 `locator` 找回事项，回报 `POST /api/monitor/results`。登录页（含 CAS 跳转）→ `auth_expired`，401／403／404／5xx／超时、页面不是 HTML、找不到条目分别报对应错误；同一主机请求间隔 ≥ 2 秒；遵守 robots.txt（不可达时不访问） | **未在真实 Chrome 中验证**（自动化环境不能加载扩展）。关闭目标标签页后能否用浏览器会话重新读取、SameSite Cookie 是否随扩展请求发送，仍是 Spike 02 的验证内容 |
+| 权限 | 后端地址在登录时申请；勾选“保存后定期检查来源变化”时才申请该网站的访问权限；不读 Cookie、不导出会话 | — |
+
+加载方式不变：`chrome://extensions` → 开发者模式 → 加载已解压的扩展程序 → `extension/`。最低 Chrome 116（offscreen 文档）。
 
 ## 权限、监测与验证
 

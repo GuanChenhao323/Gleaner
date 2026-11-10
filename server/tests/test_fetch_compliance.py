@@ -18,7 +18,7 @@ from gleaner.collector.fetcher import (
     parse_robots,
 )
 from gleaner.gateway.app import _host_allowed, _origin_allowed
-from gleaner.net.http import CookieJar, HTTPClient
+from gleaner.net.http import CookieJar, Headers, HTTPClient
 from gleaner.net.http.cookies import MAX_PER_DOMAIN, default_path, path_match
 
 # ---- Cookie ----------------------------------------------------------------------
@@ -354,3 +354,45 @@ async def test_gateway_rejects_foreign_host_header(stack):
             assert other.headers.get("Access-Control-Allow-Origin") is None
     finally:
         await gw.close()
+
+
+async def test_client_falls_back_to_next_resolved_address(monkeypatch):
+    """解析出多个地址时依次尝试：localhost 的 ::1 没有服务时退到 127.0.0.1（RFC 8305 第 4 节的顺序尝试）。"""
+    from gleaner.net import egress
+
+    monkeypatch.setenv("GLEANER_EGRESS_ALLOW_PRIVATE", "1")
+    srv, port = await serve(lambda t, h: resp("200 OK", body=b"v4"), [])
+    real = egress.checked_addresses
+
+    async def both(host, p, resolver=None):  # 模拟 ::1 排在前面、但只有 IPv4 在监听
+        return ["::1", "127.0.0.1"] if host == "dual.test" else await real(host, p, resolver)
+
+    monkeypatch.setattr("gleaner.net.http.client.checked_addresses", both)
+    try:
+        async with HTTPClient(egress_guard=True) as c:
+            r = await c.get(f"http://dual.test:{port}/")
+        assert r.status == 200 and r.body == b"v4"
+    finally:
+        srv.close()
+
+
+async def test_static_assets_revalidate_except_canvaskit(tmp_path):
+    """Flutter 的 assets/ 每次构建同名不同内容：必须协商缓存；只有 canvaskit/ 可以长缓存。"""
+    from gleaner.net.http import Request
+    from gleaner.net.http.static import StaticFiles
+
+    (tmp_path / "assets" / "fonts").mkdir(parents=True)
+    (tmp_path / "canvaskit").mkdir()
+    (tmp_path / "index.html").write_text("<html></html>")
+    (tmp_path / "assets" / "fonts" / "MaterialIcons-Regular.otf").write_bytes(b"font")
+    (tmp_path / "canvaskit" / "canvaskit.wasm").write_bytes(b"wasm")
+    sf = StaticFiles(tmp_path)
+
+    async def cache_of(path: str) -> str:
+        r = await sf(Request("GET", path, "HTTP/1.1", Headers({"Host": "x"})))
+        assert r.status == 200
+        return r.headers.get("Cache-Control") or ""
+
+    assert await cache_of("/index.html") == "no-cache"
+    assert await cache_of("/assets/fonts/MaterialIcons-Regular.otf") == "no-cache"
+    assert (await cache_of("/canvaskit/canvaskit.wasm")).startswith("public, max-age=")

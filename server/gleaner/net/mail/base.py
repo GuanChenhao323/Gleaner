@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 
-from ..egress import EgressDenied, checked_address
+from ..egress import EgressDenied, checked_addresses
 
 
 class MailError(Exception):
@@ -36,23 +36,31 @@ class LineConn:
         egress_guard: bool = False,
     ) -> LineConn:
         ctx = ssl_context or ssl.create_default_context()
-        addr = host
+        addrs = [host]
         if egress_guard:  # 用户自填的邮箱服务器：只允许公网地址（防 SSRF，见 net/egress.py）
             try:
-                addr = await checked_address(host, port)
+                addrs = await checked_addresses(host, port)
             except EgressDenied as e:
                 raise MailError(str(e)) from e
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                addr,
-                port,
-                ssl=ctx if tls else None,
-                server_hostname=host if tls else None,
-                limit=2**22,
-            ),
-            timeout,
-        )
-        return cls(reader, writer, timeout)
+        # 多个地址依次尝试；最后一个仍失败时把错误抛给调用方
+        for i, addr in enumerate(addrs):
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        addr,
+                        port,
+                        ssl=ctx if tls else None,
+                        server_hostname=host if tls else None,
+                        limit=2**22,
+                    ),
+                    timeout,
+                )
+            except (OSError, TimeoutError) as e:
+                if isinstance(e, ssl.SSLError) or i == len(addrs) - 1:
+                    raise
+                continue
+            return cls(reader, writer, timeout)
+        raise MailError(f"{host}: 无法解析")
 
     async def start_tls(self, host: str, ssl_context: ssl.SSLContext | None = None) -> None:
         """在已有 TCP 连接上升级为 TLS（SMTP STARTTLS，RFC 3207）。"""

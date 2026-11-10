@@ -21,6 +21,16 @@
 - 验证（Windows 11，Python 3.14，SQLite）：`pytest -q` 192 passed、3 skipped；`ruff check .`、`ruff format --check .` 通过。PostgreSQL 16（WSL Docker，Python 3.12）：数据库相关测试 68 passed。新增测试 `tests/test_captures.py`。
 - 未完成：插件改用新接口、各页面 `locator` 取法与后台监测调度（插件负责人，Spike 01／02）；工作台按类型、状态、冲突与监测状态展示（工作台负责人）；分类规则替换（分类负责人）。在这些完成前，R1–R3 仍为“待核验”，场景 A／B／C 没有端到端运行。
 
+### 2026-11-09 · 插件、分类规则与工作台（R1–R3 全链路）
+
+- 需求：F01–F09、US01–US09；接口 IC-001、IC-002。
+- 插件 `extension/` v0.2.0：候选识别与勾选、批量保存与逐条结果、后台监测（alarms + offscreen 解析）。测试页实测见 `docs/browser-extension.md`；后台监测未在真实 Chrome 中运行。
+- 分类规则 `server/gleaner/core/classify.py`：三类事项、截止时间、活动时间与地点；Moodle 英文日期格式。已有事项正文未变时规则新推断的字段不产生新版本（避免误报）。测试 `tests/test_classify.py`。
+- 工作台（Flutter）：按类型（待办／日程／通知）与状态筛选；详情显示类型与状态并可切换（完成／归档／已读）、日程时间与地点、字段修改与恢复来源值、冲突“保留我的／采用来源”、来源监测状态与开关、版本逐字段差异；收到 `item_updated` 自动刷新。
+- 联调中发现并修复：HTTP 客户端只连解析出的第一个地址（`localhost` 先解析为 `::1` 时连不上只监听 IPv4 的服务）；网关把 Flutter 的 `assets/` 长缓存一天，重新构建后浏览器沿用旧图标字体。
+- 验证（Windows 11，Python 3.14）：`pytest -q` 208 passed、3 skipped；ruff 通过；PostgreSQL 16 数据库相关测试 71 passed；`flutter analyze` 无问题，`flutter test` 6 项通过，`flutter build web` 成功；本地环境（`dev_all.py`）中用插件测试页保存、在工作台查看冲突、版本差异与监测卡片。
+- 未完成：插件后台监测与 Spike 02 在真实 Chrome 中验证；R0 来源清单与质量基线；场景 A／B／C 的正式验收记录。部分汉字在 Flutter Web 中显示为方框（字体回退问题，早于本次改动，见待决问题“字体”）。
+
 ### 2026-11-09 · 通信层补强（IC-003 后端部分前置条件）
 
 - 依据：IC-003 第 3.1 节（本地控制接口的 Host／CORS 校验）与第 10 节列出的复用门槛；对应课程交付 C01。

@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
-from ..egress import EgressDenied, checked_address
+from ..egress import EgressDenied, checked_addresses
 from .cookies import CookieJar
 from .message import Headers, Request, Response
 from .parser import HTTPParser, ParseError
@@ -257,38 +257,46 @@ class HTTPClient:
                 return c, True
             c.close()
         scheme, host, port = key
-        addr = host
+        addrs = [host]
         if self.egress_guard:
             try:
-                addr = await checked_address(host, port, self.resolver)
+                addrs = await checked_addresses(host, port, self.resolver)
             except EgressDenied as e:
                 raise HTTPError("blocked", str(e)) from e
             except OSError as e:
                 raise HTTPError("dns", f"{host}: {e}") from e
         elif self.resolver is not None and not _is_ip(host) and host != "localhost":
             try:
-                addr = await self.resolver(host)
+                addrs = [await self.resolver(host)]
             except Exception as e:
                 raise HTTPError("dns", f"{host}: {e}") from e
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    addr,
-                    port,
-                    ssl=self.ssl_context if scheme == "https" else None,
-                    server_hostname=host if scheme == "https" else None,
-                    limit=2**20,
-                ),
-                self.connect_timeout,
-            )
-        except TimeoutError as e:
-            raise HTTPError("timeout", f"connect {host}:{port}") from e
-        except ssl.SSLError as e:
-            raise HTTPError("tls", str(e)) from e
-        except OSError as e:
-            raise HTTPError("connect", f"{host}:{port} {e}") from e
-        self.stats.connections_opened += 1
-        return _Conn(reader, writer, HTTPParser("response")), False
+        # 解析出多个地址时依次尝试（例如 localhost 的 ::1 拒绝连接时退到 127.0.0.1）；
+        # TLS 错误不是地址问题，直接报错，不换地址重试
+        err: HTTPError | None = None
+        for addr in addrs:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        addr,
+                        port,
+                        ssl=self.ssl_context if scheme == "https" else None,
+                        server_hostname=host if scheme == "https" else None,
+                        limit=2**20,
+                    ),
+                    self.connect_timeout,
+                )
+            except TimeoutError:
+                err = HTTPError("timeout", f"connect {host}:{port}")
+                continue
+            except ssl.SSLError as e:
+                raise HTTPError("tls", str(e)) from e
+            except OSError as e:
+                err = HTTPError("connect", f"{host}:{port} {e}")
+                continue
+            self.stats.connections_opened += 1
+            return _Conn(reader, writer, HTTPParser("response")), False
+        assert err is not None
+        raise err
 
     async def _roundtrip(self, conn: _Conn, req: Request, read_timeout: float) -> ClientResponse:
         conn.parser.expect_response(req.method)

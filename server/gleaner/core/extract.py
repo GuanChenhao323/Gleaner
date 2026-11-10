@@ -58,6 +58,17 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Moodle 英文日期：Friday, 13 November 2026, 11:59 PM（日 月 年）；须排在 "en" 之前，
+        # 否则 "November 20" 会被误读成 11 月 20 日
+        "en_dmy",
+        re.compile(
+            r"(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s*)?(?P<d>\d{1,2})\s+"
+            r"(?P<mon>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?,?\s+(?P<y>20\d{2})"
+            r"(?:,?\s*(?:at\s*)?(?P<h>\d{1,2}):(?P<mi>\d{2})\s*(?P<ampm2>[ap]\.?m\.?)?)?",
+            re.I,
+        ),
+    ),
+    (
         "en",
         re.compile(
             r"(?P<mon>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(?P<d>\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(?P<y>20\d{2}))?"
@@ -129,8 +140,12 @@ def _resolve(
     h = int(g["h"]) if g.get("h") else None
     mi = int(g["mi"]) if g.get("mi") else 0
     ampm = g.get("ampm1") or g.get("ampm2")
-    if kind in ("iso", "cn_full", "en"):
-        month = _MONTHS[g["mon"].lower().rstrip(".")] if kind == "en" else int(g["m"] or 0)  # type: ignore[union-attr]
+    if kind in ("iso", "cn_full", "en", "en_dmy"):
+        month = (
+            _MONTHS[g["mon"].lower().rstrip(".")]  # type: ignore[union-attr]
+            if kind in ("en", "en_dmy")
+            else int(g["m"] or 0)
+        )
         day = int(g["d"] or 0)
         year = int(g["y"]) if g.get("y") else ref.year
         d = dt.date(year, month, day)

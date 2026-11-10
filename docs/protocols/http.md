@@ -59,6 +59,7 @@ HEAD ──Content-Length──▶ BODY_LENGTH ──读满──▶ HEAD
 - `Retry-After`（RFC 9110 §10.2.3）支持秒数与 HTTP-date。不超过 30 秒就在本次检查里等够再重试；更长则记为该主机的最早访问时间，并把等待时间交给采集调度，来源的下次检查不早于它。
 - 测试：`tests/test_fetch_compliance.py`。
 - 可注入自研 DNS 解析器（`GLEANER_USE_OWN_DNS=1`）。
+- 主机名解析出多个地址时依次尝试（RFC 8305 第 4 节的顺序尝试，不并发竞速）：例如 `localhost` 先解析为 `::1`、服务只监听 IPv4 时退到 `127.0.0.1`；TLS 错误不换地址重试。邮件客户端同样处理。
 - 统计 `connections_opened` / `connections_reused`，用于“有无连接池”对比实验。
 
 ## 3.1 网关的本地访问控制
@@ -76,5 +77,5 @@ HEAD ──Content-Length──▶ BODY_LENGTH ──读满──▶ HEAD
 ## 5. 静态文件
 
 Flutter Web 构建产物由网关直接分发：ETag（mtime + size）、Last-Modified、304、gzip、Range。
-`main.dart.js`、`index.html` 等文件名不含内容哈希，使用 `Cache-Control: no-cache`（每次协商，命中 304）；
-`canvaskit/`、`assets/` 长缓存。路径穿越检查；无扩展名路径回退 `index.html`（SPA）。
+Flutter Web 的文件名都不含内容哈希：`main.dart.js`、`index.html` 以及每次构建都会变的 `assets/`（图标字体按用到的图标裁剪）
+一律 `Cache-Control: no-cache`（每次协商，命中 304）；只有随引擎版本发布的 `canvaskit/` 长缓存。路径穿越检查；无扩展名路径回退 `index.html`（SPA）。

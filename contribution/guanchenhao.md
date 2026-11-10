@@ -237,6 +237,17 @@
 
 测试 `tests/test_fetch_compliance.py`（11 项），包括用真实套接字服务器验证重定向限速、凭证去除、Retry-After，以及启动真实网关验证 Host 白名单与 CORS。
 
+## 9.1 补齐其他模块的缺口（2026-11-09，应本人要求完成原属其他组员的部分）
+
+| 模块 | 内容 | 验证 |
+| --- | --- | --- |
+| 浏览器插件 v0.2.0（`extension/`） | `candidates.js` 候选识别（Moodle 活动 `cmid:`、讨论 `forum:d:`、普通列表 `href:`、整页 `page`）；弹窗勾选与批量保存、逐条结果；`background.js` + offscreen 文档后台监测（alarms 唤醒、同页只取一次、主机间隔 ≥ 2 秒、遵守 robots、登录页识别为 `auth_expired`） | 测试页实测保存、重复保存不重复、后端不可用报错；后台监测未在真实 Chrome 中运行 |
+| 分类规则（`server/gleaner/core/classify.py`） | 三类事项判定、截止时间、活动开始／结束时间与地点；Moodle 英文日期格式；已有事项正文未变时规则不产生新版本 | `tests/test_classify.py` 3 项 |
+| Flutter 工作台 | 按类型与状态筛选；详情页类型与状态切换、日程卡片、字段修改与恢复来源值、冲突处理、监测状态与开关、版本逐字段差异；`item_updated` 自动刷新 | `flutter analyze`、`flutter test`、`flutter build web`；本地环境中查看 |
+| 联调发现的通信问题 | HTTP 与邮件客户端对解析出的多个地址依次尝试（原来只连第一个，`localhost` 的 `::1` 不通时失败）；网关不再长缓存 Flutter 的 `assets/`（重新构建后图标空白） | `tests/test_fetch_compliance.py` 新增 2 项 |
+
+验证（2026-11-09）：`pytest -q` 208 通过、3 跳过；PostgreSQL 数据库相关测试 71 通过；ruff 通过。
+
 ## 10. 文档与协作
 
 - 编写或维护的文档：`README.md`、`docs/protocols/` 下全部 8 份协议文档、`docs/database.md`、`docs/llm.md`、`docs/evaluation/README.md`、`docs/review-2026-11.md`、`docs/integrations/must-moodle.md`、旧版插件说明（现归档为 `docs/archive/browser-extension-2026-10-26.md`；现行 `docs/browser-extension.md` 由组员改写，本人补充了新接口就绪说明）、IC-001、IC-002、后端执行计划、决策 D9／D14／D19–D25 等。
@@ -248,13 +259,12 @@
 
 | 事项 | 负责方 |
 | --- | --- |
-| 插件改用 `POST /api/captures`，为各页面类型给出稳定 `locator`，逐条显示结果；Spike 02 验证后实现后台监测调度 | 插件负责人 |
-| 工作台显示类型、状态、冲突与监测状态，显示版本差异 | 工作台负责人 |
-| 替换默认分类规则 | 分类负责人 |
+| 在真实 Chrome 中验证插件后台监测（Spike 02：关闭标签页后能否带会话重新读取） | 插件负责人／技术验证 |
+| 按 R0 来源清单复核各页面的 `locator` 与分类、字段提取质量（Q04、Q05） | 插件／分类负责人 |
 | IC-003 监测模块本身（会话桥接、调度、站点适配器）及 Cookie 导入的站点白名单 | 监测模块负责人 |
 | Q09 冲突的决定；MUST 授权书面材料（Q08） | 组长 |
 
-上述完成前，里程碑 R1–R3 仍为“待核验”，产品定义的验收场景 A、B、C 尚未端到端运行。课程方面，云证书、CI 部署、真实用户（旧 M10）、跨机器扩容与 Wireshark 抓包仍未完成。
+上述完成前，里程碑 R1–R3 仍为“待核验”（后端、插件、分类规则、工作台的代码已齐），产品定义的验收场景 A、B、C 尚未端到端运行。课程方面，云证书、CI 部署、真实用户（旧 M10）、跨机器扩容与 Wireshark 抓包仍未完成。
 
 ## 附：复核命令
 

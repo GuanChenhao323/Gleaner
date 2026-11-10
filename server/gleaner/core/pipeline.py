@@ -15,8 +15,9 @@ from typing import Any
 from ..obs.metrics import REGISTRY
 from ..storage.db import Database, loads
 from .changes import EVENT_FIELDS, classify, diff, diff_fields
+from .classify import classify as classify_item
 from .extract import TZ, extract_deadline, extract_facts
-from .itemtypes import ITEM_TYPES, default_type
+from .itemtypes import ITEM_TYPES
 from .scoring import UserProfile, in_quiet_hours, score_item
 from .summarize import Summarizer
 
@@ -301,15 +302,29 @@ class Pipeline:
             else self.summarizer.rule(snap.get("title", ""), body)
         )
         attrs = dict(snap.get("attrs") or {})
-        # 活动时间与地点（插件或采集器给出；不确定就为空，不猜）
+        # 类型与活动时间、地点：来源或插件明确给出的优先，其余由规则补全（core/classify.py）；
+        # 规则判断不了就为空，不猜
+        given = {k: snap.get(k) for k in EVENT_FIELDS if snap.get(k) not in ("", None)}
+        if snap.get("kind") == "teacher":
+            item_type = "notice"
+        else:
+            c = classify_item(
+                snap.get("title", ""),
+                body,
+                hint=snap.get("item_type"),
+                kind=snap.get("kind", ""),
+                published=published,
+                deadline_at=deadline,
+                start_at=given.get("start_at"),
+            )
+            item_type = c.item_type
+            if deadline is None and c.deadline_at is not None:
+                deadline = c.deadline_at
+            given.setdefault("start_at", c.start_at)
+            given.setdefault("end_at", c.end_at)
+            given.setdefault("location", c.location or None)
         for k in EVENT_FIELDS:
-            attrs[k] = snap.get(k) if snap.get(k) not in ("", None) else None
-        hint = snap.get("item_type")
-        item_type = (
-            hint
-            if hint in ITEM_TYPES
-            else default_type(snap.get("kind", "notice"), deadline, attrs["start_at"])
-        )
+            attrs[k] = given.get(k)
         attrs.update(
             {
                 "attachments": snap.get("attachments") or [],
@@ -395,6 +410,18 @@ class Pipeline:
         # 全部未变的事项重新摘要，结果随即丢弃）
         fields = await self._enrich(source, snap, use_llm=False)
         old_attrs = loads(existing.get("attrs"), {})
+        if (existing.get("raw_title") or existing["title"]) == fields["raw_title"] and existing.get(
+            "body", ""
+        ) == fields["body"]:
+            # 标题与正文都没变：规则新推断出的字段不算来源变化（规则改进不应让未变的事项产生新版本和提醒）。
+            # 来源明确给出的值照常比较，所以来源删掉截止时间等变化仍能发现
+            if snap.get("item_type") not in ITEM_TYPES and existing.get("item_type"):
+                fields["item_type"] = existing["item_type"]
+            if snap.get("deadline_at") is None and existing.get("deadline_at") is None:
+                fields["deadline_at"] = None
+            for k in EVENT_FIELDS:
+                if snap.get(k) in ("", None) and old_attrs.get(k) in ("", None):
+                    fields["attrs"][k] = old_attrs.get(k)
         old_snap = {
             "title": existing["raw_title"] or existing["title"],
             "deadline_at": existing.get("deadline_at"),

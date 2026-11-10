@@ -9,6 +9,7 @@ import '../../core/providers.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'item_workbench.dart';
 
 class ItemDetail extends ConsumerStatefulWidget {
   final int id;
@@ -56,6 +57,8 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
     final body = ListView(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
       children: [
+        TypeStatusRow(item: item),
+        const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Pill(kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
           if (item.course.isNotEmpty) CourseTag(item.course),
@@ -68,7 +71,9 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           const SizedBox(height: 4),
           Text('原标题：${item.rawTitle}', style: t.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
         ],
+        ConflictBanner(item: item),
         const SizedBox(height: 16),
+        if (item.isEvent) EventCard(item: item),
         if (item.deadline != null) _DeadlineCard(item: item),
         if (item.importantChange && item.changeNote.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -97,7 +102,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           ),
         ],
         if (item.requirements.isNotEmpty) ...[
-          const SectionHeader('提交要求'),
+          const SectionHeader('要求'),
           Card(child: ListTile(leading: const Icon(Icons.rule), title: Text(item.requirements))),
         ],
         if (item.attachments.isNotEmpty) ...[
@@ -120,6 +125,8 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(item.body, style: t.textTheme.bodyMedium?.copyWith(height: 1.7)))),
         ],
         _History(id: item.id),
+        const SectionHeader('来源监测'),
+        MonitorCard(item: item),
         const SectionHeader('来源与可靠性'),
         Card(
           child: Column(children: [
@@ -140,18 +147,23 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         ),
         const SizedBox(height: 16),
         Wrap(spacing: 10, runSpacing: 10, children: [
-          if (item.url.isNotEmpty) FilledButton.icon(onPressed: () => launchUrl(Uri.parse(item.url)), icon: const Icon(Icons.open_in_new), label: const Text('打开原文')),
-          OutlinedButton.icon(
-            onPressed: () => store.setState(item, todo: item.state.todo == 'todo' ? '' : 'todo'),
-            icon: Icon(item.state.todo == 'todo' ? Icons.remove_done : Icons.playlist_add),
-            label: Text(item.state.todo == 'todo' ? '移出待办' : '加入待办'),
-          ),
-          if (item.isAssignment)
-            OutlinedButton.icon(
-              onPressed: () => store.setState(item, todo: item.isDone ? 'todo' : 'done'),
-              icon: Icon(item.isDone ? Icons.undo : Icons.task_alt),
-              label: Text(item.isDone ? '标为未完成' : '标为已完成'),
+          if (item.pageUrl.isNotEmpty)
+            FilledButton.icon(
+              onPressed: () => launchUrl(Uri.parse(item.pageUrl)),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('打开原始来源'),
             ),
+          // 按类型切换处理状态：待办完成、日程归档、通知已读（US05）
+          OutlinedButton.icon(
+            onPressed: () => store.toggleStatus(item),
+            icon: Icon(typeIcon(item.type)),
+            label: Text(statusAction(item)),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => showEditFields(context, ref, item),
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('修改'),
+          ),
           OutlinedButton.icon(
             onPressed: () async {
               await store.notImportant(item);
@@ -175,7 +187,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       backgroundColor: widget.embedded ? cs.surface : null,
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(kindLabel(item.kind)),
+        title: Text(typeLabel(item.type)),
         actions: [
           IconButton(
             tooltip: item.state.starred ? '取消收藏' : '收藏',
@@ -224,7 +236,8 @@ class _DeadlineCard extends StatelessWidget {
             Text(item.isDone ? '已完成' : countdown(due), style: Theme.of(context).textTheme.titleLarge?.copyWith(color: c, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text('截止于 ${absolute(due)}', style: TextStyle(color: cs.onSurfaceVariant)),
-            if (item.state.deadlineOverride != null) Text('（已手动修正）', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+            if (item.fields['deadline_at']?.edited == true || item.state.deadlineOverride != null)
+              Text('（已手动修正）', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
           ]),
         ),
       ]),
@@ -274,6 +287,9 @@ class _History extends ConsumerWidget {
                               style: TextStyle(fontWeight: versions[i].important ? FontWeight.w700 : FontWeight.w500),
                             ),
                             Text('v${versions[i].version} · ${relative(tsToDate(versions[i].detectedAt))}', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+                            // 版本按新到旧排列：与下一条（更旧的版本）比较
+                            if (versions[i].version > 1)
+                              VersionDiff(version: versions[i], previous: i + 1 < versions.length ? versions[i + 1] : null),
                           ]),
                         ),
                       ),

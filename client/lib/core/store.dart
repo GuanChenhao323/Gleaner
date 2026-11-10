@@ -222,6 +222,10 @@ class FeedStore extends Notifier<FeedState> {
         _events.add(AppEvent('transfer', '扫码传输', (m['status'] ?? '').toString(), data: m));
       case 'resync_hint':
         _scheduleSync();
+      case 'item_updated':
+        // 字段修改、冲突处理、监测结果：重新拉取该事项详情（IC-002 4.5）
+        final id = m['item_id'];
+        if (id is int && state.items.containsKey(id)) loadDetail(id).catchError((_) => state.items[id]!);
     }
   }
 
@@ -335,16 +339,18 @@ class FeedStore extends Notifier<FeedState> {
 
   // ---- 个人状态：乐观更新 + 离线队列 ----
 
-  Future<void> setState(Item item, {bool? read, bool? starred, String? todo, bool? hidden, String? note}) async {
+  Future<void> setState(Item item, {bool? read, bool? starred, String? todo, bool? hidden, String? note, bool? archived}) async {
     final patch = <String, dynamic>{
       'read': ?read,
       'starred': ?starred,
       'todo': ?todo,
       'hidden': ?hidden,
       'note': ?note,
+      'archived': ?archived,
     };
     if (patch.isEmpty) return;
-    final next = item.withState(item.state.copyWith(read: read, starred: starred, todo: todo, hidden: hidden, note: note));
+    final next = item.withState(
+        item.state.copyWith(read: read, starred: starred, todo: todo, hidden: hidden, note: note, archived: archived));
     state = state.copyWith(items: {...state.items, item.id: next});
     final opId = _uuid.v4();
     final op = {...patch, 'item_id': item.id, 'op_id': opId, 'ts': DateTime.now().millisecondsSinceEpoch / 1000};
@@ -402,6 +408,29 @@ class FeedStore extends Notifier<FeedState> {
     await _cache(() => _db.saveItems([merged.toJson()]));
     return merged;
   }
+
+  /// 按类型切换处理状态：待办完成／未完成、日程归档／取消归档、通知已读／未读。
+  Future<void> toggleStatus(Item item) => switch (item.type) {
+        'todo' => setState(item, todo: item.isDone ? 'todo' : 'done'),
+        'event' => setState(item, archived: !item.state.archived),
+        _ => setState(item, read: !item.state.read),
+      };
+
+  void _put(Item it) {
+    final old = state.items[it.id];
+    final merged = old == null ? it : old.merge(it.raw);
+    state = state.copyWith(items: {...state.items, it.id: merged});
+    _cache(() => _db.saveItems([merged.toJson()]));
+  }
+
+  /// 修改字段（需要在线）：与来源版本分开保存，来源更新不会覆盖。
+  Future<void> editFields(Item item, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
+      _put(await _api.patchFields(item.id, set: set, reset: reset));
+
+  Future<void> resolveConflict(Item item, String field, String keep) async =>
+      _put(await _api.resolveField(item.id, field, keep));
+
+  Future<void> setMonitor(Item item, bool enabled) async => _put(await _api.setMonitor(item.id, enabled));
 
   Future<void> clearLocal() async {
     await _db.wipe();

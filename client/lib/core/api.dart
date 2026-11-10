@@ -84,6 +84,18 @@ class Api {
 
   Future<Map<String, dynamic>> putState(int id, Map<String, dynamic> body, String opId) =>
       _map('PUT', '/api/items/$id/state', data: body, headers: {'Idempotency-Key': opId});
+  /// 修改字段（与来源版本分开保存）：set 为新值，reset 为恢复来源值的字段（IC-002 3.3）。
+  Future<Item> patchFields(int id, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
+      Item.fromJson(await _map('PATCH', '/api/items/$id/fields', data: {'set': set, 'reset': reset}));
+
+  /// 处理冲突：keep 为 mine（保留我的）或 source（采用来源）。
+  Future<Item> resolveField(int id, String field, String keep) async =>
+      Item.fromJson(await _map('POST', '/api/items/$id/fields/resolve', data: {'field': field, 'keep': keep}));
+
+  /// 开关该事项的来源监测。
+  Future<Item> setMonitor(int id, bool enabled) async =>
+      Item.fromJson(await _map('PUT', '/api/items/$id/monitor', data: {'enabled': enabled}));
+
   Future<Map<String, dynamic>> stateBatch(List<Map<String, dynamic>> ops) => _map('POST', '/api/state/batch', data: {'ops': ops});
   Future<void> notImportant(int id) => _req('POST', '/api/items/$id/feedback', data: {'not_important': true});
   Future<List<Course>> courses() async {

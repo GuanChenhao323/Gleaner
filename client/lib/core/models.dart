@@ -14,6 +14,7 @@ class ItemState {
   final bool hidden;
   final double? deadlineOverride;
   final String note;
+  final bool archived; // 日程：已归档
 
   const ItemState({
     this.read = false,
@@ -22,6 +23,7 @@ class ItemState {
     this.hidden = false,
     this.deadlineOverride,
     this.note = '',
+    this.archived = false,
   });
 
   factory ItemState.fromJson(Map<String, dynamic>? j) {
@@ -33,6 +35,7 @@ class ItemState {
       hidden: j['hidden'] == true,
       deadlineOverride: _d(j['deadline_override']),
       note: (j['note'] ?? '') as String,
+      archived: j['archived'] == true,
     );
   }
 
@@ -43,15 +46,17 @@ class ItemState {
         'hidden': hidden,
         'deadline_override': deadlineOverride,
         'note': note,
+        'archived': archived,
       };
 
-  ItemState copyWith({bool? read, bool? starred, String? todo, bool? hidden, String? note}) => ItemState(
+  ItemState copyWith({bool? read, bool? starred, String? todo, bool? hidden, String? note, bool? archived}) => ItemState(
         read: read ?? this.read,
         starred: starred ?? this.starred,
         todo: todo ?? this.todo,
         hidden: hidden ?? this.hidden,
         deadlineOverride: deadlineOverride,
         note: note ?? this.note,
+        archived: archived ?? this.archived,
       );
 }
 
@@ -176,12 +181,48 @@ class Item {
         raw: j,
       );
 
-  /// 用户修正过的截止时间优先。
-  double? get effectiveDeadline => state.deadlineOverride ?? deadlineAt;
+  /// 截止时间：服务端返回的已是生效值（用户修改优先，IC-002）；旧数据再看 deadline_override。
+  double? get effectiveDeadline {
+    final f = fields['deadline_at'];
+    if (f != null && f.edited) return f.value == null ? null : (f.value as num).toDouble();
+    return state.deadlineOverride ?? deadlineAt;
+  }
+
+  // ---- 新基线（IC-002）：三类事项、状态、用户修改、监测 ----
+
+  /// 待办 todo／日程 event／通知 notice。旧服务端没有这个字段时按渠道类型推断。
+  String get type => (raw['type'] as String?) ?? (kind == 'assignment' ? 'todo' : 'notice');
+
+  /// 按类型的处理状态：open/done、active/archived、unread/read。
+  String get status => switch (type) {
+        'todo' => isDone ? 'done' : 'open',
+        'event' => state.archived ? 'archived' : 'active',
+        _ => state.read ? 'read' : 'unread',
+      };
+  double? get startAt => _d(raw['start_at']);
+  double? get endAt => _d(raw['end_at']);
+  String get location => (raw['location'] ?? '') as String;
+  String get origin => (raw['origin'] ?? 'source') as String;
+  String get pageUrl {
+    final p = raw['page_url'];
+    return p is String && p.isNotEmpty ? p : url;
+  }
+
+  String get locator => (raw['locator'] ?? '') as String;
+  Map<String, FieldInfo> get fields {
+    final f = raw['fields'];
+    if (f is! Map) return const {};
+    return {for (final e in f.entries) e.key as String: FieldInfo.fromJson(Map<String, dynamic>.from(e.value as Map))};
+  }
+
+  List<String> get conflicts => ((raw['conflicts'] ?? []) as List).map((e) => e.toString()).toList();
+  MonitorInfo get monitor =>
+      MonitorInfo.fromJson(raw['monitor'] is Map ? Map<String, dynamic>.from(raw['monitor'] as Map) : null);
   DateTime? get deadline => tsToDate(effectiveDeadline);
   DateTime get sortTime => tsToDate(publishedAt ?? firstSeenAt) ?? DateTime.fromMillisecondsSinceEpoch(0);
   bool get isAssignment => kind == 'assignment';
   bool get isDone => state.todo == 'done';
+  bool get isEvent => type == 'event';
 
   Item withState(ItemState s) => Item.fromJson({...raw, 'state': s.toJson()});
 
@@ -194,6 +235,53 @@ class Item {
   }
 
   Map<String, dynamic> toJson() => {...raw, 'state': state.toJson()};
+}
+
+/// 一个可修改字段：生效值、来源当前值、是否改过、是否冲突（IC-002 4.1）。
+class FieldInfo {
+  final Object? value;
+  final Object? source;
+  final bool edited;
+  final bool conflict;
+  const FieldInfo({this.value, this.source, this.edited = false, this.conflict = false});
+  factory FieldInfo.fromJson(Map<String, dynamic> j) =>
+      FieldInfo(value: j['value'], source: j['source'], edited: j['edited'] == true, conflict: j['conflict'] == true);
+}
+
+/// 事项的监测状态（IC-002 4.2）。
+class MonitorInfo {
+  final String status; // unsupported / disabled / pending / unchanged / changed / failed
+  final bool supported;
+  final bool enabled;
+  final double? lastCheckedAt;
+  final double? lastSuccessAt;
+  final String errorCode;
+  final String errorMessage;
+  final double? nextCheckAt;
+  const MonitorInfo({
+    this.status = 'unsupported',
+    this.supported = false,
+    this.enabled = false,
+    this.lastCheckedAt,
+    this.lastSuccessAt,
+    this.errorCode = '',
+    this.errorMessage = '',
+    this.nextCheckAt,
+  });
+  factory MonitorInfo.fromJson(Map<String, dynamic>? j) {
+    if (j == null) return const MonitorInfo();
+    final err = j['error'] is Map ? Map<String, dynamic>.from(j['error'] as Map) : const <String, dynamic>{};
+    return MonitorInfo(
+      status: (j['status'] ?? 'unsupported') as String,
+      supported: j['supported'] == true,
+      enabled: j['enabled'] == true,
+      lastCheckedAt: _d(j['last_checked_at']),
+      lastSuccessAt: _d(j['last_success_at']),
+      errorCode: (err['code'] ?? '').toString(),
+      errorMessage: (err['message'] ?? '').toString(),
+      nextCheckAt: _d(j['next_check_at']),
+    );
+  }
 }
 
 class Me {
@@ -340,13 +428,15 @@ class ItemVersion {
   final bool important;
   final String note;
   final double detectedAt;
+  final Map<String, dynamic> snapshot; // 该版本的来源内容（IC-002 4.3），用于显示差异
 
   ItemVersion.fromJson(Map<String, dynamic> j)
       : version = j['version'] as int,
         changed = Map<String, dynamic>.from((j['changed_fields'] ?? {}) as Map),
         important = j['important'] == true,
         note = (j['change_note'] ?? '') as String,
-        detectedAt = (j['detected_at'] as num).toDouble();
+        detectedAt = (j['detected_at'] as num).toDouble(),
+        snapshot = Map<String, dynamic>.from((j['snapshot'] ?? {}) as Map);
 }
 
 class Teacher {

@@ -53,10 +53,19 @@ def is_public(ip: str) -> bool:
 
 
 async def checked_address(host: str, port: int, resolver: Resolve | None = None) -> str:
-    """返回应当连接的地址；目标是内网时抛 ``EgressDenied``。"""
+    """返回应当连接的第一个地址；目标是内网时抛 ``EgressDenied``。"""
+    return (await checked_addresses(host, port, resolver))[0]
+
+
+async def checked_addresses(host: str, port: int, resolver: Resolve | None = None) -> list[str]:
+    """返回全部可以连接的地址（按解析顺序、去重）；任何一个是内网地址都拒绝（防 DNS 重绑定混入内网地址）。
+
+    调用方应依次尝试：例如 ``localhost`` 先解析出 ``::1``，而服务只监听 IPv4 时要退到 ``127.0.0.1``
+    （RFC 8305 第 4 节的顺序尝试，这里不做并发竞速）。
+    """
     name = host.strip("[]").lower()
     if name in _allow_hosts():
-        return host
+        return [host]
     try:
         ipaddress.ip_address(name)
         ips = [name]
@@ -74,4 +83,4 @@ async def checked_address(host: str, port: int, resolver: Resolve | None = None)
         bad = [ip for ip in ips if not is_public(ip)]
         if bad:
             raise EgressDenied(f"{host} 指向内网地址 {bad[0]}，不允许访问")
-    return ips[0]
+    return list(dict.fromkeys(ips))

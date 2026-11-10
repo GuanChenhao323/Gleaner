@@ -121,9 +121,11 @@ class StaticFiles:
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
         h["Content-Type"] = ctype
-        # 文件名不带内容哈希的入口文件（index.html、main.dart.js 等）每次协商缓存（ETag → 304）；
-        # canvaskit/、assets/ 下的资源按版本发布，可以长缓存
-        long_cache = rel.startswith(("canvaskit/", "assets/", "icons/"))
+        # Flutter Web 的文件名都不带内容哈希：index.html、main.dart.js，以及每次构建都会变的 assets/
+        # （图标字体按用到的图标裁剪，新增图标后同名文件内容不同）一律协商缓存（ETag → 304），
+        # 否则重新构建后浏览器还会用一天前的字体，新图标显示成空白。
+        # 只有 canvaskit/ 随 Flutter 引擎版本发布、构建之间不变，可以长缓存。
+        long_cache = rel.startswith("canvaskit/")
         h["Cache-Control"] = f"public, max-age={self.max_age}" if long_cache else "no-cache"
         if not_modified(req, etag, st.st_mtime):
             return Response(304, headers=h)
