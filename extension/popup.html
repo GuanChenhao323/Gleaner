@@ -1,14 +1,20 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Campus Radar</title><link rel="stylesheet" href="popup.css"></head>
-<body><header><img src="icons/icon-32.png" alt="" width="24" height="24"><strong>Campus Radar</strong></header>
-<section id="login-view" hidden><p>连接本地后端。学校账号请在原站登录，插件不接触学校密码。</p>
-<label>本地后端<input id="server" value="http://localhost:8080" type="url"></label>
-<button id="allow">允许连接此后端</button><p class="muted">首次授权可能关闭弹窗，重新打开后点击登录。</p>
-<label>Campus Radar 邮箱<input id="email" type="email" autocomplete="username"></label><label>Campus Radar 密码<input id="password" type="password" autocomplete="current-password"></label><button id="login">登录</button></section>
-<section id="main-view" hidden><p id="account"></p><p id="page-url" class="url"></p>
-<button id="scan">识别本页信息</button><p class="muted">仅支持已适配结构；页面识别成功不等于真实站点监测已经验收。未加载／跨 frame 页面会明确提示。</p>
-<div id="navigation"></div><div id="candidates"></div><button id="preview" disabled>读取所选详情预览</button><label class="check"><input id="monitor" type="checkbox">启用来源检查（默认每 10 分钟；Chrome 与后端需运行）</label><button id="save" disabled>保存所选</button>
-<details><summary>补充：手动选取原文</summary><p>仅公开来源。先在原页选中文字，预览其稳定元素范围；无稳定标识则不保存。此方式暂不支持监测。</p><button id="manual">预览手动选区</button></details>
-<button id="refresh">查看提交结果</button><button id="retry">重试失败提交</button><button id="wake">领取到期检查</button><div id="results"></div>
-<footer><button id="open">打开工作台</button><button id="logout">退出</button></footer></section><p id="status" role="status">正在连接后台…</p>
-<script type="module" src="popup.js"></script></body></html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus Radar · 按条件抓取</title><link rel="stylesheet" href="workspace.css"></head>
+<body class="popup"><main>
+<header><h1>Campus Radar</h1><p id="account">正在连接…</p></header>
+<details id="connection"><summary>Campus Radar 连接设置</summary>
+<label>后端地址<input id="server" value="http://localhost:8080" type="url"></label>
+<div id="login-fields"><p>这里登录工作台账号。学校账号请在学校原站自行登录。</p>
+<label>邮箱<input id="email" type="email" autocomplete="username"></label><label>密码<input id="password" type="password" autocomplete="current-password"></label>
+<button id="allow" type="button">允许连接</button><button id="login" type="button">登录 Campus Radar</button></div><button id="logout" type="button" hidden>退出工作台账号</button></details>
+<p id="page" class="page">当前网页</p>
+<label for="query">想抓取什么？</label><input id="query" disabled type="text" maxlength="200" placeholder="例如：网络编程的作业" autocomplete="off">
+<p class="muted">支持课程名、标题关键词、人员字段。例：奖学金公告、这位老师的邮箱、课程：网络编程；关键词：实验。</p>
+<button id="capture" disabled class="primary" type="button">抓取匹配内容</button>
+<p class="muted">仅当前页已加载内容；不自动翻页或进入其他课程。未匹配时不会改为整页采集。</p>
+<p id="status" role="status" aria-live="polite"></p><section id="preview" aria-label="匹配预览"></section>
+<button id="save" class="primary" type="button" disabled>保存匹配结果</button><p class="muted">先核对预览，再一次保存全部匹配项。保存快照不会自动开启监测。</p>
+<section id="results" aria-label="后端确认结果"></section>
+<div class="actions"><button id="refresh" type="button">刷新任务与回执</button><button id="retry" type="button">重试未确认提交</button><button id="drafts" type="button">管理本地预览</button><button id="large" type="button">展开预览</button><button id="workbench" type="button">打开工作台</button></div>
+<div id="history"></div><p class="muted">抓取完成前请保留原网页。读取任务及预览在本地保留 24 小时；后台被回收时，未完成读取会明确标为中断，需重新抓取。提交进入持久队列后可关闭弹窗。</p>
+</main><script type="module" src="popup.js"></script></body></html>

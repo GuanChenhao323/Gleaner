@@ -55,7 +55,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(
                 page(
                     "fie",
-                    '<main><h1>三来源模拟环境</h1><p>账号由本站模拟登录，不使用真实学校凭据。</p><a href="/person/id-828.html?locale=zh_MO">FIE 人员目录</a><a href="/my/">Moodle Dashboard</a><a href="/portal#news">学生资讯</a><a href="/portal#timetable">课表</a></main>',
+                    '<main><h1>三来源模拟环境</h1><p>账号由本站模拟登录，不使用真实学校凭据。</p><a href="/person/id-828.html?locale=zh_MO">FIE 人员目录</a><a href="/my/">Moodle Dashboard</a><a href="/capture/courses">按条件抓取：三门课程</a><a href="/portal#news">学生资讯</a><a href="/portal#timetable">课表</a><a href="/extraction/home">新版：首页公告与资讯读取</a><a href="/my-class-timetable-student">新版：当前课表读取</a></main>',
                 )
             )
         if path == "/admin":
@@ -95,6 +95,61 @@ class Handler(BaseHTTPRequestHandler):
             )
         if not account:
             return self.send("", 302, {"Location": "/login"})
+        if path == "/capture/courses":
+            courses = [
+                (101, "網絡編程", [1101, 1102]),
+                (202, "数据科学", [2201]),
+                (303, "操作系统", [3301]),
+            ]
+            if q.get("ambiguous") == ["1"]:
+                courses.append((404, "網絡編程（重修班）", [4401]))
+            sections = []
+            for cid, name, assignments in courses:
+                items = "".join(
+                    f'<li class="activity" data-assignment-id="{aid}"><a href="/mod/assign/view.php?id={aid}">{name} 实验 {aid}</a><div class="activity-description">{name} 原始要求 {aid}，合成版本 {STATE["revision"]}。提交两份 PDF。</div></li>'
+                    for aid in assignments
+                )
+                sections.append(
+                    f'<section data-course-id="{cid}" data-semester="2026秋"><h2><a href="/course/view.php?id={cid}">{name}</a></h2><ul>{items}</ul></section>'
+                )
+            return self.send(
+                page(
+                    "moodle",
+                    '<main id="region-main"><h1>三门课程的当前已加载面板</h1>'
+                    + "".join(sections)
+                    + "</main>",
+                    account,
+                )
+            )
+        if path == "/extraction/home":
+            notices = "".join(
+                f'<li><a href="/detail?id={i}&amp;category=info.dict.category.notice">读取样本公告 {i}</a><p>样本发布单位 | 2026/01/02 | 浏览 10</p></li>'
+                for i in (7001, 7002, 7003)
+            )
+            return self.send(
+                page(
+                    "student",
+                    f'<main><section><h2>最新公告</h2><ul>{notices}</ul><a href="/list?category=info.dict.category.notice">更多</a></section><section><h2>大学新闻</h2><a href="/detail?id=8001&amp;category=info.dict.category.news">新闻样本</a></section></main><iframe title="不读取的助手嵌入页"></iframe>',
+                    account,
+                )
+            )
+        if path == "/detail":
+            nid = html.escape(q.get("id", ["7001"])[0])
+            return self.send(
+                page(
+                    "student",
+                    f"<main><article><h1>读取样本公告 {nid}</h1><dl><dt>發佈時間</dt><dd>2026-01-02 10:00</dd><dt>有效期</dt><dd>2026-01-10</dd></dl><p>样本正文，要求核对当前安排。来源版本 {STATE['revision']}。这些均为合成数据。</p><p>瀏覽量：10</p></article></main>",
+                    account,
+                )
+            )
+        if path == "/my-class-timetable-student":
+            return self.send(
+                page(
+                    "student",
+                    '<main data-semester="2609"><h1>我的課表（合成）</h1><div role="grid"><div role="columnheader">11月9日 星期一</div><div class="fc-event"><div>样本课程甲</div><div>样本教师 @课室 X100</div><div>09:00 - 11:50</div></div><div class="fc-event"><div>样本课程乙</div><div>样本教师 @课室 X200</div><div>12:30 - 15:20</div></div></div></main>',
+                    account,
+                )
+            )
         if path in ("/my/", "/course/view.php"):
             links = "".join(
                 f'<li class="activity assign"><a href="/mod/assign/view.php?id={i}">模拟作业 {i}</a></li>'

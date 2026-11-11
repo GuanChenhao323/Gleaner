@@ -44,6 +44,12 @@ FIELDS = {
     "email",
     "phone",
     "role",
+    "published_text",
+    "valid_until_text",
+    "course_code",
+    "class_group",
+    "location",
+    "date_text",
 }
 
 
@@ -201,13 +207,18 @@ class BrowserMonitorService:
         if (
             recipe.get("adapter") != binding["adapter"]
             or type(recipe.get("version")) is not int
-            or recipe.get("version") != 1
+            or recipe.get("version") not in (1, 2)
             or recipe.get("entity_id") != entity
             or recipe.get("url") != url
             or recipe.get("view") != view
         ):
             raise ContractError("recipe_mismatch")
-        string(recipe.get("selector"), 1000)
+        if recipe["version"] == 1:
+            string(recipe.get("selector"), 1000)
+        elif recipe.get("strategy") != "snapshot" or target.get("supported") is not False:
+            # Current-page extraction is explicitly snapshot-only. Never schedule
+            # an AX node ID / provisional selector as a durable re-entry recipe.
+            raise ContractError("snapshot_monitor_unsupported")
         if type(target.get("supported")) is not bool or type(target.get("enabled")) is not bool:
             raise ContractError("invalid_capability")
         if target["enabled"] and not target["supported"]:

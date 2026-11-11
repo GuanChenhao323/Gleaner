@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Campus Radar",
-  "version": "0.2.0",
-  "description": "识别校园页面候选，选择保存，并在本地工作台追踪来源变化。",
+  "version": "0.4.0",
+  "description": "输入采集条件，从当前校园网页提取匹配内容，预览后一次保存。",
   "minimum_chrome_version": "110",
   "action": {
     "default_title": "采集到 Campus Radar",

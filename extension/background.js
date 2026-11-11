@@ -1,16 +1,23 @@
 import { request } from './lib/api.js';
 import { Outbox, scope } from './lib/outbox.js';
+import { DomPageReader } from './extraction/readers.js';
+import { DraftRepository } from './extraction/drafts.js';
+import { PageExtractionService } from './extraction/service.js';
 const storage = chrome.storage.local;
 const box = new Outbox(storage);
 const files = ['content/runtime.js', 'adapters/must_moodle.js', 'adapters/must_student_portal.js', 'adapters/must_fie_people.js', 'content/capture.js'];
 let chain = Promise.resolve();
 const serial = fn => { const next = chain.then(fn, fn); chain = next.catch(() => {}); return next; };
 const config = async () => (await storage.get('config')).config || {};
+let devicePromise;
 async function device() {
-  const data = await storage.get(['device', 'salt']);
-  if (data.device && data.salt) return data;
-  const value = { device: crypto.randomUUID(), salt: crypto.randomUUID() };
-  await storage.set(value); return value;
+  if (!devicePromise) devicePromise = (async () => {
+    const data = await storage.get(['device', 'salt']);
+    if (data.device && data.salt) return data;
+    const value = { device: crypto.randomUUID(), salt: crypto.randomUUID() };
+    await storage.set(value); return value;
+  })();
+  try { return await devicePromise; } catch (e) { devicePromise = null; throw e; }
 }
 async function accountKey(adapter, account) {
   if (account === 'public') return 'public';
@@ -18,6 +25,11 @@ async function accountKey(adapter, account) {
   const { salt } = await device();
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}|${adapter}|${account}`)))].map(b => b.toString(16).padStart(2, '0')).join('');
 }
+const domReader = new DomPageReader(chrome);
+const extraction = new PageExtractionService({ browser: chrome, repository: new DraftRepository(storage),
+  reader: domReader, config, accountKey, enqueue: enqueueCapture });
+// Content scripts have no reason to access Campus Radar tokens or private drafts.
+storage.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
 async function invoke(tabId, method, arg) {
   await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files });
   const [result] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: async (name, value) => {
@@ -108,7 +120,7 @@ chrome.runtime.onStartup.addListener(() => { alarm(); serial(wake).catch(() => {
 chrome.alarms.onAlarm.addListener(a => { if (a.name === 'campus-radar') serial(wake).catch(() => {}); });
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   if (sender.id !== chrome.runtime.id || (sender.url && !sender.url.startsWith(chrome.runtime.getURL('')))) return false;
-  serial(async () => {
+  const action = async () => {
     const cfg = await config();
     if (m.type === 'config') return { ...cfg, token: undefined };
     if (m.type === 'login') {
@@ -120,6 +132,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     }
     if (m.type === 'logout') { await storage.set({ config: { server: cfg.server } }); return {}; }
     if (!cfg.uid || !cfg.token) throw Error('backend_login_required');
+    if (m.type?.startsWith('extract.')) return extraction.handle(cfg, m);
     if (m.type === 'scan') {
       const page = await invoke(m.tabId, 'wait');
       if (!page.account) throw Error('account_unknown');
@@ -141,19 +154,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       return { target, binding: { adapter: 'manual', origin: new URL(target.locator.url).origin, account_key: 'public' } };
     }
     if (m.type === 'submit') {
-      if (!Array.isArray(m.selected) || !m.selected.length || m.selected.length > 30) throw Error('invalid_selection');
-      if (m.selected.some(c => c.needs_detail)) throw Error('preview_required');
-      // Persist intent first. Candidate details are obtained only for selected identities.
-      const { device: id } = await device();
-      const intent = { id: crypto.randomUUID(), scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, state: 'pending' };
-      const existing = (await storage.get('intents')).intents || [];
-      const pending = existing.filter(r => r.state === 'pending');
-      if (pending.length >= 20) throw Error('outbox_full');
-      const intents = [...existing.filter(r => r.state !== 'pending').slice(-20), ...pending];
-      if (JSON.stringify([...intents, intent]).length > 2000000) throw Error('outbox_full');
-      await storage.set({ intents: [...intents, intent] });
-      queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); }).catch(() => {}));
-      return { request_id: intent.id, device_id: id };
+      return enqueueCapture(cfg, m);
     }
     if (m.type === 'status') {
       await processIntents(cfg); await box.flush(cfg);
@@ -163,9 +164,32 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     if (m.type === 'wake') { await processIntents(cfg); await wake(); return {}; }
     if (m.type === 'retry') { await box.retry(cfg); await box.flush(cfg); return {}; }
     throw Error('unknown_message');
-  }).then(value => reply({ ok: true, value }), e => reply({ ok: false, error: e.code || e.message }));
+  };
+  // Reads have their own repository/reader queue; monitor navigation must not block popup queries.
+  const independent = ['config', 'extract.start', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
+  (independent ? action() : serial(action)).then(value => reply({ ok: true, value }), e => reply({ ok: false, error: e.code || e.message }));
   return true;
 });
+async function enqueueCapture(cfg, m) {
+  if (!Array.isArray(m.selected) || !m.selected.length || m.selected.length > 30) throw Error('invalid_selection');
+  if (m.selected.some(c => c.needs_detail)) throw Error('preview_required');
+  const { device: id } = await device();
+  const signature = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({binding:m.binding,selected:m.selected,enabled:m.enabled}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, state: 'pending' };
+  const existing = (await storage.get('intents')).intents || [];
+  const previous = existing.find(r => r.scope === scope(cfg) && r.id === intent.id);
+  if (previous) {
+    if (previous.signature !== signature) throw Error('idempotency_conflict');
+    return { request_id: previous.id, device_id: id };
+  }
+  const pending = existing.filter(r => r.state === 'pending');
+  if (pending.length >= 20) throw Error('outbox_full');
+  const intents = [...existing.filter(r => r.state !== 'pending').slice(-20), ...pending];
+  if (JSON.stringify([...intents, intent]).length > 2000000) throw Error('outbox_full');
+  await storage.set({ intents: [...intents, intent] });
+  queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); }).catch(() => {}));
+  return { request_id: intent.id, device_id: id };
+}
 async function processIntents(cfg) {
   const intents = (await storage.get('intents')).intents || [];
   for (const intent of intents) {

@@ -2,11 +2,11 @@
 
 **接口 ID：** IC-BROWSER-001
 
-**版本：** v1.0
+**版本：** v1.1（成功信封 schema_version 仍为 1）
 
 **负责人：** 插件／网页采集 / 后端及 Flutter 接线
 
-**最后更新：** 2026-11-05
+**最后更新：** 2026-11-11
 
 ## 1. 接口概述
 
@@ -43,12 +43,12 @@
 | request_id | string | 必填 | 客户端 UUID，1–100 字符；同用户相同 ID 不同请求体返回 409 |
 | device_id | string | 必填 | Chrome 安装设备 UUID，不能跨设备执行旧任务 |
 | binding | object | 必填 | `{adapter,origin,account_key}`；account_key 为设备加盐的学校账号散列，公开来源为 public，不是 Campus Radar uid |
-| targets | array | 必填 | 1–30 个已选候选，未选内容不上传 |
+| targets | array | 必填 | 1–30 个用户条件匹配且已确认预览的目标；未匹配内容不上传（旧客户端选择协议仍兼容） |
 | targets[].candidate_id | string | 必填 | 批次内唯一，结果回显 |
 | targets[].entity_id | string | 必填 | 原站活动 ID／人员 ID／资讯 ID；手动补充用稳定元素 ID；不接受标题／内容 hash／序号身份 |
 | targets[].locator | object | 必填 | `{url,frame_url,view}`；保留 query/hash，view 是学期／周次／节次等上下文；首版主 frame，跨 frame 明确不支持 |
 | targets[].raw | object | 必填 | `{title,text,fields}`；title 1–300，text 1–20000 字符；超限拒绝，不静默截断。fields 只含原文可见元数据，无 Cookie／密码／整页 HTML |
-| targets[].recipe | object | 必填 | `{adapter,version:1,entity_id,url,view,selector}`；初次与重新获取共用适配器与验证；详情 URL 与 locator 一致 |
+| targets[].recipe | object | 必填 | v1：`{adapter,version:1,entity_id,url,view,selector}`，初次与重新获取共用适配器；v2：`{adapter,version:2,strategy:'snapshot',entity_id,url,view}`，仅显式快照保存，必须 supported=false、enabled=false；URL 与 locator 一致 |
 | targets[].supported | boolean | 必填 | 已有确定重入方式和账号识别；未知真实 DOM 不得冒充已验证 |
 | targets[].enabled | boolean | 必填 | 用户启用意愿；supported=false 时不得启用 |
 | result.lease | string | 必填 | 后端随机租约；校验当前用户、设备、配置版本和时限 |
@@ -58,6 +58,8 @@
 | result.account_key | string | 成功必填 | 与原绑定相同；切换账号时暂停旧任务，需人工确认，不能自动重绑 |
 
 后端身份 = 当前 uid + binding（平台／origin／学校账号）+ entity_id + frame/view 上下文，不使用标题、内容 hash 或页面序号。详情 URL 留作定位；FIE locale 不决定人员身份，Moodle 入口与同活动详情使用同一 entity_id。课表没有完整日期时，时间原文和学期／周次／节次只作为上下文，不推算截止或日期。
+
+2026-11-11 兼容扩展：recipe v2 拒绝支持／启用监测（snapshot_monitor_unsupported / monitor_unsupported），不把临时页面定位依据当作重入配方。新 UI 按条件匹配后一次保存整组预览，见 IC-EXTRACTION-001 v2；不提供监测启用选项。raw.fields 允许新增 `published_text`、`valid_until_text`、`course_code`、`class_group`、`location`、`date_text` 原文键；分别保留时间语义，不在插件推断截止。v1 不迁移；已有同一身份但 recipe 不同仍返回 binding_or_recipe_changed，不能静默覆盖旧配置。事项详情 browser_monitor 的 enabled/supported 统一返回 JSON boolean。
 
 ## 4. 输出
 
@@ -81,7 +83,7 @@
 
 - 首次 captures 只传用户看到的所选快照，详情候选必须先由 worker 读取并预览；不把保存前另一次隐式重读当成用户已看过。后续来源读取走 monitor job。
 - browser identity 的 frame URL 规范化 query 键顺序；FIE locale 不增加人员身份，但 recipe 改变仍返回 binding_or_recipe_changed，当前无自动跨设备／recipe 迁移。
-- 普通 enabled 控制不能解除 account_mismatch。用户回到原账号重新识别、预览、保存并勾选启用后，相同 binding 的既有记录可明确重新启用，配置 revision 增加，检查状态回到 not_executed，原成功历史保留。其他账号形成独立 binding；删除的监测不在保存时静默复活。已有启用目标的新采集未勾监测不会隐式暂停，暂停在来源面板明确执行。
+- 普通 enabled 控制不能解除 account_mismatch。v1 兼容客户端回到原账号重新识别、预览、保存并明确启用后，相同 binding 的既有记录可明确重新启用，配置 revision 增加，检查状态回到 not_executed，原成功历史保留。其他账号形成独立 binding；删除的监测不在保存时静默复活。已有启用目标的新采集未勾监测不会隐式暂停，暂停在来源面板明确执行。
 - account_key 为浏览器侧设备盐散列，仅用于绑定一致性，不是学校授权凭据或服务端学校身份认证。不同 Chrome 安装不自动共用旧学校绑定；设备丢失／重新绑定流程后续另做。
 - outbox 自动重试 3 次；401 待同用户重新登录，409 标为拒绝，手动重试不复活旧租约。队列最多 60 条／约 2MB；持久保存意图最多 20 条待处理／约 2MB，已确认回执只保留紧凑元数据。后端回执仍可按 request_id 查询，不依赖 popup。
 - 视图对象按键比较，不能将 JSON 键顺序变化当成来源变化；真正学期／周次／路由变化分别报 view_mismatch / route_mismatch。失败不会写入新成功版本。

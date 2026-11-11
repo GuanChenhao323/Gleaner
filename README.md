@@ -8,7 +8,7 @@ Campus Radar 是当前产品名称；Gleaner／拾课保留为仓库、代码包
 
 ## 当前产品组成
 
-Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义；候选采集、持久后台和浏览器来源契约见 [插件说明](docs/browser-extension.md)。三来源结构夹具已接线，真实学校 DOM 和认证须另行授权验收。
+Chrome 插件（按条件提取与预览保存）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义；候选采集、持久后台和浏览器来源契约见 [插件说明](docs/browser-extension.md)。三来源结构夹具已接线，真实学校 DOM 和认证须另行授权验收。
 
 ## 既有课程技术架构
 
@@ -48,7 +48,7 @@ Chrome 插件（识别与选择）→ 本地后端（结构化、分类、存储
 | `server/gleaner/storage/` | SQLite / PostgreSQL 访问层与表结构 |
 | `agent/` | 本地采集代理 |
 | `client/` | Flutter 客户端 |
-| `extension/` | Chrome MV3 插件：候选勾选与预览、持久保存、关联来源重读（见 `docs/browser-extension.md`） |
+| `extension/` | Chrome MV3 插件：条件输入与匹配预览、一次持久保存、关联来源重读（见 `docs/browser-extension.md`） |
 | `devtools/` | fake_moodle、fake_mail、压测与对比实验、一键开发环境、三来源结构夹具与插件模拟测试 |
 | `deploy/` | docker-compose、Prometheus、Grafana、Autobahn |
 | `docs/protocols/` | 每个自研协议的设计文档 |
@@ -117,7 +117,13 @@ WSL 2 里运行时，最后一个 WSL 会话退出后发行版会自动关闭，
 3. **断网与故障恢复**：结束一个推送节点进程（或断网）→ 客户端显示离线、可浏览缓存、可加待办 → 恢复后自动重连到另一节点，补齐消息，待办只生效一次。
 
 
-## 浏览器采集开发闭环
+## 当前网页读取入口（0.3.0）
+
+在学校原网页点插件 → 输入条件（例如“网络编程的作业”）→ 抓取匹配内容 → 核对整组预览 → 一次保存。零匹配不回退整页；同名课程先确认范围；无需逐条勾选。读取草稿保留在本机，默认不创建事项；满足身份与账号条件的详情可显式保存快照，不自动监测。Flutter 信息源始终提供三个真实入口，原有本地演示订阅另行说明。真实学校页面质量与后台重入仍须单独验收。
+
+扩展 0.4.0 只使用渲染 DOM；已移除 AX 读取、选项与构建入口，不申请 debugger 权限。安装、权限与边界见 [插件说明](docs/browser-extension.md)，对象契约见 [IC-EXTRACTION-001](docs/architecture/page-extraction-v1.md)。
+
+## 兼容的浏览器采集开发闭环（0.2）
 
 扩展 0.2.0 按 [IC-BROWSER-001](docs/architecture/browser-capture-v1.md) 接入 Core 和 Flutter，旧剪藏接口兼容保留。结构夹具启动：`.venv/bin/python devtools/campus_fixture/app.py --port 8098`，入口 `http://localhost:8098/`；Chrome 加载 `extension/` 后按 [本地复现步骤](devtools/campus_fixture/README.md) 操作。学校账号在原站自行登录，未验证的生产结构不会被声明为已支持。
 

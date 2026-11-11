@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
@@ -95,23 +94,13 @@ class _BrowserMonitorsPanelState extends ConsumerState<BrowserMonitorsPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '从校园网页选择信息',
+          '已保存的浏览器来源',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        const Text('在原站自行登录，打开 Campus Radar 插件识别、勾选并预览。只保存所选内容；未支持的页面会明确提示。'),
+        const Text('读取不等于保存。以下仅列已保存的事项来源；快照保存不会自动启用后台检查。'),
         Wrap(
           spacing: 8,
           children: [
-            for (final entry in const {
-              'Moodle': 'https://moodle.must.edu.mo/my/',
-              '学生系统': 'https://student-wmweb.must.edu.mo/',
-              '学院人员目录':
-                  'https://fie.must.edu.mo/person/id-828.html?locale=zh_MO',
-            }.entries)
-              TextButton(
-                onPressed: () => launchUrl(Uri.parse(entry.value)),
-                child: Text('打开${entry.key}'),
-              ),
             TextButton(onPressed: load, child: const Text('刷新采集来源')),
           ],
         ),

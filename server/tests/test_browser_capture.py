@@ -88,6 +88,26 @@ async def test_two_selected_same_url_and_durable_idempotency(service):
     ]
 
 
+async def test_extraction_snapshot_recipe_cannot_be_scheduled(service):
+    svc, db, _ = service
+    req = batch("snapshot-v2")
+    for target in req["targets"]:
+        target["recipe"].update(version=2, strategy="snapshot")
+        target["recipe"].pop("selector")
+        target.update(supported=False, enabled=False)
+        target["raw"]["fields"] = {"published_text": "2026-01-02", "valid_until_text": "2026-01-10"}
+    result = await svc.capture(1, req)
+    assert [r["status"] for r in result["results"]] == ["new", "new"]
+    assert await svc.capture(1, req) == result
+    assert await db.fetchval("SELECT COUNT(*) FROM items") == 2
+    assert (await svc.claim(1, {"device_id": "device-a"}))["job"] is None
+    with pytest.raises(ContractError, match="monitor_unsupported"):
+        await svc.control(1, result["results"][0]["monitor_id"], {"revision": 1, "enabled": True})
+    req["request_id"] = "unsafe-v2"
+    req["targets"][0]["supported"] = True
+    assert (await svc.capture(1, req))["results"][0]["error"] == "snapshot_monitor_unsupported"
+
+
 async def test_user_account_view_isolation_and_partial_validation(service):
     svc, _db, _ = service
     a = await svc.capture(1, batch())
@@ -316,6 +336,48 @@ async def test_http_capture_feed_lease_and_account_boundary(stack):  # noqa: F81
         ][0]["changed_fields"]["body"][1] == "来源变更后的原文。"
 
 
+async def test_http_extraction_snapshot_save_history_and_no_schedule(stack):  # noqa: F811
+    gw = f"http://127.0.0.1:{stack['gw'].info['port']}"
+    async with HTTPClient() as client:
+        login = await client.post(
+            gw + "/api/auth/register",
+            json_body={"email": "extraction@test.local", "password": "password123"},
+        )
+        auth = {"Authorization": "Bearer " + login.json()["token"]}
+        req = batch("snapshot-http")
+        for target in req["targets"]:
+            target.update(supported=False, enabled=False)
+            target["recipe"].update(version=2, strategy="snapshot")
+            del target["recipe"]["selector"]
+        first = await client.post(gw + "/api/v1/captures", json_body=req, headers=auth)
+        assert first.status == 200
+        saved = first.json()
+        assert [r["status"] for r in saved["results"]] == ["new", "new"]
+        assert (
+            await client.post(gw + "/api/v1/captures", json_body=req, headers=auth)
+        ).json() == saved
+        feed = (await client.get(gw + "/api/feed", headers=auth)).json()["items"]
+        assert len(feed) == 2
+        iid = saved["results"][0]["item_id"]
+        detail = (await client.get(gw + f"/api/items/{iid}", headers=auth)).json()
+        assert detail["url"] == req["targets"][0]["locator"]["url"]
+        assert detail["browser_monitor"]["supported"] is False
+        req["request_id"] = "snapshot-http-next"
+        req["targets"][0]["raw"]["text"] = "用户重新预览后显式保存的合成原文。"
+        changed = (await client.post(gw + "/api/v1/captures", json_body=req, headers=auth)).json()
+        assert changed["results"][0]["item_id"] == iid
+        assert changed["results"][0]["status"] == "changed"
+        versions = (await client.get(gw + f"/api/items/{iid}/versions", headers=auth)).json()
+        assert (
+            versions["versions"][0]["changed_fields"]["body"][1] == req["targets"][0]["raw"]["text"]
+        )
+        assert (
+            await client.post(
+                gw + "/api/v1/monitor-jobs/claim", json_body={"device_id": "device-a"}, headers=auth
+            )
+        ).json()["job"] is None
+
+
 @pytest.mark.parametrize(
     "status",
     [
@@ -390,3 +452,39 @@ async def test_explicit_recapture_enables_saved_target_and_reconfirms_original_b
     monitor = (await svc.monitors(1))["monitors"][0]
     assert monitor["enabled"] and monitor["revision"] == 3 and monitor["error"] == ""
     assert await db.fetchval("SELECT COUNT(*) FROM items") == 1
+
+
+async def test_person_field_projection_cannot_overwrite_full_profile(service):
+    svc, db, _ = service
+    req = batch("profile", entities=("person:1",))
+    req["binding"].update(adapter="fie", account_key="public")
+    target = req["targets"][0]
+    url = "http://localhost:8098/person/view/id-1.html"
+    target["locator"].update(url=url, frame_url=url, view={"projection": "profile"})
+    target["recipe"] = {
+        "adapter": "fie",
+        "version": 2,
+        "strategy": "snapshot",
+        "entity_id": "person:1",
+        "url": url,
+        "view": {"projection": "profile"},
+    }
+    target.update(supported=False, enabled=False)
+    target["raw"] = {"title": "合成人员", "text": "完整个人资料", "fields": {}}
+    full = (await svc.capture(1, req))["results"][0]
+    partial = copy.deepcopy(req)
+    partial["request_id"] = "email-projection"
+    chosen = partial["targets"][0]
+    for container in (chosen["locator"], chosen["recipe"]):
+        container["view"] = {"projection": "email"}
+    chosen["raw"] = {
+        "title": "合成人员",
+        "text": "邮箱：sample@example.test",
+        "fields": {"email": "sample@example.test"},
+    }
+    email = (await svc.capture(1, partial))["results"][0]
+    assert email["status"] == "new" and email["item_id"] != full["item_id"]
+    assert (
+        await db.fetchval("SELECT body FROM items WHERE id = ?", full["item_id"]) == "完整个人资料"
+    )
+    assert (await svc.claim(1, {"device_id": "device-a"}))["job"] is None

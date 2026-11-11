@@ -71,3 +71,5 @@
 Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项租约任务，向 `POST /api/v1/monitor-jobs/{id}/result` 提交并确认结果。当前只支持主 frame；认证来源由 Chrome 原会话重入，不把学校密码／Cookie 发给服务端，也不让 Python collector 同时调度 browser 来源。所有 v1 成功响应含 schema_version=1、ok=true，逐项结果／租约另校验；401 鉴权错误沿用原 API 格式，其他契约错误非 2xx。历史 `/api/clips` 与 `/api/sources` 保持兼容，新扩展不再用互不关联的 clip/page 流程。
 
 事项详情额外返回 `browser_monitor` 和 `source_fields`；版本 changed 字典可含 `source_fields` 的前后值。个人 note/deadline_override 继续经原 `/api/items/{id}/state` 管理，不随来源覆盖。新注册账号不再自动订阅公共演示来源；演示 seed 仍显式创建演示订阅。
+
+2026-11-11：[条件先行读取／预览契约 v2](../architecture/page-extraction-v1.md)，读取／预览不调用网络保存接口。只有明确保存才走上述 captures，recipe.version=2、strategy=snapshot 表示仅快照保存，后端强制 supported=false、enabled=false，不进入调度。v1 recipe 与信封 schema_version=1 保持兼容；recipe 改变仍需显式重绑，未自动迁移。事项详情中的监测布尔字段不再返回数据库整数。

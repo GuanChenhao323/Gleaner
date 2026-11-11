@@ -5,7 +5,7 @@ import { webcrypto } from 'node:crypto';
 globalThis.crypto ??= webcrypto;
 const cfg = {server:'http://localhost:8080', uid:1, token:'test-token'};
 const clone = v => v === undefined ? undefined : structuredClone(v);
-async function boot(data, fetcher) {
+async function boot(data, fetcher, {drain=true}={}) {
   let listener;
   const removed = [];
   const storage = {
@@ -23,7 +23,7 @@ async function boot(data, fetcher) {
   };
   await import(`../background.js?test=${crypto.randomUUID()}`);
   const send = value => new Promise(resolve=>listener(value,{id:'test-extension',url:'chrome-extension://test-extension/popup.html'},resolve));
-  await send({type:'config'}); // drains the startup queue
+  if(drain) await send({type:'status'}); // serialized maintenance drains startup
   return {send, removed};
 }
 const json = obj => new Response(JSON.stringify(obj), {headers:{'Content-Type':'application/json'}});
@@ -46,7 +46,7 @@ test('persisted submission survives popup loss and worker replacement; lost resp
   const selected=[candidate('notice:a'),candidate('notice:b')];
   const accepted=await worker.send({type:'submit',selected,binding:{adapter:'student',origin:'http://localhost:8098',account_key:'account-a'},enabled:true,tabId:999});
   assert.equal(accepted.ok,true);
-  await worker.send({type:'config'}); // no popup/target tab is needed after acceptance
+  await worker.send({type:'status'}); // no popup/target tab is needed after acceptance
   assert.equal(data.outbox[0].state,'pending');
   const payload=clone(data.outbox[0].body);
   assert.deepEqual(payload.targets.map(t=>t.entity_id),['notice:a','notice:b']);
@@ -71,4 +71,17 @@ test('unpreviewed detail is rejected; recovery reports interrupted lease and cle
   assert.equal(sent[0].status,'failed');assert.equal(data.activeJob,undefined);
   const invalid=await worker.send({type:'submit',selected:[{...candidate('notice:a'),needs_detail:true}],binding:{}});
   assert.equal(invalid.ok,false);assert.equal(invalid.error,'preview_required');
+});
+
+
+test('config and draft queries remain responsive while monitor navigation is pending',async()=>{
+  let release,entered;const waiting=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+  const data={config:cfg,device:'device-a',salt:'salt-a'};
+  const worker=await boot(data,async()=>{entered();await waiting;return json(envelope({job:null}));},{drain:false});
+  await started;
+  let timer;try {
+    const value=await Promise.race([worker.send({type:'config'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('config blocked by monitor')),100);})]);
+    assert.equal(value.value.uid,1);assert.equal(value.value.token,undefined);
+    const tasks=await worker.send({type:'extract.list'});assert.deepEqual(tasks.value.tasks,[]);
+  } finally {clearTimeout(timer);release();await worker.send({type:'status'});}
 });

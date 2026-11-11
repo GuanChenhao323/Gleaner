@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
+import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../sources/browser_monitors.dart';
 import 'source_changes.dart';
+import 'item_load_failure.dart';
 
 class ItemDetail extends ConsumerStatefulWidget {
   final int id;
@@ -22,6 +25,8 @@ class ItemDetail extends ConsumerStatefulWidget {
 }
 
 class _ItemDetailState extends ConsumerState<ItemDetail> {
+  Object? _loadError;
+  bool _detailLoading = true;
   @override
   void initState() {
     super.initState();
@@ -35,13 +40,16 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
   }
 
   Future<void> _load() async {
+    setState(() { _detailLoading = true; _loadError = null; });
     final store = ref.read(feedProvider.notifier);
     final it = ref.read(feedProvider).items[widget.id];
     if (it != null && !it.state.read) store.setState(it, read: true);
     try {
       await store.loadDetail(widget.id);
-    } catch (_) {
-      // 离线时显示缓存
+    } catch (e) {
+      if (mounted) setState(() => _loadError = e);
+    } finally {
+      if (mounted) setState(() => _detailLoading = false);
     }
   }
 
@@ -49,7 +57,10 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
   Widget build(BuildContext context) {
     final item = ref.watch(feedProvider.select((s) => s.items[widget.id]));
     if (item == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(body: _detailLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ItemLoadFailure(error: _loadError, email: ref.watch(sessionProvider).me?.email ?? '',
+              onRetry: _load, onSources: () => context.go('/sources')));
     }
     final t = Theme.of(context);
     final cs = t.colorScheme;
@@ -127,7 +138,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         ],
         if (item.raw['browser_monitor'] is Map) ...[
           const SectionHeader('浏览器来源检查'),
-          Text(browserCheckLabel('${(item.raw['browser_monitor'] as Map)['last_result']}')),
+          Text((item.raw['browser_monitor'] as Map)['supported'] != true ? '仅保存快照 · 暂不支持后台检查' : browserCheckLabel('${(item.raw['browser_monitor'] as Map)['last_result']}')),
         ],
         if (item.state.note.isNotEmpty) ...[
           const SectionHeader('我的备注（来源更新不会覆盖）'),

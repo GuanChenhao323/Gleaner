@@ -7,7 +7,7 @@ export class Outbox {
     const all = await this.all();
     const rows = [...all.filter(r => r.state !== 'confirmed'), ...all.filter(r => r.state === 'confirmed').slice(-15)];
     if (rows.length >= 60 || JSON.stringify(rows).length + JSON.stringify(body).length > 2000000) throw Error('outbox_full');
-    const entry = { id: crypto.randomUUID(), scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
+    const entry = { id: crypto.randomUUID(), request_id: body.request_id, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
     await this.storage.set({ outbox: [...rows, entry] });
     return entry.id;
   }

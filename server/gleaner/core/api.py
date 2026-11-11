@@ -469,6 +469,9 @@ class API:
             user["id"],
             it["id"],
         )
+        if it["browser_monitor"]:
+            for flag in ("enabled", "supported"):
+                it["browser_monitor"][flag] = bool(it["browser_monitor"][flag])
         return Response.json_body(it)
 
     async def versions(self, req: Request, user: dict[str, Any]) -> Response:

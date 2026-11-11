@@ -10,6 +10,7 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../widgets/common.dart';
 import 'browser_monitors.dart';
+import 'campus_source_entries.dart';
 
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
@@ -33,9 +34,11 @@ class SourcesPage extends ConsumerWidget {
         data: (list) => ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
           children: [
+            const CampusSourceEntries(),
             const BrowserMonitorsPanel(),
-            if (list.isEmpty) const Text('还没有保存的信息。使用插件选择校园页面候选后，记录与来源会出现在这里。模拟模板仅供演示，可由下方添加入口主动选择。'),
-            if (list.isNotEmpty) _Summary(list),
+            if (list.isEmpty) const Text('还没有保存的信息。使用插件输入条件、预览并保存后，记录与来源会出现在这里。模拟模板仅供演示，可由下方添加入口主动选择。'),
+            if (list.any((s) => s.type != 'browser')) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('已有订阅（含本地演示／旧采集来源；不代表上方学校网站已接通）')),
+            if (list.any((s) => s.type != 'browser')) _Summary(list.where((s) => s.type != 'browser').toList()),
             for (final s in list.where((s) => s.type != 'browser')) Padding(padding: const EdgeInsets.only(bottom: 10), child: _SourceCard(s)),
           ],
         ),
