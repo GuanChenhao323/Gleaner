@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from ..net.http.cookies import Cookie, CookieJar
+from ..net.http.cookies import Cookie, CookieJar, default_path
 from .models import AuthLease, Clock, MonitorError, SitePolicy
 
 
@@ -163,12 +163,7 @@ class AuthManager:
                 if not all(isinstance(v, str) for v in (name, value, domain, path)):
                     raise MonitorError("invalid")
                 if (
-                    name not in self.policy.cookie_names
-                    or domain != self.policy.host
-                    or host_only is not True
-                    or secure is not True
-                    or not path.startswith("/")
-                    or path != "/"
+                    not self.policy.cookie_allowed(name, domain, path, host_only, secure)
                     or record.get("same_site", "")
                     not in ("strict", "lax", "none", "unspecified", "no_restriction")
                     or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + value + domain + path)
@@ -184,6 +179,7 @@ class AuthManager:
                     or expires <= self.clock.utc()
                 ):
                     raise MonitorError("auth_required")
+                domain = domain.lstrip(".").lower()
                 ident = (domain, path, name)
                 if ident in seen:
                     raise MonitorError("invalid")
@@ -194,9 +190,9 @@ class AuthManager:
                     domain,
                     path,
                     expires,
-                    secure=True,
+                    secure=secure,
                     http_only=bool(record["http_only"]),
-                    host_only=True,
+                    host_only=host_only,
                     same_site=record.get("same_site", ""),
                 )
                 jar = CookieJar([*map(lambda x: Cookie(**x), jar.to_list()), cookie])
@@ -259,12 +255,16 @@ class AuthManager:
             # Validate scope before expiry processing; deletion cookies need the same checks.
             if (
                 not separator
-                or name not in self.policy.cookie_names
                 or duplicate
-                or "domain" in attrs
                 or "partitioned" in attrs
-                or "secure" not in attrs
-                or attrs.get("path") != "/"
+                or ("path" not in attrs and not self.policy.allow_default_cookie_path)
+                or not self.policy.cookie_allowed(
+                    name,
+                    attrs.get("domain", self.policy.host),
+                    attrs.get("path", default_path(urlsplit(url).path)),
+                    "domain" not in attrs,
+                    "secure" in attrs,
+                )
                 or any(ord(ch) < 33 or ord(ch) > 126 or ch in ';"\\,' for ch in value)
             ):
                 continue

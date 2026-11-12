@@ -41,6 +41,26 @@ class SitePolicy:
     # Explicit loopback origin is required; global egress environment is never consulted.
     local_test: bool = False
     target_urls: tuple[str, ...] = ()
+    request_headers: tuple[tuple[str, str], ...] = ()
+    allow_default_cookie_path: bool = False
+
+    def cookie_allowed(
+        self, name: str, domain: str, path: str, host_only: bool, secure: bool
+    ) -> bool:
+        return (
+            name in self.cookie_names
+            and domain == self.host
+            and path == "/"
+            and host_only is True
+            and secure is True
+        )
+
+    def allows_redirect(self, source: str, destination: str) -> bool:
+        return source == destination
+
+    def login_redirect(self, url: str) -> bool:
+        p = urlsplit(url)
+        return p.hostname == "login.must.edu.mo" or p.path.startswith("/login/")
 
     @property
     def host(self) -> str:

@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 
 import httpx
@@ -291,6 +292,31 @@ async def test_pacing_does_not_spend_connection_budget():
         assert len(log) == 2
     finally:
         await t.close()
+
+
+async def test_dns_and_tcp_tls_have_separate_bounded_budgets():
+    async def resolver(host, port):
+        await asyncio.sleep(0.06)
+        return ["1.1.1.1"]
+
+    async def handler(request):
+        await asyncio.sleep(0.06)
+        return httpx.Response(200, stream=Stream(b"ok"))
+
+    policy = SitePolicy()
+    transport = HTTPXTransport(
+        policy,
+        AuthManager(policy),
+        resolver=resolver,
+        engine=httpx.MockTransport(handler),
+        connect_timeout=0.1,
+        total_timeout=1,
+    )
+    try:
+        status, _, body = await transport._one(policy.origin + "/robots.txt", None, kind="robots")
+        assert status == 200 and body == b"ok"
+    finally:
+        await transport.close()
 
 
 async def test_robots_uses_only_approved_session_and_cache_isolates_generations():

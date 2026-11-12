@@ -38,6 +38,81 @@ async def test_doh_pins_bootstrap_sni_has_no_credentials_and_honours_ttl():
         await resolver("another.example", 443)
 
 
+async def test_doh_connect_timeout_uses_recorded_same_provider_fallback():
+    seen, events = [], []
+
+    async def handler(request):
+        seen.append(request)
+        if request.url.host == "1.1.1.1":
+            raise httpx.ConnectTimeout("synthetic timeout", request=request)
+        return httpx.Response(
+            200,
+            stream=Stream(
+                json.dumps(
+                    {"Status": 0, "Answer": [{"type": 1, "data": "1.1.1.1", "TTL": 30}]}
+                ).encode()
+            ),
+        )
+
+    resolver = CloudflareDNS(
+        "moodle.must.edu.mo", engine=httpx.MockTransport(handler), event=events.append
+    )
+    assert await resolver("moodle.must.edu.mo", 443) == ["1.1.1.1"]
+    assert [request.url.host for request in seen] == ["1.1.1.1", "1.0.0.1"]
+    assert all(request.headers["host"] == "cloudflare-dns.com" for request in seen)
+    assert all(request.extensions["sni_hostname"] == "cloudflare-dns.com" for request in seen)
+    assert all(
+        "cookie" not in request.headers and "authorization" not in request.headers
+        for request in seen
+    )
+    assert len(events) == 1 and events[0]["reason"] == "primary_connect_timeout"
+
+
+async def test_doh_retries_within_budget_after_both_bootstraps_timeout():
+    seen, events = [], []
+
+    async def handler(request):
+        seen.append(request.url.host)
+        if len(seen) < 3:
+            raise httpx.ConnectTimeout("synthetic timeout", request=request)
+        return httpx.Response(
+            200,
+            stream=Stream(
+                json.dumps(
+                    {"Status": 0, "Answer": [{"type": 1, "data": "1.1.1.1", "TTL": 30}]}
+                ).encode()
+            ),
+        )
+
+    resolver = CloudflareDNS(
+        "moodle.must.edu.mo", engine=httpx.MockTransport(handler), event=events.append
+    )
+    assert await resolver("moodle.must.edu.mo", 443) == ["1.1.1.1"]
+    assert seen == ["1.1.1.1", "1.0.0.1", "1.1.1.1"]
+    assert [event["reason"] for event in events] == [
+        "primary_connect_timeout",
+        "secondary_connect_timeout",
+    ]
+
+
+@pytest.mark.parametrize("failure", ["rate_limit", "certificate"])
+async def test_doh_does_not_fallback_on_rate_limit_or_tls_error(failure):
+    seen = []
+
+    async def handler(request):
+        seen.append(request.url.host)
+        if failure == "rate_limit":
+            return httpx.Response(429, headers={"retry-after": "600"}, stream=Stream(b""))
+        raise httpx.ConnectError("CERTIFICATE_VERIFY_FAILED", request=request)
+
+    resolver = CloudflareDNS("moodle.must.edu.mo", engine=httpx.MockTransport(handler))
+    with pytest.raises(
+        MonitorError, match="dns_rate_limited" if failure == "rate_limit" else "dns"
+    ):
+        await resolver("moodle.must.edu.mo", 443)
+    assert seen == ["1.1.1.1"]
+
+
 @pytest.mark.parametrize(
     "data",
     [

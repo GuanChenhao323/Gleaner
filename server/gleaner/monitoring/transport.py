@@ -60,9 +60,14 @@ class HTTPXTransport:
     ) -> None:
         if verify is False:
             raise ValueError("TLS verification is required")
+        for name, value in policy.request_headers:
+            if name.lower() not in ("accept", "accept-language", "referer") or any(
+                ord(c) < 32 or ord(c) == 127 for c in name + value
+            ):
+                raise ValueError("unsupported request header")
         self.policy, self.auth, self.clock = policy, auth, clock or Clock()
         self.resolver, self.get_not_before, self.set_not_before, self.event = (
-            resolver or ProxyCompatibleDNS(policy.host, clock=self.clock),
+            resolver or ProxyCompatibleDNS(policy.host, clock=self.clock, event=policy_event),
             get_not_before,
             set_not_before,
             event,
@@ -155,11 +160,14 @@ class HTTPXTransport:
                 "Accept": "text/html, text/plain",
                 "Connection": "close",
             }
+            headers.update(self.policy.request_headers)
             crawl_delay = self._robots[1].crawl_delay if self._robots else 0
+            # Resolution has its own bounded budget; preserve the full TCP/TLS budget
+            # after an allowed DNS fallback. The outer fetch timeout still covers both.
+            pinned, _ = await self._ip(url)
+            if lease is not None:
+                headers["Cookie"] = self.auth.header(lease, url)
             async with asyncio.timeout(self.connect_timeout) as connecting:
-                pinned, _ = await self._ip(url)
-                if lease is not None:
-                    headers["Cookie"] = self.auth.header(lease, url)
                 started = self.clock.mono()
                 self._next_start = started + max(self.policy.host_gap_s, crawl_delay)
 
@@ -303,8 +311,7 @@ class HTTPXTransport:
             if not location or hop == 3:
                 raise MonitorError("redirect_limit")
             nxt = urljoin(url, location)
-            p = urlsplit(nxt)
-            if p.hostname == "login.must.edu.mo" or p.path.startswith("/login/"):
+            if self.policy.login_redirect(nxt):
                 raise MonitorError("auth_required")
             if (
                 kind == "robots"
@@ -327,7 +334,7 @@ class HTTPXTransport:
                 # The caller explicitly opted into the separately registered single-target policy.
                 raise MonitorError("robots_dashboard_redirect")
             approved = self.policy.canonical(nxt, target=kind == "content")
-            if kind == "content" and approved != target_url:
+            if kind == "content" and not self.policy.allows_redirect(target_url, approved):
                 raise MonitorError("blocked")
             url = nxt
         raise MonitorError("redirect_limit")
@@ -420,6 +427,7 @@ class HTTPXTransport:
 class CloudflareDNS:
     host = "cloudflare-dns.com"
     bootstrap = "https://1.1.1.1/dns-query"
+    secondary_bootstrap = "https://1.0.0.1/dns-query"
 
     def __init__(
         self,
@@ -427,10 +435,12 @@ class CloudflareDNS:
         *,
         clock: Clock | None = None,
         engine: httpx.AsyncBaseTransport | None = None,
+        event: Callable[[dict], None] = lambda _: None,
     ) -> None:
         self.allowed_host = allowed_host
         self.clock = clock or Clock()
         self.engine = engine
+        self.event = event
         self.cached: tuple[float, list[str]] | None = None
         self.not_before = 0.0
 
@@ -445,29 +455,51 @@ class CloudflareDNS:
             )
         if self.cached and self.cached[0] > self.clock.mono():
             return self.cached[1].copy()
-        request = httpx.Request(
-            "GET",
-            self.bootstrap + "?" + urlencode({"name": host, "type": "A"}),
-            headers={
-                "Host": self.host,
-                "Accept": "application/dns-json",
-                "Accept-Encoding": "identity",
-            },
-            extensions={
-                "sni_hostname": self.host,
-                "timeout": {"connect": 3, "read": 5, "write": 3, "pool": 3},
-            },
-        )
         try:
             async with (
-                asyncio.timeout(5),
+                asyncio.timeout(9),
                 httpx.AsyncClient(
                     transport=self.engine or httpx.AsyncHTTPTransport(retries=0, trust_env=False),
                     trust_env=False,
                     follow_redirects=False,
                 ) as client,
             ):
-                response = await client.send(request, stream=True, follow_redirects=False)
+                bootstraps = (self.bootstrap, self.secondary_bootstrap, self.bootstrap)
+                for attempt, bootstrap in enumerate(bootstraps):
+                    request = httpx.Request(
+                        "GET",
+                        bootstrap + "?" + urlencode({"name": host, "type": "A"}),
+                        headers={
+                            "Host": self.host,
+                            "Accept": "application/dns-json",
+                            "Accept-Encoding": "identity",
+                        },
+                        extensions={
+                            "sni_hostname": self.host,
+                            "timeout": {"connect": 3, "read": 5, "write": 3, "pool": 3},
+                        },
+                    )
+                    try:
+                        response = await client.send(request, stream=True, follow_redirects=False)
+                        break
+                    except httpx.ConnectTimeout:
+                        final_attempt = attempt == len(bootstraps) - 1
+                        self.event(
+                            {
+                                "kind": "dns_failure" if final_attempt else "dns_fallback",
+                                "reason": "primary_connect_timeout"
+                                if bootstrap == self.bootstrap
+                                else "secondary_connect_timeout",
+                                "scope": "same_provider_exhausted"
+                                if final_attempt
+                                else "same_provider_secondary"
+                                if bootstraps[attempt + 1] == self.secondary_bootstrap
+                                else "same_provider_primary",
+                                "utc": self.clock.utc(),
+                            }
+                        )
+                        if final_attempt:
+                            raise
                 try:
                     if response.status_code in (429, 503):
                         delay = parse_retry_after(
@@ -537,9 +569,10 @@ class ProxyCompatibleDNS:
         clock: Clock | None = None,
         system: Resolver = resolve,
         public: Resolver | None = None,
+        event: Callable[[dict], None] = lambda _: None,
     ) -> None:
         self.host, self.system = host, system
-        self.public = public or CloudflareDNS(host, clock=clock)
+        self.public = public or CloudflareDNS(host, clock=clock, event=event)
 
     async def __call__(self, host: str, port: int) -> list[str]:
         if host != self.host:
