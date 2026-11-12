@@ -112,8 +112,8 @@ class Harness:
             self.policy,
             self.auth,
             resolver=CloudflareDNS(self.policy.host)
-            if getattr(self.args, "dns", "system") == "cloudflare"
-            else resolve,
+            if getattr(self.args, "dns", "auto") == "cloudflare"
+            else (resolve if getattr(self.args, "dns", "auto") == "system" else None),
             get_not_before=lambda: self.store.meta("host_not_before", 0),
             set_not_before=lambda t: self.store.put_meta("host_not_before", t),
             event=lambda e: self.report.append("request", e),
@@ -151,7 +151,7 @@ class Harness:
                 "adapter": MoodleAdapter.version,
                 "commit": commit,
                 "duration_s": self.args.duration,
-                "dns_mode": getattr(self.args, "dns", "system"),
+                "dns_mode": getattr(self.args, "dns", "auto"),
                 "robots_fallback": getattr(self.args, "robots_fallback", "strict"),
                 "started_at": self.clock.utc(),
             },
@@ -411,9 +411,9 @@ if __name__ == "__main__":
     parser.add_argument("--chrome-version", default="not_recorded")
     parser.add_argument(
         "--dns",
-        choices=("system", "cloudflare"),
-        default="system",
-        help="Explicit debug DoH for Fake-IP DNS environments",
+        choices=("auto", "system", "cloudflare"),
+        default="auto",
+        help="auto uses public DoH on Fake-IP; system disables fallback",
     )
     parser.add_argument("--exit-on-finish", action="store_true")
     parser.add_argument(
@@ -431,7 +431,7 @@ if __name__ == "__main__":
         parser.error(
             "real page content is memory-only; persistent databases are for synthetic tests"
         )
-    if not options.real and options.dns != "system":
+    if not options.real and options.dns == "cloudflare":
         parser.error("debug DoH is only available for an explicit real Moodle target")
     if not options.real and options.robots_fallback != "strict":
         parser.error(

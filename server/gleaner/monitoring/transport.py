@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import logging
+import math
 import socket
 import ssl
 import zlib
 from collections.abc import Awaitable, Callable
 from typing import Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx  # noqa: TID251 — user-approved exception, scoped to this transport only.
 
@@ -42,7 +44,7 @@ class HTTPXTransport:
         auth: AuthManager,
         *,
         clock: Clock | None = None,
-        resolver: Resolver = resolve,
+        resolver: Resolver | None = None,
         engine: httpx.AsyncBaseTransport | None = None,
         verify: ssl.SSLContext | bool = True,
         get_not_before: Callable[[], float] = lambda: 0,
@@ -60,7 +62,7 @@ class HTTPXTransport:
             raise ValueError("TLS verification is required")
         self.policy, self.auth, self.clock = policy, auth, clock or Clock()
         self.resolver, self.get_not_before, self.set_not_before, self.event = (
-            resolver,
+            resolver or ProxyCompatibleDNS(policy.host, clock=self.clock),
             get_not_before,
             set_not_before,
             event,
@@ -413,3 +415,148 @@ class HTTPXTransport:
             raise MonitorError("network", retryable=True) from None
         except (OSError, httpx.HTTPError):
             raise MonitorError("network", retryable=True) from None
+
+
+class CloudflareDNS:
+    host = "cloudflare-dns.com"
+    bootstrap = "https://1.1.1.1/dns-query"
+
+    def __init__(
+        self,
+        allowed_host: str,
+        *,
+        clock: Clock | None = None,
+        engine: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.allowed_host = allowed_host
+        self.clock = clock or Clock()
+        self.engine = engine
+        self.cached: tuple[float, list[str]] | None = None
+        self.not_before = 0.0
+
+    async def __call__(self, host: str, port: int) -> list[str]:
+        if host != self.allowed_host:
+            raise MonitorError("blocked")
+        if self.not_before > self.clock.utc():
+            raise MonitorError(
+                "dns_rate_limited",
+                retryable=True,
+                retry_after_s=self.not_before - self.clock.utc(),
+            )
+        if self.cached and self.cached[0] > self.clock.mono():
+            return self.cached[1].copy()
+        request = httpx.Request(
+            "GET",
+            self.bootstrap + "?" + urlencode({"name": host, "type": "A"}),
+            headers={
+                "Host": self.host,
+                "Accept": "application/dns-json",
+                "Accept-Encoding": "identity",
+            },
+            extensions={
+                "sni_hostname": self.host,
+                "timeout": {"connect": 3, "read": 5, "write": 3, "pool": 3},
+            },
+        )
+        try:
+            async with (
+                asyncio.timeout(5),
+                httpx.AsyncClient(
+                    transport=self.engine or httpx.AsyncHTTPTransport(retries=0, trust_env=False),
+                    trust_env=False,
+                    follow_redirects=False,
+                ) as client,
+            ):
+                response = await client.send(request, stream=True, follow_redirects=False)
+                try:
+                    if response.status_code in (429, 503):
+                        delay = parse_retry_after(
+                            response.headers.get("retry-after"), self.clock.utc()
+                        )
+                        delay = 600 if delay is None else delay
+                        self.not_before = self.clock.utc() + delay
+                        raise MonitorError("dns_rate_limited", retryable=True, retry_after_s=delay)
+                    if response.status_code != 200 or response.headers.get(
+                        "content-encoding", "identity"
+                    ) not in ("", "identity"):
+                        raise MonitorError("dns", retryable=True)
+                    body = bytearray()
+                    async for chunk in response.aiter_raw():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            raise MonitorError("dns", retryable=True)
+                    data = json.loads(body)
+                finally:
+                    await response.aclose()
+            if (
+                not isinstance(data, dict)
+                or type(data.get("Status")) is not int
+                or data["Status"] != 0
+            ):
+                raise MonitorError("dns", retryable=True)
+            addresses, ttls = [], []
+            for answer in data.get("Answer", []):
+                if answer.get("type") != 1:
+                    continue
+                address = ipaddress.ip_address(answer["data"])
+                ttl = float(answer["TTL"])
+                if (
+                    address.version != 4
+                    or not address.is_global
+                    or not math.isfinite(ttl)
+                    or ttl < 0
+                ):
+                    raise MonitorError("blocked")
+                addresses.append(str(address))
+                ttls.append(ttl)
+            if not addresses:
+                raise MonitorError("dns", retryable=True)
+            self.cached = (self.clock.mono() + min(300, *ttls), addresses)
+            return addresses.copy()
+        except MonitorError:
+            raise
+        except (
+            httpx.HTTPError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+        ):
+            raise MonitorError("dns", retryable=True) from None
+
+
+class ProxyCompatibleDNS:
+    """Re-resolve synthetic benchmark addresses; never connect to them directly."""
+
+    def __init__(
+        self,
+        host: str,
+        *,
+        clock: Clock | None = None,
+        system: Resolver = resolve,
+        public: Resolver | None = None,
+    ) -> None:
+        self.host, self.system = host, system
+        self.public = public or CloudflareDNS(host, clock=clock)
+
+    async def __call__(self, host: str, port: int) -> list[str]:
+        if host != self.host:
+            raise MonitorError("blocked")
+        addresses = await self.system(host, port)
+        networks = (ipaddress.ip_network("198.18.0.0/15"), ipaddress.ip_network("2001:2::/48"))
+        try:
+            synthetic = [any(ipaddress.ip_address(a) in n for n in networks) for a in addresses]
+        except ValueError:
+            raise MonitorError("blocked") from None
+        # Reject mixed private answers as usual; only known Fake-IP ranges trigger DoH.
+        if any(synthetic) and all(
+            fake or ipaddress.ip_address(a).is_global
+            for a, fake in zip(addresses, synthetic, strict=True)
+        ):
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                return await self.public(host, port)
+        return addresses

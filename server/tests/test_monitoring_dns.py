@@ -68,3 +68,56 @@ async def test_doh_redirect_and_large_body_are_rejected():
         resolver = CloudflareDNS("moodle.must.edu.mo", engine=httpx.MockTransport(handler))
         with pytest.raises(MonitorError, match="dns"):
             await resolver("moodle.must.edu.mo", 443)
+
+
+@pytest.mark.parametrize(
+    "addresses,fallback",
+    [
+        (["198.18.0.27", "2001:2::1d"], True),
+        (["198.19.255.254"], True),
+        (["1.1.1.1"], False),
+        (["127.0.0.1"], False),
+        (["198.18.0.27", "10.0.0.1"], False),
+        ([], False),
+    ],
+)
+async def test_proxy_dns_only_reresolves_fake_ip(addresses, fallback):
+    from gleaner.monitoring.transport import ProxyCompatibleDNS
+
+    calls = []
+
+    async def system(host, port):
+        return addresses
+
+    async def public(host, port):
+        calls.append((host, port))
+        return ["8.8.8.8"]
+
+    resolver = ProxyCompatibleDNS("moodle.must.edu.mo", system=system, public=public)
+    result = await resolver("moodle.must.edu.mo", 443)
+    assert result == (["8.8.8.8"] if fallback else addresses)
+    assert bool(calls) == fallback
+    with pytest.raises(MonitorError, match="blocked"):
+        await resolver("other.example", 443)
+
+
+async def test_default_transport_uses_fallback_and_still_rejects_private_doh(monkeypatch):
+    import gleaner.monitoring.transport as module
+    from gleaner.monitoring.auth import AuthManager
+    from gleaner.monitoring.models import SitePolicy
+
+    async def system(host, port):
+        return ["198.18.0.27", "2001:2::1d"]
+
+    async def public(self, host, port):
+        return ["127.0.0.1"]
+
+    monkeypatch.setattr(module.CloudflareDNS, "__call__", public)
+    policy = SitePolicy()
+    transport = module.HTTPXTransport(policy, AuthManager(policy))
+    transport.resolver.system = system
+    try:
+        with pytest.raises(MonitorError, match="blocked"):
+            await transport._ip("https://moodle.must.edu.mo/robots.txt")
+    finally:
+        await transport.close()

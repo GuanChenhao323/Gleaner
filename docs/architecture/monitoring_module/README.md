@@ -37,7 +37,9 @@ mkdir -p data/monitoring
 
 由 Computer Use 操作已授权的 Cookie-Editor，将当前站点 JSON 导入本地隐藏输入框；不要把 Cookie 放进命令行、文件或聊天。初次导入为 `unverified`，实际内容 GET 验证后才能变为 `valid`。长测开始前关闭 Moodle 标签页，保持 Chrome 与后端运行。真实模式只用内存数据库，不保存真实页面正文；默认至少运行 130 分钟，按 600 秒账号轮次、同主机至少 2 秒执行，日志分别记录获取、解析和模拟回执。
 
-本机代理会把系统 DNS 和普通 UDP DNS 转成非公网 Fake-IP，出站保护会拒绝这些地址。上例显式使用调试 DoH：向固定的 Cloudflare 解析入口查询公开域名，保留其 TLS/SNI 校验，不发送任何 Moodle 凭证；返回地址仍须通过公网检查，连接 Moodle 时继续校验 Moodle 证书。其他环境可省略该参数，默认使用系统 DNS；失败不会自动切换方式。未修改本机代理或系统设置。
+默认监测传输和调试命令现在使用 `auto` DNS：系统解析返回 `198.18.0.0/15` 或 `2001:2::/48` 的 Fake-IP 时，通过固定 Cloudflare DoH 入口重新获取公网地址。DoH 不发送 Moodle 凭证，保留解析入口和 Moodle 的 TLS/SNI 校验；DoH 返回内网地址仍会被拒绝。普通 DNS 错误、其他内网地址及混合内网结果不会触发回退。`--dns system` 可关闭回退；`--dns cloudflare` 显式直接使用 DoH。本机代理和系统设置无需修改。此变更仅作用于监测模块，其他采集器继续遵循各自出站配置。
+
+手动匿名连通性检查：`.venv/bin/python -m devtools.monitoring.connectivity_probe`。使用实际监测传输 GET `/robots.txt`，不携带 Cookie、不跟随跳转、不保存正文；结果只证明 DNS/TLS/HTTP 连通性。
 
 实测 MUST 的 robots 入口在匿名时跳转登录，携带会话时首跳 303 到个人首页 `/my/`，没有直接提供可解析规则。默认 `strict` 会停止检查。上例显式启用本轮已授权目标策略：仅针对这个已验证的同源、无参数跳转，允许访问唯一登记的完整作业 URL；不请求个人首页，且单独记录 `policy` 事件。明确的 Disallow、登录证据、401、未知 HTML、5xx/网络错误及其他跳转继续阻断。该配置依据本轮精确目标授权，不能解释为站点允许全部访问；缓存仍按认证上下文和代际隔离。
 
