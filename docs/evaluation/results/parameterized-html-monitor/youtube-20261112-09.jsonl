@@ -1,0 +1,6 @@
+{"record": "run", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "site": "youtube", "interval_s": 600.0, "duration_s": 7200.0, "started_utc": 1794472162.852556, "execution_mode": "debug", "sink_kind": "memory_stub", "bridge_kind": "simulated", "target_sha256": "bd3a06dfb3a0c5e22b92392a3446d800af07257cd5733a75855a28f5180ba4b8", "robots_fallback": "strict"}
+{"record": "session", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "event": "imported", "cookie_count": 11, "cookie_revision": 1, "utc": 1794472713.949}
+{"record": "policy", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "kind": "dns_fallback", "reason": "primary_connect_timeout", "scope": "same_provider_secondary", "utc": 1794472717.304945}
+{"record": "policy", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "kind": "dns_fallback", "reason": "secondary_connect_timeout", "scope": "same_provider_primary", "utc": 1794472720.3109162}
+{"record": "round", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "state": "failed", "utc": 1794472723.263402, "mono": 634716.35231675, "last_fetch_at": null, "last_delivery_at": null, "error": "dns", "retryable": true}
+{"record": "summary", "run_id": "e3326b14-c48d-4632-8628-f0310529dacf", "successful_rounds": 0, "failed_rounds": 1, "span_s": 0, "wall_span_s": 0, "max_gap_s": 0, "passed": false, "finished_utc": 1794472723.7646139, "sink_kind": "memory_stub"}

@@ -37,7 +37,9 @@ mkdir -p data/monitoring
 
 由 Computer Use 操作已授权的 Cookie-Editor，将当前站点 JSON 导入本地隐藏输入框；不要把 Cookie 放进命令行、文件或聊天。初次导入为 `unverified`，实际内容 GET 验证后才能变为 `valid`。长测开始前关闭 Moodle 标签页，保持 Chrome 与后端运行。真实模式只用内存数据库，不保存真实页面正文；默认至少运行 130 分钟，按 600 秒账号轮次、同主机至少 2 秒执行，日志分别记录获取、解析和模拟回执。
 
-默认监测传输和调试命令现在使用 `auto` DNS：系统解析返回 `198.18.0.0/15` 或 `2001:2::/48` 的 Fake-IP 时，通过固定 Cloudflare DoH 入口重新获取公网地址。DoH 不发送 Moodle 凭证，保留解析入口和 Moodle 的 TLS/SNI 校验；DoH 返回内网地址仍会被拒绝。普通 DNS 错误、其他内网地址及混合内网结果不会触发回退。`--dns system` 可关闭回退；`--dns cloudflare` 显式直接使用 DoH。本机代理和系统设置无需修改。此变更仅作用于监测模块，其他采集器继续遵循各自出站配置。
+默认监测传输和调试命令使用 `auto` DNS：系统解析返回 `198.18.0.0/15` 或 `2001:2::/48` 的 Fake-IP 时，通过固定 Cloudflare DoH 入口重新获取公网地址。连接超时后在原有时间预算内最多尝试三个同服务商入口请求，并记录 `dns_fallback` 或 `dns_failure` 事件；证书错误、限流和无效结果不会触发此尝试。DoH 不发送站点凭证，保留解析入口和目标站的 TLS/SNI 校验；DoH 返回内网地址仍会被拒绝。普通 DNS 错误、其他内网地址及混合内网结果不会触发 Fake-IP 回退。`--dns system` 可关闭回退；`--dns cloudflare` 显式直接使用 DoH。本机代理和系统设置无需修改。此变更仅作用于监测模块，其他采集器继续遵循各自出站配置。
+
+DNS 解析与目标站 TCP/TLS 建连分别有界，避免解析回退耗尽建连预算；目标站建连上限仍为 10 秒，整次请求包含解析和跳转的上限仍为 30 秒。
 
 手动匿名连通性检查：`.venv/bin/python -m devtools.monitoring.connectivity_probe`。使用实际监测传输 GET `/robots.txt`，不携带 Cookie、不跟随跳转、不保存正文；结果只证明 DNS/TLS/HTTP 连通性。
 
@@ -54,3 +56,35 @@ mkdir -p data/monitoring
 测试与 CI 只访问本地替身。Chrome Network 面板不提供 Python 出站请求的证据，后台流量以脱敏日志为准。
 
 本次真实运行：2026-11-10 02:58:44–05:08:45 UTC，14 次内容 GET 均为 200，失败、缺轮、中断均为 0；所有内容摘要与浏览器基线一致。实测只证明本次条件下持续可用，不承诺会话永久有效。结束时已清空后台凭证并停止调试进程，详见[成功日志](../../evaluation/results/monitoring-v1/live-success.jsonl)。
+
+## 参数化原始 HTML 验证入口
+
+本轮独立页面入口的边界为「接收参数 → 维护会话 → 受控 GET → 内存 HTML 接收替身」。它不调用视频/事项提取器，不创建 Inbox 事项，也不更改上述 Moodle 观察回执路径。实施及验证证据见[参数化 HTML 计划](../../exec-plans/2026-11-11-parameterized-html-monitor.md)。
+
+上游参数固定为四项：`target_url`（精确目标）、`interval_s`（检查间隔，真实站点至少 600 秒）、`auth_context_id`（当前已导入会话的引用）、`site_profile`（`youtube`、`bilibili`、`moodle`）。配置名选择服务端登记的 URL/Cookie 范围和会话检查规则，调用方不能传任意解析代码或修改凭证请求头。
+
+```bash
+.venv/bin/python -m devtools.monitoring.page_run \
+  --site youtube \
+  --target 'https://www.youtube.com/@3blue1brown/videos' \
+  --interval 600 --duration 7200 \
+  --report data/monitoring/youtube-html-run-01.jsonl
+```
+
+程序在回环地址显示模拟上游的四项参数和隐藏 Cookie 输入。由获授权的 Cookie-Editor 导出当前站点 JSON，经隐藏输入导入；只保留配置批准的 Cookie 名称和作用域，原 Cookie 属性保留，输入随提交立即清空。点击「导入并开始」后，模拟浏览器心跳仅在本地续期，不请求目标网站。Cookie 和完整 HTML 都只驻内存；进程重启需要重新导入会话。HTML 待交付状态也仅限当前进程，不承诺跨进程恢复。
+
+Bilibili 例：`--site bilibili --target 'https://www.bilibili.com/video/BV1Vd4y1e7pj/'`；UP 主空间可登记，但若 robots 明确禁止会得到 `robots_denied`，不得当成可用。Moodle 例：`--site moodle --target '<已授权作业完整 URL>' --robots-fallback registered-target`；该回退仅沿用上文已记录的 MUST 303 `/my/` 例外，其他站点不提供同类开关。
+
+`--duration 0` 只执行一次冒烟；`--duration 7200` 从首个认证成功且已交付的结果开始，需要末个成功结果跨过至少两小时。每轮都检查认证证据，HTTP 200 或 Cookie 存在不能单独产生成功结果。失败、缺轮、访问拒绝会结束该次运行并清理会话。新运行必须使用新的报告路径，不能拼接历史报告。报告区分真实 HTTP、认证与模拟 HTML 接收，绝不代表业务已应用。
+
+首轮获取立即执行，以后从每轮结束起等待至少配置间隔。接收失败时页面模块保留同一 snapshot_id 和 HTML，优先重试交付；调试长测把任何交付失败记为该轮验收失败。取消或会话代际变化后旧快照被丢弃。可通过状态页查看字节数、摘要、Cookie 修订及两小时跨度；不显示会话值或正文。
+
+2026-11-12 实测与本地结果：
+
+| 范围 | 真实结果与限制 |
+|---|---|
+| YouTube 指定频道视频页 | HTTP 200，页面明确标记已登录，完整 HTML 已由内存接收替身确认；独立运行中出现登录态失效、DNS 和连接超时，最长成功请求跨度 610.300 秒，未通过两小时。 |
+| Bilibili 指定视频详情页 | HTTP 200，但原始 HTML 缺少已检查的正面登录证据，未交付；第一方会话检查接口的 robots 禁止该路径，未请求。UP 主投稿列表未验证通过。 |
+| MUST Moodle 授权作业页 | 新入口单轮认证和内存交付成功，旧观察路径单轮真实解析及模拟回执成功；新入口最长成功请求跨度 3,055.180 秒，第 7 轮 DNS 失败，未通过两小时。 |
+
+本地全量测试 **353 passed、3 skipped**，Ruff 和格式检查通过。各运行及内部 DNS 回退均保留在[脱敏证据与独立核验](../../evaluation/results/parameterized-html-monitor/README.md)；正式 Extractor、Item Service 和 Inbox 未接入。

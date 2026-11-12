@@ -1,0 +1,19 @@
+{
+  "site": "bilibili",
+  "scope": "api.bilibili.com session-check robots only",
+  "utc": 1794467945.560868,
+  "credentials_sent": false,
+  "http_status": 200,
+  "bytes": 30,
+  "content_type": "text/plain",
+  "session_check_allowed": false,
+  "events": [
+    {
+      "kind": "robots",
+      "status": 200,
+      "started_mono": 629944.013122625,
+      "finished_mono": 629944.614721625,
+      "utc": 1794467951.5093398
+    }
+  ]
+}
