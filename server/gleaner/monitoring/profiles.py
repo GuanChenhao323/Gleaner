@@ -17,21 +17,14 @@ from ..net.http.cookies import domain_match
 from .adapters.moodle import MoodleAdapter
 from .models import AccessVerdict, MonitorError, SafeResponse, SitePolicy
 
+# This standalone HTML profile uses one exported session family. Real mixed-family
+# runs received first-party revocations despite retaining 3P credentials; a 3P-only
+# input was authenticated. Do not reintroduce first-party state through Set-Cookie.
+# The HTML login verdict remains mandatory, including after every rotation.
 _YOUTUBE_COOKIES = (
-    "SID",
-    "HSID",
-    "SSID",
-    "APISID",
-    "SAPISID",
-    "LOGIN_INFO",
-    "SIDCC",
-    "__Secure-1PSID",
     "__Secure-3PSID",
-    "__Secure-1PAPISID",
     "__Secure-3PAPISID",
-    "__Secure-1PSIDTS",
     "__Secure-3PSIDTS",
-    "__Secure-1PSIDCC",
     "__Secure-3PSIDCC",
 )
 _BILIBILI_COOKIES = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "buvid3", "buvid4")
