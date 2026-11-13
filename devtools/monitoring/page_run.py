@@ -15,6 +15,7 @@ import math
 import re
 import secrets
 import signal
+import subprocess
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -200,6 +201,53 @@ class DiagnosticSessionInspector(SessionInspector):
         return verdict
 
 
+def source_fingerprint() -> str:
+    root = Path(__file__).resolve().parents[2]
+    digest = hashlib.sha256()
+    for path in sorted(
+        [*root.joinpath("server/gleaner").rglob("*.py"), Path(__file__).resolve()]
+    ):
+        digest.update(str(path.relative_to(root)).encode() + b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def summarize(rounds: list[dict], duration: float, interval: float) -> dict:
+    """Judge actual request starts; slow delivery must not manufacture two hours."""
+    successes = [r for r in rounds if r["state"] == "delivered"]
+    observed = [
+        r
+        for r in successes
+        if r.get("request_start_observed") is True
+        and all(
+            type(r.get(key)) in (int, float) and math.isfinite(r[key])
+            for key in ("content_started_mono", "content_started_utc")
+        )
+    ]
+    mono = [r["content_started_mono"] for r in observed]
+    utc = [r["content_started_utc"] for r in observed]
+    mono_gaps = [b - a for a, b in pairwise(mono)]
+    utc_gaps = [b - a for a, b in pairwise(utc)]
+    span = mono[-1] - mono[0] if mono else 0
+    wall_span = utc[-1] - utc[0] if utc else 0
+    return {
+        "successful_rounds": len(successes),
+        "failed_rounds": len(rounds) - len(successes),
+        "observed_content_requests": len(observed),
+        "span_s": span,
+        "wall_span_s": wall_span,
+        "min_gap_s": min([*mono_gaps, *utc_gaps], default=0),
+        "max_gap_s": max([*mono_gaps, *utc_gaps], default=0),
+        "passed": bool(
+            successes
+            and len(observed) == len(successes) == len(rounds)
+            and span >= duration
+            and wall_span >= duration
+            and all(interval <= gap <= interval + 40 for gap in [*mono_gaps, *utc_gaps])
+        ),
+    }
+
+
 class Harness:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -217,6 +265,17 @@ class Harness:
         if self.report.exists():
             raise ValueError("report already exists; choose a new run path")
         self.run_id = str(uuid4())
+        self.source_sha256 = source_fingerprint()
+        self.code_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        self.last_content_request: dict | None = None
+        self.request_sequence = 0
+        self.interruptions = 0
         self.transport = HTTPXTransport(
             self.policy,
             self.auth,
@@ -262,6 +321,12 @@ class Harness:
             )
 
     def request_event(self, event: dict) -> None:
+        self.request_sequence += 1
+        if event["kind"] == "content":
+            self.last_content_request = {
+                **event,
+                "request_sequence": self.request_sequence,
+            }
         count, revision = len(self.context.jar), self.context.revision
         self.append(
             "request",
@@ -275,12 +340,15 @@ class Harness:
                     "wire_bytes",
                     "decoded_bytes",
                     "started_mono",
+                    "started_utc",
+                    "request_start_observed",
                     "finished_mono",
                     "utc",
                     "redirect_same_origin",
                 )
             }
             | {
+                "request_sequence": self.request_sequence,
                 "previous_cookie_count": self.last_cookie_count,
                 "cookie_count": count,
                 "previous_cookie_revision": self.last_cookie_revision,
@@ -304,13 +372,14 @@ class Harness:
                 "bridge_kind": "simulated",
                 "target_sha256": hashlib.sha256(self.args.target.encode()).hexdigest(),
                 "robots_fallback": self.args.robots_fallback,
+                "source_sha256": self.source_sha256,
+                "code_commit": self.code_commit,
             },
         )
         print(self.origin, flush=True)
 
     def state(self) -> dict:
-        successes = [r for r in self.rounds if r["state"] == "delivered"]
-        span = successes[-1]["mono"] - successes[0]["mono"] if successes else 0
+        progress = summarize(self.rounds, self.args.duration, self.args.interval)
         return {
             "site": self.args.site,
             "running": self.running,
@@ -319,8 +388,8 @@ class Harness:
             "cookie_count": len(self.context.jar),
             "cookie_revision": self.context.revision,
             "auth_generation": self.context.generation,
-            "successful_rounds": len(successes),
-            "span_s": span,
+            "successful_rounds": progress["successful_rounds"],
+            "span_s": progress["span_s"],
             "next_due_at": self.monitor.next_due_at,
             "last_result": self.rounds[-1] if self.rounds else None,
             "summary": self.summary,
@@ -417,14 +486,39 @@ class Harness:
                     self.last_presence = now
                 result = await self.monitor.tick()
                 if result:
+                    if result["state"] == "delivered" and self.last_content_request:
+                        request = self.last_content_request
+                        result.update(
+                            content_request_sequence=request["request_sequence"],
+                            content_started_mono=request["started_mono"],
+                            content_started_utc=request["started_utc"],
+                            request_start_observed=request["request_start_observed"],
+                        )
+                        self.last_content_request = None
                     self.rounds.append(result)
                     self.append("round", result)
                     print(json.dumps({"site": self.args.site, **result}), flush=True)
+                    progress = summarize(
+                        self.rounds, self.args.duration, self.args.interval
+                    )
+                    if progress["observed_content_requests"] != progress[
+                        "successful_rounds"
+                    ] or (
+                        progress["successful_rounds"] > 1
+                        and not self.args.interval
+                        <= progress["min_gap_s"]
+                        <= progress["max_gap_s"]
+                        <= self.args.interval + 40
+                    ):
+                        self.interruptions += 1
+                        self.append(
+                            "interruption",
+                            {"reason": "invalid_request_timing", "utc": time.time()},
+                        )
+                        self.stop.set()
                     if (
                         result["state"] != "delivered"
-                        or len(self.rounds) > 1
-                        and result["mono"] - self.rounds[0]["mono"]
-                        >= self.args.duration
+                        or progress["passed"]
                         or self.args.duration == 0
                     ):
                         self.stop.set()
@@ -434,35 +528,23 @@ class Harness:
                         max(time.monotonic() - last["mono"], time.time() - last["utc"])
                         > self.args.interval + 40
                     ):
+                        self.interruptions += 1
                         self.append(
                             "interruption",
                             {"reason": "missing_round", "utc": time.time()},
                         )
                         self.stop.set()
             await asyncio.sleep(0.5)
-        successes = [r for r in self.rounds if r["state"] == "delivered"]
-        span = successes[-1]["mono"] - successes[0]["mono"] if successes else 0
-        wall_span = successes[-1]["utc"] - successes[0]["utc"] if successes else 0
-        gaps = [
-            max(b["mono"] - a["mono"], b["utc"] - a["utc"])
-            for a, b in pairwise(successes)
-        ]
         self.summary = {
-            "successful_rounds": len(successes),
-            "failed_rounds": len(self.rounds) - len(successes),
-            "span_s": span,
-            "wall_span_s": wall_span,
-            "max_gap_s": max(gaps, default=0),
-            "passed": bool(
-                successes
-                and span >= self.args.duration
-                and wall_span >= self.args.duration
-                and len(successes) == len(self.rounds)
-                and all(g <= self.args.interval + 40 for g in gaps)
-            ),
+            **summarize(self.rounds, self.args.duration, self.args.interval),
+            "source_unchanged": source_fingerprint() == self.source_sha256,
+            "interruptions": self.interruptions,
             "finished_utc": time.time(),
             "sink_kind": "memory_stub",
         }
+        self.summary["passed"] &= (
+            self.summary["source_unchanged"] and not self.interruptions
+        )
         self.auth.close()
         self.monitor.pause()
         self.running = False

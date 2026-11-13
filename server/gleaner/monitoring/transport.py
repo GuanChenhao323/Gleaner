@@ -169,12 +169,16 @@ class HTTPXTransport:
                 headers["Cookie"] = self.auth.header(lease, url)
             async with asyncio.timeout(self.connect_timeout) as connecting:
                 started = self.clock.mono()
+                started_utc = self.clock.utc()
+                request_start_observed = False
                 self._next_start = started + max(self.policy.host_gap_s, crawl_delay)
 
                 async def trace(name: str, info: dict[str, Any]) -> None:
-                    nonlocal started
+                    nonlocal started, started_utc, request_start_observed
                     if name == "http11.send_request_headers.started":
                         started = self.clock.mono()
+                        started_utc = self.clock.utc()
+                        request_start_observed = True
                         self._next_start = max(
                             self._next_start, started + max(self.policy.host_gap_s, crawl_delay)
                         )
@@ -218,6 +222,8 @@ class HTTPXTransport:
                             "wire_bytes": 0,
                             "decoded_bytes": 0,
                             "started_mono": started,
+                            "started_utc": started_utc,
+                            "request_start_observed": request_start_observed,
                             "finished_mono": self.clock.mono(),
                             "utc": self.clock.utc(),
                         }
@@ -288,6 +294,8 @@ class HTTPXTransport:
                         "wire_bytes": wire,
                         "decoded_bytes": decoded,
                         "started_mono": started,
+                        "started_utc": started_utc,
+                        "request_start_observed": request_start_observed,
                         "finished_mono": self.clock.mono(),
                         "utc": self.clock.utc(),
                         **redirect_diagnostic,

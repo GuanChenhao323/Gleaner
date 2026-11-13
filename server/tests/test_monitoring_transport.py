@@ -319,6 +319,39 @@ async def test_dns_and_tcp_tls_have_separate_bounded_budgets():
         await transport.close()
 
 
+async def test_request_evidence_uses_header_send_time_on_both_clocks():
+    clock, events, sent = FakeClock(), [], []
+
+    async def resolver(host, port):
+        return ["1.1.1.1"]
+
+    async def handler(request):
+        clock.advance(0.5)
+        await request.extensions["trace"]("http11.send_request_headers.started", {})
+        sent.append((clock.mono(), clock.utc()))
+        clock.advance(0.5)
+        return httpx.Response(
+            404 if request.url.path == "/robots.txt" else 200, stream=Stream(b"ok")
+        )
+
+    policy = SitePolicy()
+    transport = HTTPXTransport(
+        policy,
+        AuthManager(policy),
+        clock=clock,
+        resolver=resolver,
+        engine=httpx.MockTransport(handler),
+        event=events.append,
+    )
+    try:
+        await transport.fetch(plan(), None)
+        assert all(e["request_start_observed"] for e in events)
+        assert [(e["started_mono"], e["started_utc"]) for e in events] == sent
+        assert all(e["finished_mono"] > e["started_mono"] for e in events)
+    finally:
+        await transport.close()
+
+
 async def test_robots_uses_only_approved_session_and_cache_isolates_generations():
     def handler(r):
         if r.url.path == "/robots.txt":
