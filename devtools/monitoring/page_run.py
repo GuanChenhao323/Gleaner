@@ -98,6 +98,49 @@ class MemorySink:
         return self.receipts[snapshot.snapshot_id]
 
 
+class DiagnosticAuthManager(AuthManager):
+    """Compare rotations in memory; emit only registered names and change counts."""
+
+    def __init__(self, policy, emit) -> None:
+        super().__init__(policy)
+        self.emit = emit
+
+    def update_cookies(self, lease, headers, url) -> None:
+        def snapshot():
+            return {
+                (c["name"], c["domain"], c["path"]): c
+                for c in self.context(lease.auth_id).jar.to_list()
+            }
+
+        before = snapshot()
+        super().update_cookies(lease, headers, url)
+        after = snapshot()
+        # Neither raw headers nor cookie values/hashes leave this method.
+        self.emit(
+            {
+                "received_count": len(headers),
+                "received_registered_names": sorted(
+                    {
+                        name
+                        for header in headers
+                        if (name := header.partition("=")[0].strip())
+                        in self.policy.cookie_names
+                    }
+                ),
+                "added_names": sorted({k[0] for k in after.keys() - before.keys()}),
+                "removed_names": sorted({k[0] for k in before.keys() - after.keys()}),
+                "changed_names": sorted(
+                    {
+                        k[0]
+                        for k in before.keys() & after.keys()
+                        if before[k] != after[k]
+                    }
+                ),
+                "utc": time.time(),
+            }
+        )
+
+
 class DiagnosticSessionInspector(SessionInspector):
     """Record only known structural signals, never page text or credential values."""
 
@@ -161,7 +204,9 @@ class Harness:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.policy = page_policy(args.site, args.target)
-        self.auth = AuthManager(self.policy)
+        self.auth = DiagnosticAuthManager(
+            self.policy, lambda event: self.append("cookie_update", event)
+        )
         self.context = self.auth.create(1, "debug-browser")
         self.inspector = DiagnosticSessionInspector(
             args.site, lambda signals: self.append("auth_diagnostic", signals)
@@ -334,6 +379,9 @@ class Harness:
                             "event": "imported",
                             "cookie_count": self.last_cookie_count,
                             "cookie_revision": self.last_cookie_revision,
+                            "registered_cookie_names": sorted(
+                                {c["name"] for c in self.context.jar.to_list()}
+                            ),
                             "utc": time.time(),
                         },
                     )

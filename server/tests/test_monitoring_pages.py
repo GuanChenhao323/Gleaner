@@ -25,6 +25,36 @@ def test_cookie_editor_same_site_values_are_normalized(exported, expected):
     assert records[0]["same_site"] == expected
 
 
+async def test_cookie_diagnostics_record_rotation_and_removal_without_values():
+    from devtools.monitoring.page_run import DiagnosticAuthManager
+
+    events = []
+    auth = DiagnosticAuthManager(page_policy("youtube", URL), events.append)
+    c = auth.create(1, "bridge")
+    auth.import_cookies(
+        c.auth_id,
+        [cookie("PRIVATE_VALUE", name="SID", domain=".youtube.com", host_only=False)],
+        backend_epoch=auth.backend_epoch,
+        expected_revision=0,
+        request_id="i",
+    )
+    lease = await auth.acquire(c.auth_id)
+    auth.update_cookies(
+        lease,
+        [
+            "SID=ROTATED_SECRET; Domain=.youtube.com; Path=/; Secure",
+            "PRIVATE_COOKIE=OTHER_SECRET; Path=/; Secure",
+        ],
+        URL,
+    )
+    assert events[0]["changed_names"] == ["SID"]
+    assert events[0]["received_count"] == 2
+    assert events[0]["received_registered_names"] == ["SID"]
+    auth.update_cookies(lease, ["SID=; Domain=youtube.com; Path=/; Secure; Max-Age=0"], URL)
+    assert events[1]["removed_names"] == ["SID"]
+    assert all(value not in repr(events) for value in ("SECRET", "PRIVATE", ".youtube.com"))
+
+
 def test_bilibili_diagnostics_report_structure_without_page_contents():
     from devtools.monitoring.page_run import DiagnosticSessionInspector
 
