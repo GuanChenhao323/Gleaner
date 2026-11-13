@@ -436,11 +436,17 @@ class CloudflareDNS:
         clock: Clock | None = None,
         engine: httpx.AsyncBaseTransport | None = None,
         event: Callable[[dict], None] = lambda _: None,
+        attempt_timeout: float = 3,
+        total_timeout: float = 9,
     ) -> None:
+        if not 0 < attempt_timeout <= total_timeout or not math.isfinite(total_timeout):
+            raise ValueError("positive bounded DNS timeouts required")
         self.allowed_host = allowed_host
         self.clock = clock or Clock()
         self.engine = engine
         self.event = event
+        self.attempt_timeout, self.total_timeout = attempt_timeout, total_timeout
+        self._preferred_bootstrap = self.bootstrap
         self.cached: tuple[float, list[str]] | None = None
         self.not_before = 0.0
 
@@ -455,17 +461,30 @@ class CloudflareDNS:
             )
         if self.cached and self.cached[0] > self.clock.mono():
             return self.cached[1].copy()
+        phase = "client"
         try:
             async with (
-                asyncio.timeout(9),
+                asyncio.timeout(self.total_timeout),
                 httpx.AsyncClient(
                     transport=self.engine or httpx.AsyncHTTPTransport(retries=0, trust_env=False),
                     trust_env=False,
                     follow_redirects=False,
                 ) as client,
             ):
-                bootstraps = (self.bootstrap, self.secondary_bootstrap, self.bootstrap)
+                first = self._preferred_bootstrap
+                second = self.secondary_bootstrap if first == self.bootstrap else self.bootstrap
+                bootstraps = (first, second, first)
                 for attempt, bootstrap in enumerate(bootstraps):
+                    phase = "tcp"
+                    started = self.clock.mono()
+
+                    async def trace(name: str, info: dict[str, Any]) -> None:
+                        nonlocal phase
+                        if name == "connection.start_tls.started":
+                            phase = "tls"
+                        elif name == "http11.send_request_headers.started":
+                            phase = "headers"
+
                     request = httpx.Request(
                         "GET",
                         bootstrap + "?" + urlencode({"name": host, "type": "A"}),
@@ -476,20 +495,56 @@ class CloudflareDNS:
                         },
                         extensions={
                             "sni_hostname": self.host,
+                            "trace": trace,
                             "timeout": {"connect": 3, "read": 5, "write": 3, "pool": 3},
                         },
                     )
                     try:
-                        response = await client.send(request, stream=True, follow_redirects=False)
+                        # Bound the entire attempt (TCP + TLS + headers + body), so a
+                        # slow first endpoint cannot consume every fallback's budget.
+                        async with asyncio.timeout(self.attempt_timeout):
+                            response = await client.send(
+                                request, stream=True, follow_redirects=False
+                            )
+                            try:
+                                if response.status_code in (429, 503):
+                                    delay = parse_retry_after(
+                                        response.headers.get("retry-after"), self.clock.utc()
+                                    )
+                                    delay = 600 if delay is None else delay
+                                    self.not_before = self.clock.utc() + delay
+                                    raise MonitorError(
+                                        "dns_rate_limited", retryable=True, retry_after_s=delay
+                                    )
+                                if response.status_code != 200 or response.headers.get(
+                                    "content-encoding", "identity"
+                                ) not in ("", "identity"):
+                                    raise MonitorError("dns", retryable=True)
+                                phase = "body"
+                                body = bytearray()
+                                async for chunk in response.aiter_raw():
+                                    body.extend(chunk)
+                                    if len(body) > 65536:
+                                        raise MonitorError("dns", retryable=True)
+                                data = json.loads(body)
+                            finally:
+                                await response.aclose()
                         break
-                    except httpx.ConnectTimeout:
+                    except (TimeoutError, httpx.TimeoutException) as error:
                         final_attempt = attempt == len(bootstraps) - 1
+                        endpoint = "primary" if bootstrap == self.bootstrap else "secondary"
                         self.event(
                             {
                                 "kind": "dns_failure" if final_attempt else "dns_fallback",
-                                "reason": "primary_connect_timeout"
-                                if bootstrap == self.bootstrap
-                                else "secondary_connect_timeout",
+                                "reason": endpoint
+                                + (
+                                    "_connect_timeout"
+                                    if isinstance(error, httpx.ConnectTimeout)
+                                    else "_attempt_timeout"
+                                ),
+                                "phase": phase,
+                                "attempt": attempt + 1,
+                                "elapsed_s": self.clock.mono() - started,
                                 "scope": "same_provider_exhausted"
                                 if final_attempt
                                 else "same_provider_secondary"
@@ -499,27 +554,7 @@ class CloudflareDNS:
                             }
                         )
                         if final_attempt:
-                            raise
-                try:
-                    if response.status_code in (429, 503):
-                        delay = parse_retry_after(
-                            response.headers.get("retry-after"), self.clock.utc()
-                        )
-                        delay = 600 if delay is None else delay
-                        self.not_before = self.clock.utc() + delay
-                        raise MonitorError("dns_rate_limited", retryable=True, retry_after_s=delay)
-                    if response.status_code != 200 or response.headers.get(
-                        "content-encoding", "identity"
-                    ) not in ("", "identity"):
-                        raise MonitorError("dns", retryable=True)
-                    body = bytearray()
-                    async for chunk in response.aiter_raw():
-                        body.extend(chunk)
-                        if len(body) > 65536:
-                            raise MonitorError("dns", retryable=True)
-                    data = json.loads(body)
-                finally:
-                    await response.aclose()
+                            raise MonitorError("dns", retryable=True) from None
             if (
                 not isinstance(data, dict)
                 or type(data.get("Status")) is not int
@@ -543,13 +578,48 @@ class CloudflareDNS:
                 ttls.append(ttl)
             if not addresses:
                 raise MonitorError("dns", retryable=True)
+            self._preferred_bootstrap = bootstrap
             self.cached = (self.clock.mono() + min(300, *ttls), addresses)
+            self.event(
+                {
+                    "kind": "dns_resolved",
+                    "endpoint": "primary" if bootstrap == self.bootstrap else "secondary",
+                    "attempt": attempt + 1,
+                    "elapsed_s": self.clock.mono() - started,
+                    "utc": self.clock.utc(),
+                }
+            )
             return addresses.copy()
         except MonitorError:
             raise
+        except TimeoutError:
+            # Includes cancellation of the final attempt by the overall deadline.
+            self.event(
+                {
+                    "kind": "dns_failure",
+                    "reason": "budget_exhausted",
+                    "phase": phase,
+                    "utc": self.clock.utc(),
+                }
+            )
+            raise MonitorError("dns", retryable=True) from None
+        except httpx.ConnectError as error:
+            certificate_failure = "CERTIFICATE_VERIFY_FAILED" in str(error)
+            self.event(
+                {
+                    "kind": "dns_failure",
+                    "reason": "certificate_verification"
+                    if certificate_failure
+                    else "connect_error",
+                    "phase": phase,
+                    "utc": self.clock.utc(),
+                }
+            )
+            if certificate_failure:
+                raise MonitorError("dns_tls") from None
+            raise MonitorError("dns", retryable=True) from None
         except (
             httpx.HTTPError,
-            TimeoutError,
             OSError,
             ValueError,
             KeyError,

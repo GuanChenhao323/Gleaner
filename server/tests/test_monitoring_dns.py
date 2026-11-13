@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -65,7 +66,8 @@ async def test_doh_connect_timeout_uses_recorded_same_provider_fallback():
         "cookie" not in request.headers and "authorization" not in request.headers
         for request in seen
     )
-    assert len(events) == 1 and events[0]["reason"] == "primary_connect_timeout"
+    assert events[0]["reason"] == "primary_connect_timeout"
+    assert events[-1]["kind"] == "dns_resolved" and events[-1]["endpoint"] == "secondary"
 
 
 async def test_doh_retries_within_budget_after_both_bootstraps_timeout():
@@ -89,10 +91,99 @@ async def test_doh_retries_within_budget_after_both_bootstraps_timeout():
     )
     assert await resolver("moodle.must.edu.mo", 443) == ["1.1.1.1"]
     assert seen == ["1.1.1.1", "1.0.0.1", "1.1.1.1"]
-    assert [event["reason"] for event in events] == [
+    assert [event["reason"] for event in events if event["kind"] == "dns_fallback"] == [
         "primary_connect_timeout",
         "secondary_connect_timeout",
     ]
+
+
+async def test_doh_whole_attempt_timeout_leaves_budget_for_the_other_endpoint():
+    seen, events = [], []
+
+    async def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "1.1.1.1":
+            # A stalled TLS handshake or body must not consume the entire DNS budget.
+            await asyncio.sleep(1)
+        return httpx.Response(
+            200,
+            stream=Stream(
+                json.dumps(
+                    {"Status": 0, "Answer": [{"type": 1, "data": "8.8.8.8", "TTL": 0}]}
+                ).encode()
+            ),
+        )
+
+    resolver = CloudflareDNS(
+        "moodle.must.edu.mo",
+        engine=httpx.MockTransport(handler),
+        event=events.append,
+        attempt_timeout=0.05,
+        total_timeout=0.3,
+    )
+    assert await resolver("moodle.must.edu.mo", 443) == ["8.8.8.8"]
+    assert seen == ["1.1.1.1", "1.0.0.1"]
+    # A fresh lookup starts with the last working endpoint, without extending TTL.
+    assert await resolver("moodle.must.edu.mo", 443) == ["8.8.8.8"]
+    assert seen[-1] == "1.0.0.1" and len(seen) == 3
+    assert any(e["kind"] == "dns_fallback" for e in events)
+
+
+async def test_doh_timeout_of_last_attempt_is_recorded_and_all_streams_close():
+    streams, events = [], []
+
+    async def handler(request):
+        stream = Stream(b"{}", delay=1)
+        streams.append(stream)
+        return httpx.Response(200, stream=stream)
+
+    resolver = CloudflareDNS(
+        "moodle.must.edu.mo",
+        engine=httpx.MockTransport(handler),
+        event=events.append,
+        attempt_timeout=0.02,
+        total_timeout=0.2,
+    )
+    with pytest.raises(MonitorError, match="dns"):
+        await resolver("moodle.must.edu.mo", 443)
+    assert len(streams) == 3 and all(s.closed for s in streams)
+    assert events[-1]["kind"] == "dns_failure"
+    assert events[-1]["phase"] == "body"
+
+
+async def test_doh_overall_deadline_cancels_and_records_terminal_phase():
+    events = []
+
+    async def handler(request):
+        await request.extensions["trace"]("connection.start_tls.started", {})
+        await asyncio.sleep(1)
+
+    resolver = CloudflareDNS(
+        "moodle.must.edu.mo",
+        engine=httpx.MockTransport(handler),
+        event=events.append,
+        attempt_timeout=0.04,
+        total_timeout=0.07,
+    )
+    with pytest.raises(MonitorError, match="dns"):
+        await asyncio.wait_for(resolver("moodle.must.edu.mo", 443), timeout=0.5)
+    assert events[-1]["kind"] == "dns_failure"
+    assert events[-1]["reason"] == "budget_exhausted"
+    assert events[-1]["phase"] == "tls"
+
+
+async def test_doh_tls_failure_is_not_retryable_or_hidden_by_other_endpoint():
+    seen = []
+
+    async def handler(request):
+        seen.append(request.url.host)
+        raise httpx.ConnectError("CERTIFICATE_VERIFY_FAILED SYNTHETIC_SECRET")
+
+    resolver = CloudflareDNS("moodle.must.edu.mo", engine=httpx.MockTransport(handler))
+    with pytest.raises(MonitorError, match="dns_tls") as caught:
+        await resolver("moodle.must.edu.mo", 443)
+    assert not caught.value.retryable and seen == ["1.1.1.1"]
+    assert "SYNTHETIC_SECRET" not in str(caught.value)
 
 
 @pytest.mark.parametrize("failure", ["rate_limit", "certificate"])
