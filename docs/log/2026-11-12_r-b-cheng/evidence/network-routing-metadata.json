@@ -1,0 +1,9 @@
+{
+  "http_proxy_enabled": true,
+  "https_proxy_enabled": true,
+  "proxy_auto_config_enabled": false,
+  "http_proxy_is_loopback": true,
+  "https_proxy_is_loopback": true,
+  "transport_trust_env": false,
+  "settings_changed": false
+}
