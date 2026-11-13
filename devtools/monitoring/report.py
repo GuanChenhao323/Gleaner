@@ -18,6 +18,8 @@ class Report:
                 "wire_bytes",
                 "decoded_bytes",
                 "started_mono",
+                "started_utc",
+                "request_start_observed",
                 "finished_mono",
                 "utc",
                 "redirect_path",
@@ -65,7 +67,16 @@ class Report:
                 "elapsed_utc_s",
             },
             "interruption": {"utc", "mono", "reason"},
-            "policy": {"kind", "reason", "scope", "utc"},
+            "policy": {
+                "kind",
+                "reason",
+                "scope",
+                "utc",
+                "endpoint",
+                "attempt",
+                "phase",
+                "elapsed_s",
+            },
         }
         if kind not in allowed or set(data) - allowed[kind]:
             raise ValueError("report_field_denied")
