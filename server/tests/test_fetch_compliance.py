@@ -19,7 +19,7 @@ from gleaner.collector.fetcher import (
 )
 from gleaner.gateway.app import _host_allowed, _origin_allowed
 from gleaner.net.http import CookieJar, HTTPClient
-from gleaner.net.http.cookies import MAX_PER_DOMAIN, default_path, path_match
+from gleaner.net.http.cookies import MAX_PER_DOMAIN, default_path, parse_cookie_date, path_match
 
 # ---- Cookie ----------------------------------------------------------------------
 
@@ -80,6 +80,55 @@ def test_cookie_paths_follow_rfc6265():
     jar.set_from_header("a=1; Path=/x", "h.com")
     jar.set_from_header("b=2; Path=/x/y", "h.com")
     assert jar.header_for("h.com", "/x/y/z?q=1", True) == "b=2; a=1"  # 路径长的在前
+
+
+@pytest.mark.parametrize(
+    "expiry",
+    [
+        "Thu, 01-Jan-1970 00:00:01 GMT",
+        "Thursday, 01-Jan-70 00:00:01 GMT",
+        "Thu Jan 1 00:00:01 1970",
+    ],
+)
+def test_cookie_historical_expires_deletes_instead_of_retaining_an_empty_session(expiry):
+    jar = CookieJar()
+    jar.set_from_header("SID=OLD; Domain=.youtube.com; Path=/; Secure", "www.youtube.com")
+    jar.set_from_header(
+        f"SID=; Domain=.youtube.com; Path=/; Expires={expiry}; Secure", "www.youtube.com"
+    )
+    assert len(jar) == 0 and jar.header_for("www.youtube.com", "/", True) is None
+
+
+def test_cookie_max_age_still_overrides_historical_expires():
+    jar = CookieJar()
+    jar.set_from_header(
+        "SID=LIVE; Expires=Thu, 01-Jan-1970 00:00:01 GMT; Max-Age=600; Secure", "www.youtube.com"
+    )
+    assert jar.header_for("www.youtube.com", "/", True) == "SID=LIVE"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "31 Apr 2026 00:00:00 GMT",
+        "01 Jan 1600 00:00:00 GMT",
+        "00 Jan 2026 00:00:00 GMT",
+        "01 Jan 2026 24:00:00 GMT",
+        "01 Jan 2026 00:00:60 GMT",
+        "Jan 2026 00:00:00 GMT",
+    ],
+)
+def test_cookie_date_rejects_invalid_or_incomplete_dates(value):
+    assert parse_cookie_date(value) is None
+
+
+def test_cookie_date_two_digit_year_boundary_and_case_insensitive_month():
+    from datetime import UTC, datetime
+
+    assert (
+        parse_cookie_date("01-jAn-69 00:00:00 GMT") == datetime(2069, 1, 1, tzinfo=UTC).timestamp()
+    )
+    assert parse_cookie_date("01-JAN-70 00:00:00 GMT") == 0
 
 
 # ---- robots.txt ------------------------------------------------------------------

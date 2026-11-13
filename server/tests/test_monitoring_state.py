@@ -180,7 +180,13 @@ def test_source_identity_ownership_merge_and_revision():
 
 
 @pytest.mark.parametrize(
-    "expiry", ["Max-Age=0", "Max-Age=-1", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"]
+    "expiry",
+    [
+        "Max-Age=0",
+        "Max-Age=-1",
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        "Expires=Thu, 01-Jan-1970 00:00:01 GMT",
+    ],
 )
 async def test_valid_scoped_deletion_clears_credentials(expiry):
     auth, c, _ = make()

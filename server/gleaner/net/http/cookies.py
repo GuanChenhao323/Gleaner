@@ -14,14 +14,49 @@ import ipaddress
 import re
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from typing import Any
-
-from .message import parse_http_date
 
 MAX_PER_DOMAIN = 50
 MAX_TOTAL = 3000
 MAX_COOKIE_BYTES = 4096  # 名称 + 值（§6.1 建议至少支持 4096 字节）
 _CTL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")  # 允许水平制表符（%x09），其余控制字符一律拒绝
+_MONTHS = {
+    name: i for i, name in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)
+}
+
+
+def parse_cookie_date(value: str) -> float | None:
+    """RFC 6265 §5.1.1; Cookie dates use broader syntax than HTTP-date.
+
+    Reusing HTTP-date here can turn a server's historical-format deletion
+    into a new session cookie. Tokenize once and validate the resulting UTC date.
+    """
+    day = month = year = None
+    hms = None
+    for token in re.split(r"[\x09\x20-\x2f\x3b-\x40\x5b-\x60\x7b-\x7e]+", value):
+        if hms is None and (
+            match := re.fullmatch(r"([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(?:[^0-9].*)?", token)
+        ):
+            hms = tuple(int(part) for part in match.groups())
+        elif day is None and (match := re.fullmatch(r"([0-9]{1,2})(?:[^0-9].*)?", token)):
+            day = int(match[1])
+        elif month is None and token[:3].lower() in _MONTHS:
+            month = _MONTHS[token[:3].lower()]
+        elif year is None and (match := re.fullmatch(r"([0-9]{2,4})(?:[^0-9].*)?", token)):
+            year = int(match[1])
+    if day is None or month is None or year is None or hms is None:
+        return None
+    if 70 <= year <= 99:
+        year += 1900
+    elif 0 <= year <= 69:
+        year += 2000
+    if year < 1601:
+        return None
+    try:
+        return datetime(year, month, day, *hms, tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -107,7 +142,7 @@ class CookieJar:
             k = k.strip(" \t").lower()
             v = v.strip(" \t")
             if k == "expires":
-                t = parse_http_date(v)
+                t = parse_cookie_date(v)
                 if t is not None:
                     c.expires = t
             elif k == "max-age":
