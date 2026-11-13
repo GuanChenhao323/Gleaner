@@ -21,7 +21,7 @@ BODY = (
 def test_cookie_editor_same_site_values_are_normalized(exported, expected):
     from devtools.monitoring.page_run import normalize
 
-    records = normalize([{"name": "__Secure-3PSID", "sameSite": exported}], ("__Secure-3PSID",))
+    records = normalize([{"name": "SID", "sameSite": exported}], ("SID",))
     assert records[0]["same_site"] == expected
 
 
@@ -33,7 +33,7 @@ async def test_cookie_diagnostics_record_rotation_and_removal_without_values():
     c = auth.create(1, "bridge")
     auth.import_cookies(
         c.auth_id,
-        [cookie("PRIVATE_VALUE", name="__Secure-3PSID", domain=".youtube.com", host_only=False)],
+        [cookie("PRIVATE_VALUE", name="SID", domain=".youtube.com", host_only=False)],
         backend_epoch=auth.backend_epoch,
         expected_revision=0,
         request_id="i",
@@ -42,18 +42,16 @@ async def test_cookie_diagnostics_record_rotation_and_removal_without_values():
     auth.update_cookies(
         lease,
         [
-            "__Secure-3PSID=ROTATED_SECRET; Domain=.youtube.com; Path=/; Secure",
+            "SID=ROTATED_SECRET; Domain=.youtube.com; Path=/; Secure",
             "PRIVATE_COOKIE=OTHER_SECRET; Path=/; Secure",
         ],
         URL,
     )
-    assert events[0]["changed_names"] == ["__Secure-3PSID"]
+    assert events[0]["changed_names"] == ["SID"]
     assert events[0]["received_count"] == 2
-    assert events[0]["received_registered_names"] == ["__Secure-3PSID"]
-    auth.update_cookies(
-        lease, ["__Secure-3PSID=; Domain=youtube.com; Path=/; Secure; Max-Age=0"], URL
-    )
-    assert events[1]["removed_names"] == ["__Secure-3PSID"]
+    assert events[0]["received_registered_names"] == ["SID"]
+    auth.update_cookies(lease, ["SID=; Domain=youtube.com; Path=/; Secure; Max-Age=0"], URL)
+    assert events[1]["removed_names"] == ["SID"]
     assert all(value not in repr(events) for value in ("SECRET", "PRIVATE", ".youtube.com"))
 
 
@@ -92,7 +90,7 @@ def setup(body=BODY):
     c = auth.create(1, "bridge")
     auth.import_cookies(
         c.auth_id,
-        [cookie(name="__Secure-3PSID", domain=".youtube.com", host_only=False)],
+        [cookie(name="SID", domain=".youtube.com", host_only=False)],
         backend_epoch=auth.backend_epoch,
         expected_revision=0,
         request_id="i",
@@ -242,7 +240,7 @@ async def test_actual_transport_delivers_embedded_json_and_rotates_cookie():
             200,
             headers={
                 "content-type": "text/html",
-                "set-cookie": "__Secure-3PSID=ROTATED; Domain=youtube.com; Path=/; Secure",
+                "set-cookie": "SID=ROTATED; Domain=youtube.com; Path=/; Secure",
             },
             stream=Stream(BODY),
         )
@@ -260,7 +258,7 @@ async def test_actual_transport_delivers_embedded_json_and_rotates_cookie():
         clock.advance(601)
         auth.presence("bridge", 2)
         assert (await monitor.tick())["state"] == "delivered"
-        assert requests[-1].headers["cookie"] == "__Secure-3PSID=ROTATED"
+        assert requests[-1].headers["cookie"] == "SID=ROTATED"
         assert requests[-1].headers["host"] == "www.youtube.com"
         assert requests[-1].extensions["sni_hostname"] == "www.youtube.com"
         assert not transport._client.cookies
@@ -314,7 +312,7 @@ async def test_debug_upstream_only_accepts_loopback_origin_and_reports_no_secret
             )
             assert rejected.status_code == 403
             record = {
-                "name": "__Secure-3PSID",
+                "name": "SID",
                 "value": "SYNTHETIC_SECRET",
                 "domain": ".youtube.com",
                 "path": "/",

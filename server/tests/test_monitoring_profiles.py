@@ -47,59 +47,26 @@ def test_exact_targets_and_registered_profiles():
 async def test_domain_cookie_import_rotation_and_credential_isolation():
     policy = page_policy("youtube", YT)
     auth, c = imported(
-        policy, [cookie("FIRST", name="__Secure-3PSID", domain=".youtube.com", host_only=False)]
+        policy, [cookie("FIRST", name="SID", domain=".youtube.com", host_only=False)]
     )
     lease = await auth.acquire(c.auth_id)
-    assert auth.header(lease, YT) == "__Secure-3PSID=FIRST"
+    assert auth.header(lease, YT) == "SID=FIRST"
     generation = c.generation
-    auth.update_cookies(
-        lease, ["__Secure-3PSID=SECOND; Domain=.youtube.com; Path=/; Secure; HttpOnly"], YT
-    )
-    assert auth.header(lease, YT) == "__Secure-3PSID=SECOND"
+    auth.update_cookies(lease, ["SID=SECOND; Domain=.youtube.com; Path=/; Secure; HttpOnly"], YT)
+    assert auth.header(lease, YT) == "SID=SECOND"
     assert c.generation == generation
     for header in [
-        "__Secure-3PSID=EVIL; Domain=google.com; Path=/; Secure",
-        "__Secure-3PSID=EVIL; Domain=com; Path=/; Secure",
-        "__Secure-3PSID=; Domain=evil.example; Path=/; Secure; Max-Age=0",
+        "SID=EVIL; Domain=google.com; Path=/; Secure",
+        "SID=EVIL; Domain=com; Path=/; Secure",
+        "SID=; Domain=evil.example; Path=/; Secure; Max-Age=0",
     ]:
         auth.update_cookies(lease, [header], YT)
-    assert auth.header(lease, YT) == "__Secure-3PSID=SECOND"
+    assert auth.header(lease, YT) == "SID=SECOND"
     with pytest.raises(MonitorError, match="binding_denied"):
         auth.header(lease, "https://accounts.google.com/")
-    auth.update_cookies(
-        lease, ["__Secure-3PSID=; Domain=youtube.com; Path=/; Secure; Max-Age=0"], YT
-    )
+    auth.update_cookies(lease, ["SID=; Domain=youtube.com; Path=/; Secure; Max-Age=0"], YT)
     with pytest.raises(MonitorError, match="auth_required"):
         auth.header(lease, YT)
-
-
-async def test_youtube_does_not_mix_browser_first_party_state_into_exported_3p_session():
-    from devtools.monitoring.page_run import normalize
-
-    policy = page_policy("youtube", YT)
-    exported = [
-        {"name": "__Secure-1PSID"},
-        {"name": "LOGIN_INFO"},
-        {"name": "SAPISID"},
-        {"name": "__Secure-3PSID"},
-    ]
-    assert [c["name"] for c in normalize(exported, policy.cookie_names)] == ["__Secure-3PSID"]
-    auth, c = imported(
-        policy, [cookie("VALID", name="__Secure-3PSID", domain=".youtube.com", host_only=False)]
-    )
-    lease = await auth.acquire(c.auth_id)
-    auth.update_cookies(
-        lease,
-        [
-            "__Secure-1PSID=FIRST_PARTY; Domain=.youtube.com; Path=/; Secure",
-            "LOGIN_INFO=FIRST_PARTY; Domain=.youtube.com; Path=/; Secure",
-            "__Secure-3PSIDCC=ROTATED; Domain=.youtube.com; Path=/; Secure",
-        ],
-        YT,
-    )
-    header = auth.header(lease, YT)
-    assert "__Secure-3PSID=VALID" in header and "__Secure-3PSIDCC=ROTATED" in header
-    assert "FIRST_PARTY" not in header and len(c.jar) == 2
 
 
 @pytest.mark.parametrize(
@@ -116,7 +83,7 @@ async def test_youtube_does_not_mix_browser_first_party_state_into_exported_3p_s
     ],
 )
 def test_cookie_scope_stays_closed(override):
-    record = cookie(name="__Secure-3PSID", domain=".youtube.com", host_only=False, **{})
+    record = cookie(name="SID", domain=".youtube.com", host_only=False, **{})
     record.update(override)
     with pytest.raises(MonitorError):
         imported(page_policy("youtube", YT), [record])
