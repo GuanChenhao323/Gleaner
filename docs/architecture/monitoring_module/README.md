@@ -79,12 +79,3 @@ Bilibili 例：`--site bilibili --target 'https://www.bilibili.com/video/BV1Vd4y
 
 首轮获取立即执行，以后从每轮结束起等待至少配置间隔。接收失败时页面模块保留同一 snapshot_id 和 HTML，优先重试交付；调试长测把任何交付失败记为该轮验收失败。取消或会话代际变化后旧快照被丢弃。可通过状态页查看字节数、摘要、Cookie 修订及两小时跨度；不显示会话值或正文。
 
-2026-11-12 实测与本地结果：
-
-| 范围 | 真实结果与限制 |
-|---|---|
-| YouTube 指定频道视频页 | HTTP 200，页面明确标记已登录，完整 HTML 已由内存接收替身确认；独立运行中出现登录态失效、DNS 和连接超时，最长成功请求跨度 610.300 秒，未通过两小时。 |
-| Bilibili 指定视频详情页 | HTTP 200，但原始 HTML 缺少已检查的正面登录证据，未交付；第一方会话检查接口的 robots 禁止该路径，未请求。UP 主投稿列表未验证通过。 |
-| MUST Moodle 授权作业页 | 新入口单轮认证和内存交付成功，旧观察路径单轮真实解析及模拟回执成功；新入口最长成功请求跨度 3,055.180 秒，第 7 轮 DNS 失败，未通过两小时。 |
-
-本地全量测试 **353 passed、3 skipped**，Ruff 和格式检查通过。各运行及内部 DNS 回退均保留在[脱敏证据与独立核验](../../evaluation/results/parameterized-html-monitor/README.md)；正式 Extractor、Item Service 和 Inbox 未接入。
