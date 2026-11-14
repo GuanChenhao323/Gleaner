@@ -205,7 +205,10 @@ def source_fingerprint() -> str:
     root = Path(__file__).resolve().parents[2]
     digest = hashlib.sha256()
     for path in sorted(
-        [*root.joinpath("server/gleaner").rglob("*.py"), Path(__file__).resolve()]
+        [
+            *root.joinpath("server/gleaner").rglob("*.py"),
+            *root.joinpath("devtools/monitoring").glob("*.py"),
+        ]
     ):
         digest.update(str(path.relative_to(root)).encode() + b"\0")
         digest.update(path.read_bytes())
@@ -249,14 +252,28 @@ def summarize(rounds: list[dict], duration: float, interval: float) -> dict:
 
 
 class Harness:
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        *,
+        policy_factory=page_policy,
+        transport_factory=HTTPXTransport,
+        monitor_factory=PageMonitor,
+        inspector_factory=DiagnosticSessionInspector,
+        import_names: tuple[str, ...] | None = None,
+    ) -> None:
         self.args = args
-        self.policy = page_policy(args.site, args.target)
+        self.policy = policy_factory(args.site, args.target)
+        self.import_names = (
+            self.policy.cookie_names if import_names is None else import_names
+        )
+        if not set(self.import_names) <= set(self.policy.cookie_names):
+            raise ValueError("import names exceed the response cookie scope")
         self.auth = DiagnosticAuthManager(
             self.policy, lambda event: self.append("cookie_update", event)
         )
         self.context = self.auth.create(1, "debug-browser")
-        self.inspector = DiagnosticSessionInspector(
+        self.inspector = inspector_factory(
             args.site, lambda signals: self.append("auth_diagnostic", signals)
         )
         self.sink = MemorySink()
@@ -276,7 +293,7 @@ class Harness:
         self.last_content_request: dict | None = None
         self.request_sequence = 0
         self.interruptions = 0
-        self.transport = HTTPXTransport(
+        self.transport = transport_factory(
             self.policy,
             self.auth,
             inspect_access=self.inspector.inspect,
@@ -284,7 +301,7 @@ class Harness:
             event=self.request_event,
             policy_event=lambda e: self.append("policy", e),
         )
-        self.monitor = PageMonitor(
+        self.monitor = monitor_factory(
             self.policy, self.auth, self.transport, self.inspector, self.sink
         )
         self.token = secrets.token_urlsafe(32)
@@ -431,7 +448,7 @@ class Harness:
                     self.monitor.register(
                         data["params"], owner_id=1, bridge_id="debug-browser"
                     )
-                    records = normalize(data["cookies"], self.policy.cookie_names)
+                    records = normalize(data["cookies"], self.import_names)
                     self.auth.import_cookies(
                         self.context.auth_id,
                         records,
