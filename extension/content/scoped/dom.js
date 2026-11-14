@@ -7,27 +7,50 @@
     const b = '网络编课业资讯奖学电邮办师个这门当页标题关键词获发布电话职称部张陈刘杨软体计划与时周后间';
     return String(value || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim().split('').map(c => { const i = [...a].indexOf(c); return i < 0 ? c : [...b][i]; }).join('');
   };
-  class DomAccess {
-    excluded = 'nav,header,footer,aside,form,iframe,script,style,noscript,[hidden],[aria-hidden="true"],[role="navigation"],[role="contentinfo"]';
-    constructor() { this.contentReads = []; }
-    visible(node, navigation = false) {
-      if (!node || node.closest(navigation ? '[hidden],[aria-hidden="true"],footer' : this.excluded)) return false;
-      for (let p = node; p && globalThis.getComputedStyle; p = p.parentElement) {
-        const s = getComputedStyle(p); if (s.display === 'none' || ['hidden','collapse'].includes(s.visibility)) return false;
+  /** Rendering visibility and content eligibility are independent policies. */
+  class RenderedVisibility {
+    allows(node) {
+      if (!node || node.closest('[hidden],[aria-hidden="true"]')) return false;
+      for (let p=node; p && globalThis.getComputedStyle; p=p.parentElement) {
+        const style=getComputedStyle(p);
+        if (style.display==='none' || ['hidden','collapse'].includes(style.visibility)) return false;
       }
       return true;
     }
-    label(node, navigation = false) { return this.visible(node, navigation) ? String(node.textContent || node.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim() : ''; }
-    text(node, depth = 0) {
-      if (!node || depth > 100) return '';
+  }
+  class ContentBoundaryPolicy {
+    constructor(root=null, contentAsides=[]) { this.root=root; this.contentAsides=new Set(contentAsides); }
+    allows(node, navigation=false) {
+      if (!node || this.root && !this.root.contains(node)) return false;
+      for (let p=node; p; p=p.parentElement) {
+        if (p.matches(navigation ? 'footer' : 'nav,header,footer,form,iframe,script,style,noscript,[role="navigation"],[role="contentinfo"]')) return false;
+        if (!navigation && p.matches('aside') && !this.contentAsides.has(p)) return false;
+      }
+      return true;
+    }
+  }
+  class DomAccess {
+    constructor({boundary=new ContentBoundaryPolicy(),visibility=new RenderedVisibility(),contentReads=[]}={}) {
+      Object.assign(this,{boundary,visibility,contentReads});
+    }
+    within(root,contentAsides=[]) {
+      return new DomAccess({boundary:new ContentBoundaryPolicy(root,contentAsides),visibility:this.visibility,contentReads:this.contentReads});
+    }
+    visible(node,navigation=false) { return this.visibility.allows(node) && this.boundary.allows(node,navigation); }
+    label(node,navigation=false) {
+      const read=n=>n.nodeType===3?n.textContent:n.nodeType!==1 || !this.visible(n,navigation) || n.matches('input,textarea,select,script,style')?'':[...n.childNodes].map(read).join('');
+      return node && this.visible(node,navigation)?String(read(node) || node.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim():'';
+    }
+    text(node, depth = 0, excluded = new Set()) {
+      if (!node || depth > 100 || excluded.has(node)) return '';
       if (node.nodeType === 3) return node.textContent;
       if (node.nodeType !== 1 || !this.visible(node) || node.matches('input,textarea,select,button,[contenteditable="true"]')) return '';
-      return [...node.childNodes].map(n => this.text(n, depth + 1)).join('') + (/^(p|div|h[1-6]|li|dt|dd|tr|br|article|section|main)$/.test(node.localName) ? '\n' : '');
+      return [...node.childNodes].map(n => this.text(n, depth + 1, excluded)).join('') + (/^(p|div|h[1-6]|li|dt|dd|tr|br|article|section|main)$/.test(node.localName) ? '\n' : '');
     }
-    content(node) {
+    content(node, {exclude=[]}={}) {
       if (!node) throw Error('selection_missing');
       this.contentReads.push(this.locator(node));
-      const text = this.text(node).split('\n').map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+      const text = this.text(node,0,new Set(exclude)).split('\n').map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
       if (!text) throw Error('page_not_ready');
       if (text.length > 20000) throw Error('content_too_large');
       return text;
@@ -67,5 +90,5 @@
       return {entity_id,title,text,url:location.href,fields:{},complete:true,evidence:this.evidence(node,text),...extras};
     }
   }
-  R.DomAccess = DomAccess;
+  Object.assign(R,{DomAccess,ContentBoundaryPolicy,RenderedVisibility});
 })();

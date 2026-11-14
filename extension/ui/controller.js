@@ -77,8 +77,12 @@ export class CaptureController {
       const task=await this.client.send({type:'extract.get',id:this.form.taskId});
       if(generation!==this.generation)return;
       this.task=task;this.view.task(task,{stale:task.query!==this.view.$('query').value.trim(),saving:this.saving,onChoice:id=>this.guard(()=>this.capture(id))()});
-      if(task.state==='succeeded')this.view.status(`已按条件匹配 ${task.result.candidates.length} 条，请核对结果。`);
+      if(task.state==='succeeded') {
+        const r=task.result;const outcome=r.outcome?.status || (r.candidates.length?'matched':r.navigation?.length?'navigation_required':'no_match');
+        this.view.status(outcome==='navigation_required'?'已定位课程，需打开详情才能读取所需内容。':outcome==='no_match'?'页面结构已识别，当前条件没有匹配内容。':`已按条件读取 ${r.candidates.length} 条，请核对预览及完整度。`);
+      }
       if(task.state==='needs_choice')this.view.status('请确认课程范围，再继续抓取。');
+      if(['failed','interrupted'].includes(task.state))this.view.status(errorText(task.error || 'page_read_failed'),true);
       if(task.submission || receipt) {
         const data=await this.client.send({type:'status'});
         if(generation!==this.generation)return;

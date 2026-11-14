@@ -55,7 +55,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(
                 page(
                     "fie",
-                    '<main><h1>三来源模拟环境</h1><p>账号由本站模拟登录，不使用真实学校凭据。</p><a href="/person/id-828.html?locale=zh_MO">FIE 人员目录</a><a href="/my/">Moodle Dashboard</a><a href="/capture/courses">按条件抓取：三门课程</a><a href="/portal#news">学生资讯</a><a href="/portal#timetable">课表</a><a href="/extraction/home">新版：首页公告与资讯读取</a><a href="/my-class-timetable-student">新版：当前课表读取</a></main>',
+                    '<main><h1>三来源模拟环境</h1><p>账号由本站模拟登录，不使用真实学校凭据。</p><a href="/person/id-828.html?locale=zh_MO">FIE 人员目录</a><a href="/my/">Moodle Dashboard</a><a href="/capture/courses">按条件抓取：三门课程</a><a href="/capture/moodle-dashboard">Moodle 内容 aside、课程卡片与 Timeline</a><a href="/portal#news">学生资讯</a><a href="/portal#timetable">课表</a><a href="/extraction/home">新版：首页公告与资讯读取</a><a href="/my-class-timetable-student">新版：当前课表读取</a></main>',
                 )
             )
         if path == "/admin":
@@ -95,6 +95,33 @@ class Handler(BaseHTTPRequestHandler):
             )
         if not account:
             return self.send("", 302, {"Location": "/login"})
+        if path == "/capture/moodle-dashboard":
+            cards = []
+            for cid, name, ids in [
+                (101, "網絡編程", [1101, 1102]),
+                (202, "ARTIFICIAL INTELLIGENCE（人工智能）", []),
+                (303, "数据科学", [3301]),
+            ]:
+                activities = "".join(
+                    f'<li class="activity"><a href="/mod/assign/view.php?id={aid}">{name} 实验 {aid}</a><div class="activity-description">{name} 合成要求 {aid}，版本 {STATE["revision"]}。</div></li>'
+                    for aid in ids
+                )
+                cards.append(
+                    f'<div class="list-group-item"><a class="aalink coursename" href="/course/view.php?id={cid}">{name}</a><p>40% complete</p><ul>{activities}</ul></div>'
+                )
+            return self.send(
+                page(
+                    "moodle",
+                    '<section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content"><section class="block block_myoverview" id="inst-overview"><h5>Course overview</h5>'
+                    + "".join(cards)
+                    + '</section><section class="block block_timeline" id="inst-timeline"><h5>Timeline</h5><p>当前已加载的合成日程提醒，不代表完整活动正文。</p><a href="/mod/assign/view.php?id=1101">查看实验详情</a></section></aside></div></section>',
+                    account,
+                )
+            )
+        if path == "/capture/unsupported":
+            return self.send(
+                page("moodle", "<main><p>未知的合成页面布局</p></main>", account)
+            )
         if path == "/capture/courses":
             courses = [
                 (101, "網絡編程", [1101, 1102]),

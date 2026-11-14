@@ -11,8 +11,9 @@ export class ExtractionPipeline {
     const account=site.private?snapshot.account:{state:'public',native:'public'};
     const factory=new CandidateFactory({...snapshot,account},site.source);
     const candidates=uniqueCandidates(snapshot.records.map(record=>{
+      if(record.preview_reason && !['navigation_only','section_preview_only','attachments_only'].includes(record.preview_reason)) throw Error('invalid_snapshot');
       const candidate=factory.create({entity:record.entity_id,title:record.title,text:record.text,url:record.url,fields:record.fields,
-        evidence:record.evidence,complete:record.complete,view:record.view,missing:record.missing_fields});
+        evidence:record.evidence,complete:record.complete,view:record.view,missing:record.missing_fields,previewReason:record.preview_reason,recordType:record.record_type});
       if(!candidate) throw Error('invalid_snapshot');
       return candidate;
     }));
@@ -22,6 +23,7 @@ export class ExtractionPipeline {
     });
     return {source:site.source,url:snapshot.url,channel:'dom',intent,account,candidates,choices,
       state:snapshot.state==='needs_choice'?'needs_choice':'succeeded',
+      outcome:snapshot.outcome || {status:candidates.length?'matched':snapshot.navigation?.length?'navigation_required':'no_match',page_type:site.source},
       navigation:(snapshot.navigation || []).map(n=>({title:n.title,url:safeUrl(n.url,snapshot.url)})).filter(n=>n.url),
       coverage:{...snapshot.coverage,scope:'current_rendered_view',candidates:candidates.length}, observed_at:snapshot.observed_at,
       warnings:[...(snapshot.warnings || []),...(site.private && account.state!=='known'?['无法可靠识别学校账号：可预览，暂不能保存。']:[]),

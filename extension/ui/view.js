@@ -3,7 +3,7 @@ const ERRORS={query_required:'请输入想抓取的内容。',query_too_long:'�
   frame_unsupported:'当前内容位于嵌入页面中，请打开独立内容页后重试。',backend_login_required:'请展开连接设置，登录 Campus Radar。',backend_account_changed:'Campus Radar 账号已变化，请重新抓取。',backend_unavailable:'本地后端不可用，提交尚未确认。',backend_timeout:'后端响应超时，可稍后查询同一提交。',
   permission_denied:'缺少当前站点权限，请点击抓取并允许访问。',render_timeout:'页面加载超时，请等待原页内容加载后重试。',page_read_failed:'无法读取原页，页面可能已经关闭。',page_not_ready:'页面内容尚未就绪。',selection_missing:'所需内容已失效，请回原页确认后重试。',
   route_mismatch:'原页地址或视图已改变，请重新打开插件并抓取。',account_mismatch:'学校账号在读取期间变化，请确认后重试。',account_unknown:'无法可靠识别学校账号，当前只能预览。',preview_only:'结果存在不完整内容或身份不足，请打开详情或缩小条件后重试。',
-  identity_unknown:'原站身份尚未确认，仅供预览。',fields_missing:'部分指定字段未找到，不推测缺失内容。',detail_required:'当前只有摘要／入口，请进入详情后重新抓取。',query_changed:'条件已修改，请重新抓取。',preview_required:'请先完成当前条件的抓取预览。',
+  attachments_only:'当前页只有作业附件名称与链接，未读取附件正文；仅供预览，不作为完整作业保存。',navigation_only:'这是当前页的课程入口／概览，仅供预览。请打开课程或输入“课程名的作业”读取完整事项。',section_preview_only:'这是当前已加载的区块预览，未确认为完整独立事项，暂不保存。',identity_unknown:'原站身份尚未确认，仅供预览。',fields_missing:'部分指定字段未找到，不推测缺失内容。',detail_required:'当前只有摘要／入口，请进入详情后重新抓取。',query_changed:'条件已修改，请重新抓取。',preview_required:'请先完成当前条件的抓取预览。',
   worker_interrupted:'读取被中断，未确认完成，请重新抓取。',worker_timeout:'后台暂未响应，可重新打开插件查询任务，避免重复提交。',worker_unavailable:'扩展后台不可用，请重新加载扩展。',draft_not_found:'预览已经过期或不存在，请重新抓取。',draft_limit:'本地预览已达容量上限，请在任务记录中管理旧草稿。',
   content_too_large:'匹配内容超过安全上限，请缩小范围。',candidate_limit:'匹配数量过多，请缩小条件。',invalid_response:'后端响应异常，未确认保存。',invalid_capture_response:'后端逐项回执异常，未确认保存。',idempotency_conflict:'同一请求的内容发生冲突，请重新抓取。',invalid_selection:'一次仅能保存 1–30 条完整匹配结果，请缩小范围。'};
 const FIELD_NAMES={course:'课程',semester:'学期',week:'周次',weekday:'星期',period:'节次',datetime_text:'时间原文',date_text:'日期原文',email:'邮箱',office:'办公室',phone:'电话',role:'职务',department:'部门',published_text:'发布时间原文',valid_until_text:'有效期原文',native_occurrence_id:'课次身份'};
@@ -40,10 +40,14 @@ export class CaptureView {
     if(task.state==='needs_choice') for(const c of r.choices || []) root.append(this.button(`${c.title}${c.context?' · '+c.context:''}（课程 ID ${c.id}）`,()=>onChoice(c.id)));
     for(const warning of r.warnings || []) root.append(this.node('p',warning,'muted'));
     for(const n of r.navigation || []) root.append(this.link(`打开课程：${n.title}`,n.url));
-    if(task.state==='succeeded' && !r.candidates.length) root.append(this.node('p','当前条件匹配 0 条；没有保存，也没有回退为整页采集。','warning'));
-    if(r.candidates.length) root.append(this.node('p',`匹配 ${r.candidates.length} 条。核对后一次保存，无需逐条勾选。`));
+    const outcome=r.outcome?.status || (r.candidates.length?'matched':r.navigation?.length?'navigation_required':'no_match');
+    if(task.state==='succeeded' && outcome==='no_match') root.append(this.node('p','页面结构已识别，当前条件匹配 0 条；没有保存，也没有回退为整页采集。','warning'));
+    if(outcome==='navigation_required') root.append(this.node('p','已定位目标课程，当前页只有入口或缺少匹配正文；请打开上方课程链接后重新抓取。','warning'));
+    if(r.candidates.length) {const count=r.candidates.filter(c=>c.save_allowed).length;root.append(this.node('p',`读取 ${r.candidates.length} 条：可保存 ${count} 条，仅预览 ${r.candidates.length-count} 条。`));if(count!==r.candidates.length)root.append(this.node('p','本组包含入口或不完整内容，不能整批保存。可缩小条件，例如输入“课程名的作业”，或打开对应详情后重试。','muted'));}
     for(const c of r.candidates) {
-      const card=this.node('article','');card.append(this.node('h3',c.raw.title),this.node('pre',c.raw.text));
+      const card=this.node('article','');card.append(this.node('h3',c.raw.title));
+      const type={course_entry:'课程概览 · 仅预览',page_section:'页面区块 · 仅预览',assignment:'作业'}[c.record_type];if(type)card.append(this.node('p',type,'muted'));
+      card.append(this.node('pre',c.raw.text));
       const fields=Object.entries(c.raw.fields).filter(([k,v])=>v && k!=='subtype').map(([k,v])=>`${FIELD_NAMES[k] || k}：${v}`).join('\n');
       if(fields) card.append(this.node('pre',fields));
       if(c.missing_fields?.length) card.append(this.node('p',`尚未确认：${c.missing_fields.map(k=>FIELD_NAMES[k] || k).join('、')}。`,'warning'));

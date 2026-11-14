@@ -52,3 +52,14 @@ test('missing preview on reopen preserves input and leaves a usable new-capture 
   const reopened=new CaptureController({browser:h.controller.browser,client:h.controller.client,forms:h.forms,view:h.view,location:{href:'chrome-extension://test/popup.html'}});
   await reopened.init();try {assert.equal(reopened.form.taskId,null);assert.equal(h.view.$('query').value,'网络编程的作业');await reopened.capture();assert.equal(reopened.task.state,'succeeded');}finally{reopened.dispose();}
 });
+
+test('navigation-required and preview-only results do not look like zero matches or saved items',async()=>{
+  const h=await harness();const task={schema_version:2,state:'succeeded',query:'测试课程的作业',result:{candidates:[],warnings:[],navigation:[{title:'测试课程',url:'https://moodle.must.edu.mo/course/view.php?id=101'}],outcome:{status:'navigation_required'}}};
+  h.view.task(task);assert.match(h.view.$('preview').textContent,/已定位目标课程/);assert.ok(!h.view.$('preview').textContent.includes('匹配 0 条'));assert.equal(h.view.$('save').disabled,true);
+  task.result.navigation=[];task.result.outcome={status:'matched'};task.result.candidates=[{...candidate(1),record_type:'course_entry',save_allowed:false,save_reason:'navigation_only'}];
+  h.view.task(task);assert.match(h.view.$('preview').textContent,/课程概览 · 仅预览/);assert.match(h.view.$('preview').textContent,/可保存 0 条，仅预览 1 条/);assert.equal(h.view.$('save').disabled,true);
+});
+
+test('unsupported DOM renders an explicit failure, not a successful zero-match result',async()=>{
+  const h=await harness();h.view.task({state:'failed',error:'unsupported_dom'});assert.match(h.view.$('preview').textContent,/尚未可靠识别此页面结构/);assert.ok(!h.view.$('preview').textContent.includes('匹配 0 条'));
+});

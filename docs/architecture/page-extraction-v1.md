@@ -2,11 +2,11 @@
 
 **接口 ID：** IC-EXTRACTION-001
 
-**版本：** v2.0（2026-11-11）
+**版本：** v2.1（2026-11-14）
 
 **负责人：** 插件／网页采集
 
-**最后更新：** 2026-11-11
+**最后更新：** 2026-11-14
 
 ## 1. 接口概述
 
@@ -70,3 +70,20 @@ DOM 范围适配器先读必要课程名、标题和原生链接关系，再读�
 错误包括 query_required/query_too_long/unsupported_query、invalid_request/invalid_choice/idempotency_conflict、wrong_section/unsupported/unsupported_dom、need_login/account_unknown/account_mismatch/backend_account_changed、route_mismatch/selection_missing/render_timeout/page_read_failed、draft_limit/draft_not_found/worker_interrupted、preview_required/query_changed/preview_only/invalid_selection，以及严格网络回执错误。失败不沿用旧成功结果。
 
 对应验证：`extension/tests/extraction.test.js`、`capture-ui.test.js`、`worker.test.js`、`extraction-live.mjs` 和后端 `test_browser_capture.py`。模拟 DOM／API、真实本地 HTTP、真实 Chrome／生产页面证据分别记录。
+
+
+## 5. v2.1 当前页指定信息读取（2026-11-14）
+
+用户确认：普通课程名／关键词预览当前页相关信息；显式 assignments 意图只返回作业。当前页边界与手动打开详情的规则不变。用户已明确确认课程卡片只预览入口，进入详情后保存。本轮不新增课程资料事项类型；完整事项才允许整批保存。
+
+DOM 访问分离两个对象：ContentBoundaryPolicy 决定可读容器及非内容区域；DomAccess 读取可见文本、链接和证据。MoodlePageModel 在选定主区域内仅授权已观察的 aside#block-region-content[data-blockregion=content] 内容区域。隐藏、nav、form、footer 等规则不可被区域授权绕过，其他站点默认策略保持兼容。
+
+MoodleCourseCatalog／CourseScopeResolver 负责必要课程标题与原生 ID 索引和歧义确认；MoodleAssignmentExtractor 只读取课程归属明确的作业；MoodleCoursePreviewExtractor、MoodleSectionExtractor 只预览匹配卡片／明确标题的有限区块。原生 ID 是定位依据，不把位置或临时 DOM ID 用作可保存事项身份。
+
+新增可选字段：records[].preview_reason（navigation_only/section_preview_only/attachments_only）、records[].record_type；候选保留 record_type 与明确预览原因。预览专用记录不能生成可提交 target。新增 result.outcome={status,page_type}，status 为 matched/no_match/navigation_required/needs_choice，旧草稿缺失时由候选／navigation 推导，runtime 消息版本仍为 2。未识别页面结构抛 unsupported_dom，而不是构造 succeeded 的空列表；加载状态仍有界等待后 render_timeout。
+
+普通关键词以课程／活动标题或区块标题定位，不扫描整页正文再筛选；显式选定区块允许读取其当前已加载内容。未匹配正文不出现在快照、预览或上传中。不自动展开控件、翻页或发起请求；跨 frame 不隐式采集。新流程保存仍复用 snapshot recipe v2，不启用监测。
+
+附件型作业仅读取当前主区域内已加载的 mod_assign/introattachment 链接名称及安全 URL，不下载或解析文件，始终 attachments_only。作业详情支持以当前活动标题匹配；以课程名匹配时优先使用原生课程面包屑的 title 属性全文，而不是仅使用短课程代码。源路径限定为已登记的 /my/、/course/view.php、/mod/assign/view.php（loopback 合成夹具例外）。
+
+新增结构回归：extension/tests/moodle-reading.test.js。输出声明的是有界的标题／课程归属／区块读取，不是任意网页全文语义搜索。
