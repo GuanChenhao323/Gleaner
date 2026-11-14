@@ -1,3 +1,5 @@
+import {ResultGroups} from './result-groups.js';
+
 const ERRORS={query_required:'请输入想抓取的内容。',query_too_long:'条件请控制在 200 字以内。',unsupported_query:'暂支持课程名、标题关键词及人员联系方式。可写“课程：网络编程；关键词：实验”，复杂时间和语义条件暂不支持。',
   wrong_section:'这个条件与当前页面类型不符，请打开对应网页后重试。',need_login:'请先在学校原站自行登录，再点击抓取。',unsupported:'当前网页尚未适配。',unsupported_dom:'尚未可靠识别此页面结构，未抓取内容。',
   frame_unsupported:'当前内容位于嵌入页面中，请打开独立内容页后重试。',backend_login_required:'请展开连接设置，登录 Campus Radar。',backend_account_changed:'Campus Radar 账号已变化，请重新抓取。',backend_unavailable:'本地后端不可用，提交尚未确认。',backend_timeout:'后端响应超时，可稍后查询同一提交。',
@@ -7,11 +9,12 @@ const ERRORS={query_required:'请输入想抓取的内容。',query_too_long:'�
   worker_interrupted:'读取被中断，未确认完成，请重新抓取。',worker_timeout:'后台暂未响应，可重新打开插件查询任务，避免重复提交。',worker_unavailable:'扩展后台不可用，请重新加载扩展。',draft_not_found:'预览已经过期或不存在，请重新抓取。',draft_limit:'本地预览已达容量上限，请在任务记录中管理旧草稿。',
   content_too_large:'匹配内容超过安全上限，请缩小范围。',candidate_limit:'匹配数量过多，请缩小条件。',invalid_response:'后端响应异常，未确认保存。',invalid_capture_response:'后端逐项回执异常，未确认保存。',idempotency_conflict:'同一请求的内容发生冲突，请重新抓取。',invalid_selection:'一次仅能保存 1–30 条完整匹配结果，请缩小范围。'};
 const FIELD_NAMES={course:'课程',semester:'学期',week:'周次',weekday:'星期',period:'节次',datetime_text:'时间原文',date_text:'日期原文',email:'邮箱',office:'办公室',phone:'电话',role:'职务',department:'部门',published_text:'发布时间原文',valid_until_text:'有效期原文',native_occurrence_id:'课次身份'};
+Object.assign(ERRORS,{unsupported_region:'指定区块不存在、未显示或结构尚未识别；未将它当作零匹配，请确认原页已加载。',timeline_preview_only:'这是时间线活动摘要，时间保留原文。请打开原文详情后重新抓取并保存。',contact_preview_only:'这是联系信息预览，不创建作业或待办。'});
 export const errorText=code=>ERRORS[code] || `操作未完成：${code}`;
 
 /** Render only: all workflow decisions are supplied by the controller/service. */
 export class CaptureView {
-  constructor(document) { this.document=document; }
+  constructor(document,groups=new ResultGroups()) { this.document=document;this.groups=groups; }
   $(id) { return this.document.getElementById(id); }
   ready(value) { for(const id of ['query','capture','large','drafts','login','logout'])this.$(id).disabled=!value; }
   node(tag,text,className='') { const n=this.document.createElement(tag);n.textContent=text;n.className=className;return n; }
@@ -39,24 +42,43 @@ export class CaptureView {
     if(i) root.append(this.node('p',`条件：${i.query} · 当前页已加载内容`));
     if(task.state==='needs_choice') for(const c of r.choices || []) root.append(this.button(`${c.title}${c.context?' · '+c.context:''}（课程 ID ${c.id}）`,()=>onChoice(c.id)));
     for(const warning of r.warnings || []) root.append(this.node('p',warning,'muted'));
+    if(r.coverage?.regions?.length) {
+      const details=this.node('details','');details.append(this.node('summary','识别范围'));
+      const states={matched:'已匹配',no_match:'已识别，无匹配',not_ready:'尚未就绪',unsupported:'结构未识别',fields_missing:'部分字段缺失'};
+      details.append(this.node('pre',r.coverage.regions.map(region=>`${region.title}：${states[region.status] || region.status}`).join('\n')));
+      const c=r.coverage.course_index;
+      if(c)details.append(this.node('p',`课程索引 ${c.indexed_courses}；原生链接 ${c.native_links}；边界排除 ${c.excluded_boundary}；隐藏排除 ${c.excluded_visibility}；无标题 ${c.empty_titles}`,'muted'));
+      root.append(details);
+    }
     for(const n of r.navigation || []) root.append(this.link(`打开课程：${n.title}`,n.url));
     const outcome=r.outcome?.status || (r.candidates.length?'matched':r.navigation?.length?'navigation_required':'no_match');
     if(task.state==='succeeded' && outcome==='no_match') root.append(this.node('p','页面结构已识别，当前条件匹配 0 条；没有保存，也没有回退为整页采集。','warning'));
     if(outcome==='navigation_required') root.append(this.node('p','已定位目标课程，当前页只有入口或缺少匹配正文；请打开上方课程链接后重新抓取。','warning'));
-    if(r.candidates.length) {const count=r.candidates.filter(c=>c.save_allowed).length;root.append(this.node('p',`读取 ${r.candidates.length} 条：可保存 ${count} 条，仅预览 ${r.candidates.length-count} 条。`));if(count!==r.candidates.length)root.append(this.node('p','本组包含入口或不完整内容，不能整批保存。可缩小条件，例如输入“课程名的作业”，或打开对应详情后重试。','muted'));}
-    for(const c of r.candidates) {
-      const card=this.node('article','');card.append(this.node('h3',c.raw.title));
-      const type={course_entry:'课程概览 · 仅预览',page_section:'页面区块 · 仅预览',assignment:'作业'}[c.record_type];if(type)card.append(this.node('p',type,'muted'));
-      card.append(this.node('pre',c.raw.text));
-      const fields=Object.entries(c.raw.fields).filter(([k,v])=>v && k!=='subtype').map(([k,v])=>`${FIELD_NAMES[k] || k}：${v}`).join('\n');
-      if(fields) card.append(this.node('pre',fields));
-      if(c.missing_fields?.length) card.append(this.node('p',`尚未确认：${c.missing_fields.map(k=>FIELD_NAMES[k] || k).join('、')}。`,'warning'));
-      if(!c.save_allowed) card.append(this.node('p',errorText(c.save_reason),'warning'));
-      card.append(this.link('打开原文',c.url));
-      const details=this.node('details','');details.append(this.node('summary','原文依据'),this.node('pre',c.evidence.map(e=>`${e.locator}\n${e.text}`).join('\n')));card.append(details);root.append(card);
+    const guidance=this.groups.previewGuidance(r.candidates);
+    if(r.candidates.length) {const count=r.candidates.filter(c=>c.save_allowed).length;root.append(this.node('p',`读取 ${r.candidates.length} 条：可保存 ${count} 条，仅预览 ${r.candidates.length-count} 条。`));if(count!==r.candidates.length)root.append(this.node('p',guidance.message,'muted'));}
+    for(const group of this.groups.arrange(r.candidates)) {
+      const section=this.node('section','');section.dataset.resultGroup=group.id;
+      section.append(this.node('h3',`${group.title}（${group.candidates.length}）`));
+      for(const c of group.candidates) {
+        const card=this.node('article','');card.append(this.node('h3',c.raw.title));
+        const type={course_entry:'课程概览 · 仅预览',page_section:'页面区块 · 仅预览',assignment:'作业',timeline_event:'活动摘要 · 仅预览',contact_info:'联系信息 · 仅预览'}[c.record_type];if(type)card.append(this.node('p',type,'muted'));
+        if(c.presentation) {
+          const match={course_identity:'原生课程范围',activity_title:'活动标题',section_heading:'区块标题',requested_fields:'指定联系字段'}[c.presentation.matched_by];
+          card.append(this.node('p',`来源区块：${c.presentation.region} · 匹配依据：${match}`,'muted'));
+          if(c.presentation.course_relation==='unconfirmed')card.append(this.node('p','课程名称仅为原文上下文，尚无原生归属证明；不会据此绑定课程。','muted'));
+        }
+        card.append(this.node('pre',c.raw.text));
+        const fields=Object.entries(c.raw.fields).filter(([k,v])=>v && k!=='subtype').map(([k,v])=>`${FIELD_NAMES[k] || k}：${v}`).join('\n');
+        if(fields && fields!==c.raw.text) card.append(this.node('pre',fields));
+        if(c.missing_fields?.length) card.append(this.node('p',`尚未确认：${c.missing_fields.map(k=>FIELD_NAMES[k] || k).join('、')}。`,'warning'));
+        if(!c.save_allowed) card.append(this.node('p',errorText(c.save_reason),'warning'));
+        card.append(this.link('打开原文',c.url));
+        const details=this.node('details','');details.append(this.node('summary','原文依据'),this.node('pre',c.evidence.map(e=>`${e.locator}\n${e.text}`).join('\n')));card.append(details);section.append(card);
+      }
+      root.append(section);
     }
     const ready=task.schema_version===2 && task.state==='succeeded' && r.candidates.length>0 && r.candidates.length<=30 && r.candidates.every(c=>c.save_allowed) && !task.submission;
-    this.$('save').textContent=task.submission?'已提交，请查看结果':`保存匹配结果${r.candidates.length?`（${r.candidates.length}）`:''}`;
+    this.$('save').textContent=task.submission?'已提交，请查看结果':r.candidates.some(c=>!c.save_allowed)?guidance.button:`保存匹配结果${r.candidates.length?`（${r.candidates.length}）`:''}`;
     this.$('save').disabled=!ready || saving;
     if(r.candidates.length>30) root.append(this.node('p',errorText('invalid_selection'),'warning'));
   }

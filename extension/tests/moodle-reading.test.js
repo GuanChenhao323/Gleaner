@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {rendered,parser,courses} from './scoped-fixture.mjs';
 import {ExtractionPipeline} from '../extraction/pipeline.js';
+import {event,timeline,support,columns,recent} from './dashboard-fixture.mjs';
 const pipeline=new ExtractionPipeline();
 const root=body=>`<section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content">${body}</aside></div></section>`;
 const card=(id,name,body='')=>`<div class="list-group-item"><a class="aalink coursename" href="/course/view.php?id=${id}">${name}</a><div class="progress" role="progressbar" aria-valuenow="40">40% complete</div>${body}</div>`;
@@ -43,10 +44,68 @@ test('assignment title keyword also works without pretending it is a course name
   const p=rendered(root(courses()));const r=result(p,'1102');assert.equal(r.candidates.length,1);assert.equal(r.candidates[0].entity_id,'assignment:1102');
 });
 
-test('Timeline heading selects only the loaded block, never unrelated block bodies',()=>{
-  const p=rendered(root('<section class="block block_timeline" id="inst1"><h5>Timeline</h5><p>脱敏活动 A</p></section><section class="block" id="inst2"><h5>其他版块</h5><p id="unmatched">不相关正文</p></section>'));
+test('Timeline in the real-shaped right column previews loaded events separately, never unrelated bodies',()=>{
+  const p=rendered(columns(card(101,'测试课程'),timeline(event()+event(9002,{name:'测试测验',time:'00:00'}))+support+'<section class="block"><h5>Private files</h5><p id="unmatched">不相关正文</p></section>'));
   Object.defineProperty(p.document.querySelector('#unmatched'),'textContent',{get(){throw Error('unmatched body read');}});
-  const r=result(p,'Timeline');assert.equal(r.candidates.length,1);assert.match(r.candidates[0].raw.text,/脱敏活动 A/);assert.ok(!JSON.stringify(r).includes('不相关正文'));assert.equal(r.candidates[0].record_type,'page_section');assert.equal(r.candidates[0].save_reason,'section_preview_only');assert.equal(r.candidates[0].target,null);
+  const r=result(p,'Timeline');assert.equal(r.candidates.length,2);assert.match(r.candidates[0].raw.text,/测试实验/);assert.ok(!JSON.stringify(r).includes('不相关正文'));assert.ok(!JSON.stringify(r).includes('support@example.test'));assert.equal(r.candidates[0].record_type,'timeline_event');assert.equal(r.candidates[0].save_reason,'timeline_preview_only');assert.equal(r.candidates[0].target,null);
+  assert.equal(r.candidates[0].raw.fields.date_text,'Sunday, 15 November 2026');assert.equal(r.candidates[1].raw.fields.datetime_text,'00:00');assert.match(r.candidates[0].evidence[0].text,/Sunday, 15 November 2026/);assert.equal(r.coverage.regions[0].status,'matched');
+});
+
+test('a recognized left column cannot turn missing or unknown Timeline structures into false zero matches',()=>{
+  assert.throws(()=>rendered(columns(card(101,'测试课程'),support)).read('Timeline'),/unsupported_region/);
+  assert.throws(()=>rendered(columns(card(101,'测试课程'),timeline('<p>未知结构</p>'))).read('Timeline'),/unsupported_region/);
+  const empty=result(rendered(columns(card(101,'测试课程'),timeline('<div data-region="empty-message">No activities</div>'))),'Timeline');assert.equal(empty.outcome.status,'no_match');
+  assert.throws(()=>rendered(columns(card(101,'测试课程'),timeline('<div aria-busy="true">Loading</div>'))).read('Timeline'),/page_not_ready/);
+});
+
+test('Support is a bounded contact preview; requesting email does not imply a person or capture other fields',()=>{
+  assert.equal(parser.parse('Moodle Support 的邮箱').kind,'auto');
+  const p=rendered(columns(card(101,'测试课程'),support+timeline(event()))+'<footer>secret@example.test</footer>');
+  assert.equal(p.read('Moodle Support 的邮箱').extraction.body_reads,0);
+  const r=result(p,'Moodle Support 的邮箱'),c=r.candidates[0];assert.equal(c.raw.text,'邮箱：support@example.test');assert.deepEqual(c.raw.fields,{email:'support@example.test'});assert.equal(c.record_type,'contact_info');assert.equal(c.save_reason,'contact_preview_only');assert.equal(c.target,null);assert.ok(!JSON.stringify(r).includes('0000-1234'));assert.ok(!JSON.stringify(r).includes('测试实验'));assert.ok(!JSON.stringify(r).includes('secret@example.test'));
+  assert.equal(result(p,'Moodle Support').candidates.length,1);assert.deepEqual(result(p,'Moodle Support 的职称').candidates[0].missing_fields,['role']);
+});
+
+test('admitting known right blocks never authorizes arbitrary asides, hidden blocks or navigation descendants',()=>{
+  const hidden=support.replace('class="block block_html"','hidden class="block block_html"');
+  assert.throws(()=>rendered(columns(card(101,'测试课程'),hidden)).read('Moodle Support'),/unsupported_region/);
+  assert.throws(()=>rendered(columns(card(101,'测试课程'),support).replace('data-blockregion="side-pre"','data-blockregion="other"')).read('Moodle Support'),/unsupported_region/);
+  const p=rendered(columns(card(101,'测试课程'),support.replace('<h6>','<nav>nav@example.test</nav><h6>')));assert.ok(!JSON.stringify(result(p,'Moodle Support')).includes('nav@example.test'));
+});
+
+test('activity primary title, type label and course context stay separate; literal assignment is not stripped',()=>{
+  const p=rendered(columns(card(101,'测试课程')+recent(),''));
+  const r=result(p,'assignment'),c=r.candidates[0];assert.equal(c.raw.title,'assignment');assert.equal(c.raw.fields.course,'SAMPLE COURSE(测试课程)');assert.equal(c.presentation.course_relation,'unconfirmed');assert.equal(c.presentation.region,'Recently accessed items');assert.match(c.evidence[0].text,/测试课程/);
+  assert.equal(result(p,'测试课程').candidates.length,1);assert.equal(result(p,'测试课程的作业').candidates.length,0);
+});
+
+test('a bilingual exact alias wins over longer course names, while duplicate sections still ask for scope',()=>{
+  const p=rendered(columns(card(101,'SAMPLE AI(人工智能) - DEMO-A')+card(202,'FOUNDATIONS(人工智能数学基础) - DEMO-B')+recent(7001,'assignment','FOUNDATIONS(人工智能数学基础) - DEMO-B'),''));
+  const r=result(p,'人工智能');assert.deepEqual(r.candidates.map(c=>c.entity_id),['course:101']);assert.ok(!JSON.stringify(r).includes('assignment'));
+  p.document.querySelector('#block-region-content').insertAdjacentHTML('beforeend',card(303,'SAMPLE AI(人工智能) - DEMO-C'));
+  const choice=p.read('人工智能');assert.equal(choice.state,'needs_choice');assert.equal(choice.extraction.body_reads,0);
+});
+
+test('native course relations permit grouped activity previews; ambiguous recent context cannot replace them',()=>{
+  const p=rendered(columns(card(101,'测试课程')+recent(7001,'assignment','测试课程','101'),timeline(event(9001,{courseId:'101'}))));
+  const r=result(p,'测试课程');assert.deepEqual(r.candidates.map(c=>c.presentation.group),['courses','assignments','assignments']);assert.equal(r.candidates[1].raw.title,'assignment');assert.ok(r.candidates.every(c=>c.presentation.course_relation==='native'));
+  const explicit=result(p,'测试课程的作业');assert.equal(explicit.candidates.length,2);assert.ok(explicit.candidates.every(c=>!c.save_allowed));assert.ok(!explicit.candidates.some(c=>c.record_type==='course_entry'));
+});
+
+test('Timeline supports non-assignment activity links without falsely labeling them as assignments',()=>{
+  const p=rendered(columns('',timeline(event().replaceAll('/mod/assign/view.php','/mod/quiz/view.php'))));
+  const c=result(p,'Timeline').candidates[0];assert.equal(c.entity_id,null);assert.equal(c.record_type,'timeline_event');assert.equal(c.save_allowed,false);
+});
+
+test('distinct loaded timeline rows sharing an activity URL are not merged into one invented event identity',()=>{
+  const p=rendered(columns('',timeline(event(9001,{name:'开放时间',time:'08:00'})+event(9001,{name:'提交截止',time:'23:59'}))));
+  const r=result(p,'Timeline');assert.equal(r.candidates.length,2);assert.ok(r.candidates.every(c=>c.entity_id===null && !c.target));assert.deepEqual(r.candidates.map(c=>c.raw.fields.datetime_text),['08:00','23:59']);
+});
+
+test('unexpected preview metadata cannot turn a timeline summary into a saveable assignment',()=>{
+  const p=rendered(columns('',timeline(event()))),intent=parser.parse('Timeline'),snapshot=p.read('Timeline');
+  snapshot.records[0].complete=true;delete snapshot.records[0].preview_reason;assert.throws(()=>pipeline.extract(snapshot,intent),/invalid_snapshot/);
+  snapshot.records[0].complete=false;snapshot.records[0].preview_reason='timeline_preview_only';snapshot.records[0].presentation.group='invented';assert.throws(()=>pipeline.extract(snapshot,intent),/invalid_snapshot/);
 });
 
 test('a descendant activity heading cannot cause the enclosing multi-activity section to be read',()=>{

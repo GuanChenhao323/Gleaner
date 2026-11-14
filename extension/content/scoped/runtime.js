@@ -10,7 +10,7 @@
     const adapter=R.adapters.find(a=>a.supports(meta)); if(!adapter) throw Error('unsupported_dom');
     const found=adapter.run(dom,meta,intent,choice);
     if(found.records.length>100) throw Error('candidate_limit');
-    return {...meta,...found,channel:'dom',intent,observed_at:Date.now(),coverage:{scope:'current_rendered_view',match_basis:meta.source==='moodle'?'course_identity_and_activity_title':meta.source==='fie'?'person_name_and_requested_fields':'loaded_titles_or_course_blocks',count:found.records.length},
+    return {...meta,...found,channel:'dom',intent,observed_at:Date.now(),coverage:{...found.coverage,scope:'current_rendered_view',match_basis:meta.source==='moodle'?'course_identity_activity_title_or_explicit_region':meta.source==='fie'?'person_name_and_requested_fields':'loaded_titles_or_course_blocks',count:found.records.length},
       // Diagnostic count contains no non-matching content or locators.
       extraction:{body_reads:dom.contentReads.length}};
   };

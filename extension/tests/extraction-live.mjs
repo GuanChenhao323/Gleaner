@@ -15,6 +15,13 @@ const service=new PageExtractionService({browser:{tabs:{get:async id=>({id,url})
 const ordinary=await service.start(cfg,{type:'extract.start',version:2,request_id:crypto.randomUUID(),tabId:1,url,query:'网络编程'});await service.queue;
 const preview=await service.handle(cfg,{type:'extract.get',id:ordinary.id});assert.equal(preview.result.candidates.length,3);assert.equal(preview.result.candidates[0].record_type,'course_entry');
 await assert.rejects(service.handle(cfg,{type:'extract.save',id:ordinary.id,query:'网络编程'}),/preview_only/);assert.equal(queued.length,0);
+for(const [query,type,count] of [['Timeline','timeline_event',2],['Moodle Support 的邮箱','contact_info',1]]) {
+  const {id}=await service.start(cfg,{type:'extract.start',version:2,request_id:crypto.randomUUID(),tabId:1,url,query});await service.queue;
+  const task=await service.handle(cfg,{type:'extract.get',id});assert.equal(task.state,'succeeded');assert.equal(task.result.candidates.length,count);assert.ok(task.result.candidates.every(c=>c.record_type===type && !c.save_allowed && !c.target));
+  if(type==='timeline_event')assert.ok(task.result.candidates.every(c=>c.raw.fields.date_text==='Sunday, 15 November 2026'));
+  else assert.deepEqual(task.result.candidates[0].raw.fields,{email:'support@example.test'});
+  await assert.rejects(service.handle(cfg,{type:'extract.save',id,query}),/preview_only/);assert.equal(queued.length,0);
+}
 const query='网络编程的作业',m={type:'extract.start',version:2,request_id:crypto.randomUUID(),tabId:1,url,query};
 const {id}=await service.start(cfg,m);await service.queue;
 const task=await service.handle(cfg,{type:'extract.get',id});assert.equal(task.state,'succeeded');assert.equal(task.result.candidates.length,2);assert.equal(queued.length,0);
@@ -28,4 +35,4 @@ const changed=await request(cfg,'/api/v1/captures',repeat);assert.equal(changed.
 const auth={headers:{Authorization:`Bearer ${cfg.token}`}};
 const detail=await fetch(server+`/api/items/${saved[0].item_id}`,auth).then(r=>r.json());assert.equal(detail.body,repeat.targets[0].raw.text);assert.equal(detail.browser_monitor.supported,false);
 const versions=await fetch(server+`/api/items/${saved[0].item_id}/versions`,auth).then(r=>r.json());assert.equal(versions.versions[0].changed_fields.body[1],repeat.targets[0].raw.text);
-console.log(JSON.stringify({evidence:'simulated DOM + real local HTTP, not Chrome',query,content_aside:true,ordinary_preview:3,preview_only_not_submitted:true,matched:2,excluded_courses:2,items:saved.map(r=>r.item_id),same_request_idempotent:true,duplicate_unchanged:true,same_url_independent:true,change_updates_original:true,version:detail.version,monitor_supported:false}));
+console.log(JSON.stringify({evidence:'simulated DOM + real local HTTP, not Chrome',query,content_aside:true,right_timeline_events:2,support_email_projection:true,ordinary_preview:3,preview_only_not_submitted:true,matched:2,excluded_courses:2,items:saved.map(r=>r.item_id),same_request_idempotent:true,duplicate_unchanged:true,same_url_independent:true,change_updates_original:true,version:detail.version,monitor_supported:false}));

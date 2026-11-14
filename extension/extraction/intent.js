@@ -18,7 +18,8 @@ export class IntentParser {
     if (/[:：]/.test(input) && !course && !keyword && !type) throw Error('unsupported_query');
     if (/[:：]/.test(input) && input.split(/[;；]/).some(s => !/^\s*(课程|关键词|标题|类型)\s*[:：]\s*\S/.test(s))) throw Error('unsupported_query');
     const fields = Object.entries({ email: /邮箱|电邮|email/, office: /办公室|office/, phone: /电话|phone/, role: /职称|职务/, department: /部门/ }).filter(([, re]) => re.test(input)).map(([key]) => key).sort();
-    const kind = fields.length || /老师|教师|人员|资料|履历/.test(input) ? 'people'
+    // Requested fields describe a projection, not the type of the target object.
+    const kind = /老师|教师|人员|资料|履历/.test(input) ? 'people'
       : /作业|assignment/.test(type || input) ? 'assignments'
       : /课表|timetable/.test(type || input) ? 'timetable'
       : /公告|通知/.test(type || input) ? 'notices'
@@ -31,7 +32,7 @@ export class IntentParser {
       .replace(/这位老师|这位教师|这位人员|这门课|当前课程|当前人员|当前页面|当前页|本页|全部|所有/g, '')
       .replace(/邮箱|电邮|email|办公室|office|电话|phone|职称|职务|部门|作业|assignment|课表|timetable|公告|通知|资讯|新闻|老师|教师|人员|资料|履历/g, '')
       .replace(/(?:相关|课程|的|和|与|及|、|\s)+$/g, '').replace(/^[的\s]+/g, '').trim());
-    if (!target && kind === 'auto' && !keyword && !all) throw Error('unsupported_query');
+    if (!target && kind === 'auto' && !keyword && !all && !fields.length) throw Error('unsupported_query');
     return { version: 2, query, kind, target, keyword: keyword || '', fields, current, all };
   }
 }

@@ -11,9 +11,13 @@ export class ExtractionPipeline {
     const account=site.private?snapshot.account:{state:'public',native:'public'};
     const factory=new CandidateFactory({...snapshot,account},site.source);
     const candidates=uniqueCandidates(snapshot.records.map(record=>{
-      if(record.preview_reason && !['navigation_only','section_preview_only','attachments_only'].includes(record.preview_reason)) throw Error('invalid_snapshot');
+      if(record.preview_reason && !['navigation_only','section_preview_only','attachments_only','timeline_preview_only','contact_preview_only'].includes(record.preview_reason)) throw Error('invalid_snapshot');
+      const previewType={course_entry:'navigation_only',page_section:'section_preview_only',timeline_event:'timeline_preview_only',contact_info:'contact_preview_only'}[record.record_type];
+      if(previewType && (record.preview_reason!==previewType || record.complete!==false)) throw Error('invalid_snapshot');
+      const p=record.presentation;
+      if(p && (!['courses','assignments','timeline','contacts','sections'].includes(p.group) || !['native','unconfirmed','none'].includes(p.course_relation) || typeof p.region!=='string' || p.region.length>300 || !['course_identity','activity_title','section_heading','requested_fields'].includes(p.matched_by))) throw Error('invalid_snapshot');
       const candidate=factory.create({entity:record.entity_id,title:record.title,text:record.text,url:record.url,fields:record.fields,
-        evidence:record.evidence,complete:record.complete,view:record.view,missing:record.missing_fields,previewReason:record.preview_reason,recordType:record.record_type});
+        evidence:record.evidence,complete:record.complete,view:record.view,missing:record.missing_fields,previewReason:record.preview_reason,recordType:record.record_type,presentation:p && {group:p.group,region:p.region,matched_by:p.matched_by,course_relation:p.course_relation}});
       if(!candidate) throw Error('invalid_snapshot');
       return candidate;
     }));

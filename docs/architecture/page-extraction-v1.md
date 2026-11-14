@@ -2,7 +2,7 @@
 
 **接口 ID：** IC-EXTRACTION-001
 
-**版本：** v2.1（2026-11-14）
+**版本：** v2.2（2026-11-14）
 
 **负责人：** 插件／网页采集
 
@@ -87,3 +87,17 @@ MoodleCourseCatalog／CourseScopeResolver 负责必要课程标题与原生 ID �
 附件型作业仅读取当前主区域内已加载的 mod_assign/introattachment 链接名称及安全 URL，不下载或解析文件，始终 attachments_only。作业详情支持以当前活动标题匹配；以课程名匹配时优先使用原生课程面包屑的 title 属性全文，而不是仅使用短课程代码。源路径限定为已登记的 /my/、/course/view.php、/mod/assign/view.php（loopback 合成夹具例外）。
 
 新增结构回归：extension/tests/moodle-reading.test.js。输出声明的是有界的标题／课程归属／区块读取，不是任意网页全文语义搜索。
+
+## 6. v2.2 区域与分组契约
+
+实施目标：课程范围与字段请求分开解析；Moodle Dashboard 在 #region-main 与已标记 side-pre 的有限具名区块中定位。只授权 Timeline 和标题匹配 Moodle Support 的 HTML 联系区块，不授权整个侧栏。目标区块未找到/无法识别返回 unsupported_region，加载中沿用 page_not_ready 有界重试；已识别且确无活动才返回 no_match。不同区域分别报告 coverage.regions（id、title、status）；不输出未匹配区块正文。
+
+records/candidates 新增可选 presentation={group,region,matched_by,course_relation}，仅供 UI 解释和分组，不作为业务身份、后端分类或上传字段。group 为 courses/assignments/timeline/contacts/sections；course_relation 为 native/unconfirmed/none。raw.fields.course 与活动主标题分开；title 不含图标类型说明或拼接的课程上下文。原站真的名为 assignment 时保留，不凭字符串删词。原文 evidence 仍保留必要范围的对照。
+
+Timeline 按当前已加载的活动单元返回 timeline_event（原生事件身份未确认，entity_id 为空；详情 URL 作为来源），preview_reason=timeline_preview_only，不能把截止摘要当作完整作业。日期/时间只保留原文，不计算时区或推断缺失日期；每个活动单元只选主链接，操作链接不重复生成记录。同 URL 的不同活动行保留，不把活动详情 ID 冒充日历事件 ID。Support 返回 contact_info，preview_reason=contact_preview_only，仅按用户 fields 投影；不访问聊天链接或创建待办。所需字段缺失列 missing_fields，不冒充完整成功。
+
+字段请求不再直接决定 kind=people；明确人员词仍为 people，普通联系方式由站点/区域适配器解释。旧人员查询兼容。普通课程词先在课程索引中确认范围，再只读取有原生归属证明的活动；不能将合并标题中的课程子串当作身份依据。分组由 presentation 提供，旧草稿无该字段时按 record_type 渲染。
+
+完整双语名称的原文别名优先于较长相似名称；相同别名的多个原生课程仍须确认范围，不推测同义词。coverage.course_index 可包含 native_links/indexed_courses/excluded_boundary/excluded_visibility/empty_titles 非负计数，供“识别范围”诊断；不包含未匹配课程正文或身份列表。coverage.regions.status 为 matched/no_match/not_ready/unsupported/fields_missing；未读取区域不能写作无变化或已保存。邮箱投影优先读取原生 mailto，不序列化其他联系字段。
+
+保存、幂等、身份和网络契约不变。混合入口/摘要预览仍禁止整批保存；用户缩小为“课程名的作业”或进入原文详情后重新抓取。此修订先于代码，现已按此实现；分层验证与限制在本轮本地报告中记录。

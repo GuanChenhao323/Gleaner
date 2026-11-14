@@ -63,3 +63,21 @@ test('navigation-required and preview-only results do not look like zero matches
 test('unsupported DOM renders an explicit failure, not a successful zero-match result',async()=>{
   const h=await harness();h.view.task({state:'failed',error:'unsupported_dom'});assert.match(h.view.$('preview').textContent,/尚未可靠识别此页面结构/);assert.ok(!h.view.$('preview').textContent.includes('匹配 0 条'));
 });
+
+test('result groups explain course entries, native assignments, timeline and contacts without changing save selection',async()=>{
+  const h=await harness();
+  const entries=[{...candidate(1),record_type:'course_entry',save_allowed:false,save_reason:'navigation_only',presentation:{group:'courses',region:'课程概览',matched_by:'course_identity',course_relation:'native'}},{...candidate(2),record_type:'assignment',presentation:{group:'assignments',region:'Recently accessed items',matched_by:'course_identity',course_relation:'native'}},{...candidate(3),record_type:'timeline_event',save_allowed:false,save_reason:'timeline_preview_only',presentation:{group:'timeline',region:'Timeline',matched_by:'section_heading',course_relation:'unconfirmed'}},{...candidate(4),record_type:'contact_info',save_allowed:false,save_reason:'contact_preview_only',presentation:{group:'contacts',region:'Moodle Support',matched_by:'requested_fields',course_relation:'none'}}];
+  h.view.task({schema_version:2,state:'succeeded',result:{candidates:entries}});
+  const root=h.view.$('preview');assert.deepEqual([...root.querySelectorAll('[data-result-group]')].map(n=>n.dataset.resultGroup),['courses','assignments','timeline','contacts']);assert.equal(root.querySelectorAll('article').length,4);assert.match(root.textContent,/来源区块：Recently accessed items/);assert.match(root.textContent,/尚无原生归属证明/);assert.equal(h.view.$('save').disabled,true);assert.match(h.view.$('save').textContent,/仅预览/);
+  h.view.task({schema_version:2,state:'succeeded',result:{candidates:[entries[1]]}});assert.equal(h.view.$('save').disabled,false);
+});
+
+test('a missing target region renders failure rather than an apparently successful zero result',async()=>{
+  const h=await harness();h.view.task({state:'failed',error:'unsupported_region'});assert.match(h.view.$('preview').textContent,/指定区块不存在/);assert.ok(!h.view.$('preview').textContent.includes('匹配 0 条'));assert.equal(h.view.$('save').disabled,true);
+});
+
+test('preview-only guidance leads contacts and timeline to appropriate next actions without duplicate field text',async()=>{
+  const h=await harness(),c={...candidate(1),record_type:'contact_info',save_allowed:false,save_reason:'contact_preview_only',raw:{title:'Moodle Support',text:'邮箱：support@example.test',fields:{email:'support@example.test'}}};
+  h.view.task({schema_version:2,state:'succeeded',result:{candidates:[c]}});assert.ok(!h.view.$('preview').textContent.includes('课程名的作业'));assert.equal(h.view.$('preview').querySelector('article').querySelectorAll('pre').length,2);assert.equal(h.view.$('save').textContent,'联系信息仅预览');assert.equal(h.view.$('save').disabled,true);
+  h.view.task({schema_version:2,state:'succeeded',result:{candidates:[{...c,record_type:'timeline_event',save_reason:'timeline_preview_only'}]}});assert.match(h.view.$('preview').textContent,/进入活动详情/);assert.equal(h.view.$('save').textContent,'仅预览，请打开活动详情');assert.equal(h.view.$('save').disabled,true);
+});

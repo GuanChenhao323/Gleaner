@@ -37,8 +37,9 @@
       return new DomAccess({boundary:new ContentBoundaryPolicy(root,contentAsides),visibility:this.visibility,contentReads:this.contentReads});
     }
     visible(node,navigation=false) { return this.visibility.allows(node) && this.boundary.allows(node,navigation); }
-    label(node,navigation=false) {
-      const read=n=>n.nodeType===3?n.textContent:n.nodeType!==1 || !this.visible(n,navigation) || n.matches('input,textarea,select,script,style')?'':[...n.childNodes].map(read).join('');
+    label(node,navigation=false,{exclude=[]}={}) {
+      const skipped=new Set(exclude);
+      const read=n=>skipped.has(n)?'':n.nodeType===3?n.textContent:n.nodeType!==1 || !this.visible(n,navigation) || n.matches('input,textarea,select,script,style')?'':[...n.childNodes].map(read).join('');
       return node && this.visible(node,navigation)?String(read(node) || node.getAttribute('aria-label') || '').replace(/\s+/g,' ').trim():'';
     }
     text(node, depth = 0, excluded = new Set()) {

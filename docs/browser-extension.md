@@ -1,16 +1,16 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-14，扩展 **0.5.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.1](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-14，扩展 **0.6.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
 
 ## 当前交互
 
 1. Flutter 信息源提供学院公告／学生系统、教师信息、Moodle 三个真实入口。学生系统、Moodle 分别在原站自行登录；教师网页公开。不在 Campus Radar 输入学校密码。旧 localhost 演示订阅另列，不等于学校网站已连接。
 2. 在原网页点插件，输入想抓取的内容，例如 `人工智能`、`Timeline`、`网络编程的作业`、`奖学金公告`、`这位老师的邮箱和办公室`。先输入条件，再点“抓取匹配内容”。无需打开大预览页才能输入。
-3. 插件先定位目标课程／标题／个人字段，再读取匹配内容。当前页有同名课程时只确认课程范围，不要求逐条选作业。零匹配不会变成整页采集；复杂条件明确拒绝。需要同时限制课程和标题可写 `课程：网络编程；关键词：实验`。
-4. 核对整组匹配预览、原始字段、原文依据和限制，再点一次“保存匹配结果”。没有逐项复选框；不满足预期时修改条件重新抓取。修改输入立即禁用旧结果。
+3. 插件先定位目标课程／标题／个人字段，再读取匹配内容。优先匹配原文中的完整双语课程别名；同名不同班仍只确认课程范围，不要求逐条选作业。零匹配不会变成整页采集；复杂条件明确拒绝。需要同时限制课程和标题可写 `课程：网络编程；关键词：实验`。
+4. 课程概览与原生归属明确的作业分组显示；活动主标题、类型、课程原文分开，不删除原站实际名为 assignment 的标题。查看“识别范围”和“原文依据”可核对覆盖与来源。核对整组匹配预览、原始字段、原文依据和限制，再点一次“保存匹配结果”。没有逐项复选框；不满足预期时修改条件重新抓取。修改输入立即禁用旧结果。
 5. 入队与后端确认分开显示；只有严格逐项回执才能显示新增／更新／已有／失败及工作台链接。保存快照**不启用监测**；重新抓取后明确保存相同身份，可更新原事项与版本。
 
-Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业条件只读作业，Timeline 等具名区块按标题读取。课程卡片、区块和附件元信息标为仅预览，不能生成提交 target；本组含预览项时保存禁用，需缩小条件或打开详情。作业详情可按活动标题读取，附件只有已加载名称／链接时不下载文件、不冒充完整正文。未识别布局返回明确失败，只有已识别布局且目标不存在才显示零匹配；已定位课程但无正文显示需要进入详情。
+Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业条件只读作业，Timeline 按已加载活动逐条预览，保留日期／时间原文；Moodle Support 独立读取联系信息，可输入“Moodle Support 的邮箱”投影字段。课程卡片、时间线摘要、联系区块和附件元信息标为仅预览，不能生成提交 target；本组含预览项时保存禁用，需缩小条件或打开详情。作业详情可按活动标题读取，附件只有已加载名称／链接时不下载文件、不冒充完整正文。未识别布局返回明确失败，只有已识别布局且目标不存在才显示零匹配；已定位课程但无正文显示需要进入详情。
 
 只处理当前页已加载内容，不自动打开课程／作业详情、翻页或切换学期周次。列表只有摘要时可以预览，须进入详情再抓取才能保存为完整事项。未知学校账号可预览、禁止保存；显示名不作为可靠账号标识。正式课表原生课次身份尚未核实，保留上下文但仅预览，不推算日期。
 
@@ -22,9 +22,11 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 | DomPageReader · extraction/readers.js | Chrome scripting 注入、稳定等待、路由和账号变化检查 |
 | RenderedVisibility / ContentBoundaryPolicy / DomAccess · content/scoped/dom.js | 渲染可见性、内容边界及原文读取分开；只授权已确认的内容 aside，导航／表单／页脚仍拒绝 |
 | MoodlePageModel / CourseCatalog / ScopeResolver / 各 Extractor · content/scoped/moodle-*.js | 页面识别、必要课程索引、范围选择与课程／作业／区块提取对象；适配器组合注入依赖 |
+| MoodleRegionIndex / TimelineExtractor / SupportExtractor · content/scoped/moodle-{model,regions}.js | 有限语义区域索引及专用读取；侧栏只授权 Timeline / Moodle Support；区域级错误和覆盖 |
 | content/scoped/{moodle,student,people}.js | 统一 supports/run 契约；先定位范围，再提取匹配内容；新增站点不改 popup |
 | ExtractionPipeline / CandidateFactory | 统一技术结果、原生身份、可保存性、人员字段投影视图 |
 | DraftRepository / PageExtractionService | 持久任务、owner 隔离、幂等、恢复与保存编排；通过注入依赖测试 |
+| ResultGroups · ui/result-groups.js | 课程、作业、Timeline、联系信息分组；不决定保存或扩大读取范围 |
 | ui/{controller,view,form-store,client}.js | 流程编排、纯显示、表单存储、消息端口分离；popup/workspace 共享 |
 | background.js / lib/{api,outbox}.js | 持久意图和提交回执、严格 HTTP 响应；保留既有 v1 监测执行器 |
 | Core / Flutter | 鉴权、事项身份、分类去重、快照版本调度；管理、来源、差异展示 |
@@ -36,7 +38,7 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 1. 按仓库 README 启动本地栈；另运行 `.venv/bin/python devtools/campus_fixture/app.py --port 8098`。
 2. Chrome `chrome://extensions` 加载仓库 `extension/`，已有安装点“重新加载”。本版本只提供 DOM，已删除 AX 读取器、选项和开发构建器；如果仍有旧 AX 测试副本，请停用，避免两个 worker 同时处理监测。
 3. popup 连接设置中允许本地后端，再以 Campus Radar 账号登录。工作台使用同一账号。后端地址固定使用 localhost 或 127.0.0.1 之一，它们的网页会话不同。
-4. 打开 `http://127.0.0.1:8098/login`，模拟学校登录后进入 `/capture/moodle-dashboard`。该合成场景采用已观察的内容 aside 布局：`人工智能` 预览课程卡片，`Timeline` 预览当前区块，`网络编程的作业` 只读两条完整作业并可一次保存。一次保存后打开工作台回执链接。
+4. 打开 `http://127.0.0.1:8098/login`，模拟学校登录后进入 `/capture/moodle-dashboard`。该合成场景采用脱敏双栏结构，内容 aside 与 side-pre 侧栏分开：`人工智能` 预览课程卡片，`Timeline` 逐条预览右侧活动，`Moodle Support 的邮箱` 预览右侧联系字段，`网络编程的作业` 只读两条完整作业并可一次保存。一次保存后打开工作台回执链接。
 5. `/capture/courses?ambiguous=1` 验证同名课程确认；修改关键词验证零匹配；管理台修改后重新抓取并明确保存，查看原事项版本。新快照不支持自动重新获取。
 
 来源权限按 origin 请求 optional host permissions；第一次权限提示可能关闭 popup。条件／请求先持久化，重新打开插件可继续登记同一任务，避免重复抓取。读取完成前需保留原页；成功草稿在本地保留 24 小时，可在“管理本地预览”查看和删除。每账号最多 10 条、全扩展 20 条、2.5M 字符。后台回收时未完成读取标为中断，需重新抓取；已入持久提交队列的结果可重开查询。

@@ -112,9 +112,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(
                 page(
                     "moodle",
-                    '<section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content"><section class="block block_myoverview" id="inst-overview"><h5>Course overview</h5>'
+                    '<div id="region-main-box"><section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content"><section class="block block_myoverview" id="inst-overview"><h5>Course overview</h5>'
                     + "".join(cards)
-                    + '</section><section class="block block_timeline" id="inst-timeline"><h5>Timeline</h5><p>当前已加载的合成日程提醒，不代表完整活动正文。</p><a href="/mod/assign/view.php?id=1101">查看实验详情</a></section></aside></div></section>',
+                    + """</section><section class="block block_recentlyaccesseditems"><h5>Recently accessed items</h5>
+<a class="card dashboard-card coursename" href="/mod/assign/view.php?id=2201"><div class="card-body course-info-container"><div class="d-flex text-truncate"><span class="sr-only">Assignment</span><div><h6>assignment</h6><small>FOUNDATIONS(人工智能数学基础) - DEMO-B</small></div></div></div></a></section>
+</aside></div></section><section data-region="blocks-column"><aside id="block-region-side-pre" data-blockregion="side-pre">
+<section class="block block_html" data-block="html"><h5>Moodle Support</h5><div class="content"><h6>IT Office X100<br>0000-1234<br><a href="mailto:support@example.test">✉</a>support@example.test<br><a href="/message/index.php?id=77">Talk with us</a></h6></div></section>
+<section class="block block_timeline" data-block="timeline"><h5>Timeline</h5><div data-region="event-list-content"><div><h5>Sunday, 15 November 2026</h5><div class="list-group">
+<div data-region="event-list-item"><div class="event-name-container"><a href="/mod/assign/view.php?id=1101">合成实验提醒一</a><small>網絡編程</small><h6><a href="/mod/assign/view.php?id=1101&amp;action=editsubmission">Add submission</a></h6></div><small class="text-right">23:59</small></div>
+<div data-region="event-list-item"><div class="event-name-container"><a href="/mod/assign/view.php?id=3301">合成实验提醒二</a><small>数据科学</small></div><small class="text-right">00:00</small></div>
+</div></div></div></section><section class="block"><h5>Private files</h5><p>不得读入其他区块的测试文本</p></section></aside></section></div>""",
                     account,
                 )
             )

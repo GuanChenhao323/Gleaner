@@ -5,14 +5,14 @@ export const clean = value => String(value || '').split('\n').map(s => s.replace
 /** Technical normalization only. No semantic deadline inference or personal ranking. */
 export class CandidateFactory {
   constructor(snapshot, adapter) { this.snapshot = snapshot; this.adapter = adapter; }
-  create({ entity = null, title, text, url = this.snapshot.url, fields = {}, evidence, complete = false, view: context = {}, missing = [], previewReason = '', recordType = 'detail' }) {
+  create({ entity = null, title, text, url = this.snapshot.url, fields = {}, evidence, complete = false, view: context = {}, missing = [], previewReason = '', recordType = 'detail', presentation }) {
     title = clean(title); text = clean(text); url = safeUrl(url, this.snapshot.url);
     if (!title || title.length > 300 || !text || text.length > 20000 || !url || !evidence) return null;
     const privatePage = this.adapter !== 'fie';
-    const reason = ['navigation_only','section_preview_only','attachments_only'].includes(previewReason)?previewReason:!entity ? 'identity_unknown' : missing.length ? 'fields_missing' : !complete ? 'detail_required'
+    const reason = ['navigation_only','section_preview_only','attachments_only','timeline_preview_only','contact_preview_only'].includes(previewReason)?previewReason:!entity ? 'identity_unknown' : missing.length ? 'fields_missing' : !complete ? 'detail_required'
       : privatePage && this.snapshot.account.state !== 'known' ? 'account_unknown' : '';
     const view = { route: new URL(url).hash, query: new URL(url).search, ...context };
-    return { entity_id: entity, record_type:recordType, raw: { title, text, fields }, url, evidence: [evidence],
+    return { entity_id: entity, record_type:recordType, ...(presentation?{presentation}:{}), raw: { title, text, fields }, url, evidence: [evidence],
       completeness: complete ? 'detail' : 'summary', save_allowed: !reason, save_reason: reason, missing_fields: missing,
       // v2 is explicitly a snapshot-only recipe. It cannot enable a monitor.
       target: entity && !previewReason ? { entity_id: entity, locator: { url, frame_url: url, view }, raw: { title, text, fields },
