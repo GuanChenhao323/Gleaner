@@ -86,6 +86,13 @@ test('a bilingual exact alias wins over longer course names, while duplicate sec
   const choice=p.read('人工智能');assert.equal(choice.state,'needs_choice');assert.equal(choice.extraction.body_reads,0);
 });
 
+test('Moodle course-overview content marked navigation is admitted without authorizing other navigation',()=>{
+  const overview='<section class="block block_myoverview"><h5>Course overview</h5><div class="block-myoverview" data-region="myoverview" role="navigation">'+card(101,'SAMPLE AI(人工智能) - DEMO-A','<nav>不可读导航</nav><div role="navigation">不可读菜单</div><form>不可读表单</form><p hidden>不可读隐藏</p>')+card(202,'FOUNDATIONS(人工智能数学基础) - DEMO-B')+'</div></section>';
+  const p=rendered(columns(overview+recent(7001,'assignment','FOUNDATIONS(人工智能数学基础) - DEMO-B'),'')),r=result(p,'人工智能');
+  assert.deepEqual(r.candidates.map(c=>c.entity_id),['course:101']);assert.ok(!JSON.stringify(r).includes('不可读'));assert.equal(r.coverage.course_index.indexed_courses,2);
+  const unrecognized=rendered(columns(overview.replace('class="block-myoverview"','class="other-content"'),''));assert.throws(()=>result(unrecognized,'人工智能'),/unsupported_dom/);
+});
+
 test('native course relations permit grouped activity previews; ambiguous recent context cannot replace them',()=>{
   const p=rendered(columns(card(101,'测试课程')+recent(7001,'assignment','测试课程','101'),timeline(event(9001,{courseId:'101'}))));
   const r=result(p,'测试课程');assert.deepEqual(r.candidates.map(c=>c.presentation.group),['courses','assignments','assignments']);assert.equal(r.candidates[1].raw.title,'assignment');assert.ok(r.candidates.every(c=>c.presentation.course_relation==='native'));

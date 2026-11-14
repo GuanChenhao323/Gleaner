@@ -19,11 +19,12 @@
     }
   }
   class ContentBoundaryPolicy {
-    constructor(root=null, contentAsides=[]) { this.root=root; this.contentAsides=new Set(contentAsides); }
+    constructor(root=null, contentAsides=[], contentRoles=[]) { this.root=root; this.contentAsides=new Set(contentAsides);this.contentRoles=new Set(contentRoles); }
     allows(node, navigation=false) {
       if (!node || this.root && !this.root.contains(node)) return false;
       for (let p=node; p; p=p.parentElement) {
-        if (p.matches(navigation ? 'footer' : 'nav,header,footer,form,iframe,script,style,noscript,[role="navigation"],[role="contentinfo"]')) return false;
+        if (p.matches(navigation ? 'footer' : 'nav,header,footer,form,iframe,script,style,noscript,[role="contentinfo"]')) return false;
+        if (!navigation && p.getAttribute('role')==='navigation' && !this.contentRoles.has(p)) return false;
         if (!navigation && p.matches('aside') && !this.contentAsides.has(p)) return false;
       }
       return true;
@@ -33,8 +34,8 @@
     constructor({boundary=new ContentBoundaryPolicy(),visibility=new RenderedVisibility(),contentReads=[]}={}) {
       Object.assign(this,{boundary,visibility,contentReads});
     }
-    within(root,contentAsides=[]) {
-      return new DomAccess({boundary:new ContentBoundaryPolicy(root,contentAsides),visibility:this.visibility,contentReads:this.contentReads});
+    within(root,contentAsides=[],contentRoles=[]) {
+      return new DomAccess({boundary:new ContentBoundaryPolicy(root,contentAsides,contentRoles),visibility:this.visibility,contentReads:this.contentReads});
     }
     visible(node,navigation=false) { return this.visibility.allows(node) && this.boundary.allows(node,navigation); }
     label(node,navigation=false,{exclude=[]}={}) {

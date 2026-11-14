@@ -100,4 +100,8 @@ Timeline 按当前已加载的活动单元返回 timeline_event（原生事件�
 
 完整双语名称的原文别名优先于较长相似名称；相同别名的多个原生课程仍须确认范围，不推测同义词。coverage.course_index 可包含 native_links/indexed_courses/excluded_boundary/excluded_visibility/empty_titles 非负计数，供“识别范围”诊断；不包含未匹配课程正文或身份列表。coverage.regions.status 为 matched/no_match/not_ready/unsupported/fields_missing；未读取区域不能写作无变化或已保存。邮箱投影优先读取原生 mailto，不序列化其他联系字段。
 
+实机补充边界（2026-11-14）：Moodle 把课程概览正文包装在 .block_myoverview 内的 .block-myoverview[data-region=myoverview][role=navigation]。仅将此已识别容器的 role 作为内容授权；真实 nav/header/footer/form、其下的其他 role=navigation 和隐藏内容仍排除。ContentBoundaryPolicy 的显式内容角色集合与 aside 授权独立，不允许站点适配器全局关闭导航过滤。
+
+如果课程概览中有可见原生 coursename 链接却被未知内容边界阻断，主范围读取返回 unsupported_dom，不能仅用最近访问课程建立部分索引后报告成功或零匹配。明确指定右侧区块的读取不受无关左栏结构失败影响。
+
 保存、幂等、身份和网络契约不变。混合入口/摘要预览仍禁止整批保存；用户缩小为“课程名的作业”或进入原文详情后重新抓取。此修订先于代码，现已按此实现；分层验证与限制在本轮本地报告中记录。

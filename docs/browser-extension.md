@@ -20,7 +20,7 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 |---|---|
 | IntentParser · extraction/intent.js | 确定性条件语法、基础繁简规范化；不做业务摘要和时间推断 |
 | DomPageReader · extraction/readers.js | Chrome scripting 注入、稳定等待、路由和账号变化检查 |
-| RenderedVisibility / ContentBoundaryPolicy / DomAccess · content/scoped/dom.js | 渲染可见性、内容边界及原文读取分开；只授权已确认的内容 aside，导航／表单／页脚仍拒绝 |
+| RenderedVisibility / ContentBoundaryPolicy / DomAccess · content/scoped/dom.js | 渲染可见性、内容边界及原文读取分开；显式授权内容 aside 与 Moodle 原生课程概览 role 容器，其他导航／表单／页脚仍拒绝 |
 | MoodlePageModel / CourseCatalog / ScopeResolver / 各 Extractor · content/scoped/moodle-*.js | 页面识别、必要课程索引、范围选择与课程／作业／区块提取对象；适配器组合注入依赖 |
 | MoodleRegionIndex / TimelineExtractor / SupportExtractor · content/scoped/moodle-{model,regions}.js | 有限语义区域索引及专用读取；侧栏只授权 Timeline / Moodle Support；区域级错误和覆盖 |
 | content/scoped/{moodle,student,people}.js | 统一 supports/run 契约；先定位范围，再提取匹配内容；新增站点不改 popup |
@@ -47,7 +47,7 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 
 | 来源 | 当前 DOM 行为 | 未由本地测试证明的能力 |
 |---|---|---|
-| Moodle | 已知 course/view.php 原生课程 ID、mod/assign/view.php 活动 ID；课程范围内已加载正文；仅入口则提示进入 | 真实生产主题、课程归属 DOM、账号标识和后台重入尚未验收 |
+| Moodle | 已知 course/view.php 原生课程 ID、mod/assign/view.php 活动 ID；课程范围内已加载正文；仅入口则提示进入 | 当前已只读验证指定 Dashboard 的课程概览、Timeline 和 Support；其他主题、真实活动原生课程归属、安全保存及后台重入仍待验收 |
 | 学生首页／资讯 | 已加载公告／新闻标题匹配，原生 detail ID；详情主体与日期原文 | 生产账号绑定、安全保存与真实详情覆盖不视为已完成；不访问未验证 API |
 | 当前课表 | 课程名匹配，保留学期、时间／日期原文，未知周次／日期留空 | 全学期和原生课次身份未确认；正式课表仅预览 |
 | FIE 人员 | 指定目录本站详情入口；个人主体或指定联系方式字段；不读通用页脚 | 正式各类人员字段覆盖仍需逐页验收；不追外链、不把目录当全校任课名单 |

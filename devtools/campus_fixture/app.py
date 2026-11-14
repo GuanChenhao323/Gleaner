@@ -112,9 +112,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(
                 page(
                     "moodle",
-                    '<div id="region-main-box"><section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content"><section class="block block_myoverview" id="inst-overview"><h5>Course overview</h5>'
+                    '<div id="region-main-box"><section id="region-main"><div role="main"><aside id="block-region-content" class="block-region" data-blockregion="content"><section class="block block_myoverview" id="inst-overview"><h5>Course overview</h5><div class="block-myoverview" data-region="myoverview" role="navigation">'
                     + "".join(cards)
-                    + """</section><section class="block block_recentlyaccesseditems"><h5>Recently accessed items</h5>
+                    + """</div></section><section class="block block_recentlyaccesseditems"><h5>Recently accessed items</h5>
 <a class="card dashboard-card coursename" href="/mod/assign/view.php?id=2201"><div class="card-body course-info-container"><div class="d-flex text-truncate"><span class="sr-only">Assignment</span><div><h6>assignment</h6><small>FOUNDATIONS(人工智能数学基础) - DEMO-B</small></div></div></div></a></section>
 </aside></div></section><section data-region="blocks-column"><aside id="block-region-side-pre" data-blockregion="side-pre">
 <section class="block block_html" data-block="html"><h5>Moodle Support</h5><div class="content"><h6>IT Office X100<br>0000-1234<br><a href="mailto:support@example.test">✉</a>support@example.test<br><a href="/message/index.php?id=77">Talk with us</a></h6></div></section>

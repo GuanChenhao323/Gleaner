@@ -37,7 +37,8 @@
       if (!meta.fixture && !/^\/(my\/?|course\/view\.php|mod\/assign\/view\.php)$/.test(this.url.pathname)) throw Error('unsupported');
       this.root=document.querySelector('#region-main') || document.querySelector('main,[role="main"]');
       if (!this.root) throw Error(meta.frames?'frame_unsupported':'unsupported_dom');
-      this.dom=pageDom.within(this.root,[...this.root.querySelectorAll('aside#block-region-content[data-blockregion="content"]')]);
+      this.dom=pageDom.within(this.root,[...this.root.querySelectorAll('aside#block-region-content[data-blockregion="content"]')],
+        [...this.root.querySelectorAll('.block_myoverview .block-myoverview[data-region="myoverview"][role="navigation"]')]);
       this.courseRoute=this.url.pathname.endsWith('/course/view.php');
       this.assignmentRoute=this.url.pathname.endsWith('/mod/assign/view.php');
       this.courseId=this.courseRoute && /^\d+$/.test(this.url.searchParams.get('id') || '')?this.url.searchParams.get('id'):'';
@@ -66,6 +67,7 @@
       }).filter(Boolean);
     }
     recognized(catalog) {
+      if(catalog.blockedOverview) throw Error('unsupported_dom');
       const busy=[...this.root.querySelectorAll('[aria-busy="true"],[data-region="loading-placeholder"]')].some(n=>this.dom.visible(n));
       if (!catalog.courses.size && busy) throw Error('page_not_ready');
       if (catalog.courses.size || this.regions.regions.length || this.activityId && this.dom.label(this.root.querySelector('h1,h2'))) return true;
@@ -86,7 +88,13 @@
         const breadcrumb=a.closest('.breadcrumb,nav[aria-label*="breadcrumb"]');
         if (page.assignmentRoute && !breadcrumb) continue;
         const allowed=breadcrumb?page.pageDom.visible(a,true):page.dom.visible(a);
-        if(!allowed) {if(!page.dom.visibility.allows(a))this.stats.excluded_visibility++;else this.stats.excluded_boundary++;}
+        if(!allowed) {
+          if(!page.dom.visibility.allows(a))this.stats.excluded_visibility++;
+          else {
+            this.stats.excluded_boundary++;
+            if(a.matches('.coursename') && a.closest('.block_myoverview') && !a.closest('nav,header,footer,form'))this.blockedOverview=true;
+          }
+        }
         const title=breadcrumb?(a.getAttribute('title')?.trim() || page.pageDom.label(a,true)):page.label(a);
         const id=u.searchParams.get('id');
         if(allowed && !title)this.stats.empty_titles++;
