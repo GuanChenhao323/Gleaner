@@ -38,13 +38,16 @@ export class PreviewView extends DomView {
     if (outcome === 'navigation_required') root.append(this.node('p', '已定位目标课程，当前页只有入口或缺少匹配正文；请打开课程详情后重新提取。', 'warning'));
     for (const n of r.navigation || []) root.append(this.link(`打开课程：${n.title}`, n.url));
     const count = candidates.filter(c => c.save_allowed).length;
-    if (candidates.length && !generic) {
+    if (candidates.length && !generic && count !== candidates.length) {
       root.append(this.node('p', `可保存 ${count} 条，仅预览 ${candidates.length - count} 条。`, 'muted'));
       if (count !== candidates.length) root.append(this.node('p', this.groups.previewGuidance(candidates).message, 'muted'));
     }
-    for (const group of this.groups.arrange(candidates)) {
+    const groups = this.groups.arrange(candidates);
+    if (!generic && groups.length === 1) this.$('preview-count').textContent = `${candidates.length} 条 · ${groups[0].title}`;
+    for (const group of groups) {
       const section = this.node('section'); section.dataset.resultGroup = group.id;
-      if (!generic) section.append(this.node('h3', `${group.title}（${group.candidates.length}）`, 'group-title'));
+      section.setAttribute('aria-label', group.title);
+      if (!generic && groups.length > 1) section.append(this.node('h3', `${group.title}（${group.candidates.length}）`, 'group-title'));
       for (const c of group.candidates) section.append(this.candidate(c, r.intent?.query || task.query || ''));
       root.append(section);
     }
@@ -59,9 +62,11 @@ export class PreviewView extends DomView {
     const card = this.node('article', '', 'result-card'), title = this.node('h3'); title.append(this.highlight(c.raw.title, query));
     card.append(title);
     const type = {web_fragment:'网页片段 · 非完整正文', course_entry:'课程概览 · 仅预览', page_section:'页面区块 · 仅预览', assignment:'作业', timeline_event:'活动摘要 · 仅预览', contact_info:'联系信息 · 仅预览'}[c.record_type];
-    if (type) card.append(this.node('p', type, 'candidate-type'));
+    if (type && (c.record_type !== 'assignment' || !c.save_allowed)) card.append(this.node('p', type, 'candidate-type'));
     const excerpt = this.node('p', '', 'excerpt'); excerpt.append(this.highlight(Array.from(c.raw.text).slice(0, 240).join(''), query)); card.append(excerpt);
-    const full = this.node('details', '', 'full-fragment'); full.append(this.node('summary', '展开片段'), this.node('pre', c.raw.text));
+    const full = this.node('details', '', 'full-fragment'), summary = this.node('summary', '原文');
+    const label = () => { summary.textContent = full.open ? '收起' : '原文'; summary.setAttribute('aria-label', `${full.open ? '收起' : '查看'}原文：${c.raw.title}`); };
+    label();full.addEventListener('toggle', label);full.append(summary, this.node('pre', c.raw.text));
     const fields = Object.entries(c.raw.fields || {}).filter(([k,v]) => v && k !== 'subtype').map(([k,v]) => `${FIELD_NAMES[k] || k}：${v}`).join('\n');
     if (fields && fields !== c.raw.text) full.append(this.node('pre', fields));
     if (c.presentation) {

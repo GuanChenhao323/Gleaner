@@ -2,7 +2,7 @@
 
 **接口 ID：** IC-PANEL-001
 
-**版本：** v1.0（扩展 0.8.0 已实现）
+**版本：** v1.1（扩展0.8.1已实现）
 
 **负责人：** 插件 UI／worker
 
@@ -52,3 +52,9 @@ PanelPolicy只推导UI保存资格／限制，不放宽worker规则；PreviewVie
 表单兼容旧 captureForm.v2，历史另用 captureHistoryForm.v1，均按 server／uid 隔离，不含密码和正文。历史原任务、未确认提交、来源标签不会写回当前页未提交条件。已连接时“切换连接或账号”先展开登录表单，只有再次明确登录才提交凭据；登录失败显示在连接设置内并清空密码。
 
 验证位置：`extension/tests/panel.test.js`、`worker.test.js`、`capture.test.js`；相关后端边界在 `server/tests/test_extension_build.py`、`test_browser_capture.py`、`test_web_captures.py`。本次未修改网络保存接口、生产后端或 Flutter；最低 Chrome 110 和权限保持不变。
+
+## 5. 雾白外观约定（2026-11-15 用户确认）
+
+默认520px宽、600px高；窄视口收窄，长内容在面板内滚动。固定浅色，不自动跟随系统暗色；白色主表面、雾灰结果、石墨文字与少量品牌绿。原文摘要只影响显示，完整原文／字段／依据仍可就地展开，上传仍使用原任务。完整作业的重复类型标签可以收敛，通用片段、仅预览、缺失字段和失败提示不得隐藏。网络／runtime版本、权限、身份与保存资格不变。
+
+原生Chrome窗口宽度由popup启动层声明extension-popup样式类，避免初始视口触发窄屏断点而停留旧宽度；内容组件仍独立适配窄容器。单类结果将类别合入预览计数，多类结果继续分组。原文按钮使用native details，展开仅更新可访问名称与显示标签，轮询不重建同一结果节点；折叠摘要不构造或截断上传内容。

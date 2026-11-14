@@ -23,7 +23,10 @@ run('private source requires explicit confirmation; full preview stays local unt
   h.view.$('source-label').value='学';h.view.$('source-label').oninput();assert.equal(h.view.$('source-label-field').hidden,false);assert.equal(h.view.$('save').disabled,true);
   h.view.$('source-label').value='学校邮箱';h.view.$('source-label').oninput();await h.controller.confirmBinding();
   assert.equal(h.view.$('source-label-field').hidden,true);assert.equal(h.view.$('binding-value').textContent,'学校邮箱');
-  const full=h.document.querySelector('.full-fragment');full.open=true;await h.controller.refresh();assert.equal(h.document.querySelector('.full-fragment'),full);assert.equal(full.open,true);
+  const full=h.document.querySelector('.full-fragment');full.open=true;full.dispatchEvent(new h.document.defaultView.Event('toggle'));
+  assert.equal(full.querySelector('summary').textContent,'收起');
+  assert.equal(full.querySelector('pre').textContent,h.controller.task.result.candidates[0].raw.text);
+  await h.controller.refresh();assert.equal(h.document.querySelector('.full-fragment'),full);assert.equal(full.open,true);
   await h.controller.save();assert.match(h.view.$('results').textContent,/已保存为 1/);
   const receipt=h.view.$('results').querySelector('details');receipt.open=true;await h.controller.refresh();
   assert.equal(h.view.$('results').querySelector('details'),receipt);assert.equal(receipt.open,true);
