@@ -1,0 +1,21 @@
+{
+  "recorded_utc": 1794676954.9942908,
+  "playwright_import_block": {
+    "reason": "mac_locked",
+    "tool_error": "The Mac is locked and automatic unlock could not unlock it.",
+    "session_imports": 0,
+    "monitor_requests": 0,
+    "alternative_credential_channel_used": false
+  },
+  "cleanup": {
+    "http_exit_code": 0,
+    "playwright_preparation_exit_code": 0,
+    "sleep_inhibitor_stopped": true,
+    "remaining_validation_processes": 0,
+    "remaining_headless_test_browsers": 0,
+    "supervisor_finished": true,
+    "last_export_clipboard_overwritten": true,
+    "new_export_after_block": false,
+    "browser_logout_performed": false
+  }
+}

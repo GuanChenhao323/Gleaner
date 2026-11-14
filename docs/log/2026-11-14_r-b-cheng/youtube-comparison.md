@@ -1,5 +1,19 @@
 # YouTube HTTP / Playwright 对照验证
 
+## 本轮结果
+
+**修正后的 HTTP 实验路径通过真实两小时；Playwright 在会话导入前因 Mac 锁屏阻断，对照未完成，未接入通用浏览器后端。**
+
+HTTP-02 的 13 轮均为 HTTP 200、明确已登录、完整 HTML 模拟接收成功；实际请求跨度 7,234.72 秒。原开发分支 `codex/monitoring-v1-validation` 仍为 `7e961b1`；本分支没有修改 `server/gleaner` 中的默认实现。实验工具与本地测试不能代表 Playwright 登录态已验证，也不能代表其他站点已获支持。
+
+原始脱敏证据、主代理从 Git 对象与请求记录独立重算结果见 [evidence/verification.json](evidence/verification.json)；独立 Terra 监管报告见 [terra-supervision.md](terra-supervision.md)。最后完整本地检查为 **386 passed、3 skipped**，包含真实 Chromium 的本机假站点检查；Ruff 与本轮文件格式检查通过。
+
+浏览器工具原始阻断原因：`The Mac is locked and automatic unlock could not unlock it.` 用户要求不询问，因此没有请求解锁或改走其他凭证读取通道。Playwright-01 只有准备与结束记录，0 次导入、0 次监测请求、0 次认证、0 次交付；不能计为一次认证失败，更不能计为通过。
+
+HTTP-02 自行完成并退出；Playwright 等待进程已优雅停止，退出码 0；本轮 caffeinate 已停止；Terra 已结束读取与等待。最后进程检查没有残留验证进程、测试用无头浏览器或本轮睡眠抑制进程。最后一次成功 Cookie 导入后已覆盖临时剪贴板；锁屏尝试没有产生新的 Cookie 导出。未执行用户浏览器登出或删除其 Cookie。
+
+Moodle 与 Bilibili 本轮没有新的真实验证。没有视频识别、分页发现、内容比较、字幕下载，也没有接真实 Extractor / Item Service / Inbox。
+
 基线：`7e961b1`。实验分支：`codex/youtube-http-playwright-validation`。
 工作树：`/Users/george/.codex/worktrees/youtube-session-state/Gleaner`。
 用户要求先完成真实对照，再决定是否接入通用后端；原开发分支和现有生产配置保留。
@@ -36,4 +50,4 @@
 - 浏览器本地真实 Chromium 测试复现了普通 Playwright route 不重新检查重定向第二跳；现于 CDP Fetch 响应阶段阻止跳转。为避免 Worker、子框架、后台连接逃出请求检查，增加收紧的 CSP；原站 CSP 保留。当前运行时仅改响应头未生效，现将 CDP 读到的原始解码 HTML 字节驻内存回传，接收前逐字节核对，且只接受 UTF-8/ASCII 字符集。纯文本与 gzip HTML 原字节保持测试均通过；没有关闭 TLS 或调用被 robots 禁止的 API。
 - 响应阶段施加 CSP 会丢失 Chromium 响应对象的发送时间字段，浏览器验收改用更保守的网络时间区间：放行已暂停请求前记录下界，收到同一 network_id 的真实响应头时记录上界。首末跨度按“末轮下界 − 首轮上界”，最小间隔按“后轮下界 − 前轮上界”，最大间隔按“后轮上界 − 前轮下界”检查；单调时钟与 UTC 均须满足要求。交付时间不参与补足跨度。HTTP 原有精确发送计时不变。
 - 浏览器前置修改后相关检查 **42 passed**；完整检查 **386 passed、3 skipped，113.52 秒**，Ruff 与格式检查通过。真实账号尚未进入 Playwright；即将以新的源码摘要和 run_id 开始独立浏览器组。
-- 待补：本地检查、实际每组运行证据、Terra 监管结论、清理与有效提交。
+- 待完成：正常浏览器可用时重新进行 Playwright 会话导入及两小时验证；达到真实验收后再决定通用后端接入。现有实验组之间不得拼接。
