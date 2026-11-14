@@ -1,4 +1,5 @@
 import {errorText} from './view.js';
+import {SiteRegistry} from '../extraction/sites.js';
 
 /** Workflow coordinates injected browser, API, storage and view ports. */
 export class CaptureController {
@@ -18,7 +19,9 @@ export class CaptureController {
     let tab;try {tab=await this.browser.tabs.get(tabId);} catch {tab={id:tabId};}
     const stored=await this.forms.load(this.cfg,tabId);
     this.form=stored && (!tab.url || stored.url===tab.url)?stored:{tabId,url:tab.url || '',query:'',taskId:null,phase:'editing'};
-    this.tab=tab;this.view.page(tab);this.view.$('query').value=this.form.query;
+    this.tab=tab;this.showPage(tab.url?tab:{...tab,url:this.form.url,title:'原网页已关闭（查看已完成预览）'});this.view.$('query').value=this.form.query;
+    this.view.select('match-scope',this.form.match_scope || 'content');
+    this.view.restoreBinding(this.form.source_binding);
     this.view.ready(true);
     this.timer=setInterval(()=>{if(this.task && (['queued','running'].includes(this.task.state) || this.receiptPending))this.guard(()=>this.refresh())();},1200);
     if(this.form.phase==='prepared' && this.cfg.uid && await this.browser.permissions.contains({origins:[new URL(this.form.url).origin+'/*']})) await this.dispatch();
@@ -30,7 +33,16 @@ export class CaptureController {
   }
   bind() {
     const $=id=>this.view.$(id);
-    $('query').oninput=()=>{if(!this.form)return;this.generation++;this.form={...this.form,query:$('query').value,taskId:null,phase:'editing'};this.task=null;this.view.clear();this.view.$('results').replaceChildren();this.forms.write(this.cfg,this.form).catch(()=>{});this.view.status('条件已修改，点击抓取生成新预览。');};
+    const edit=()=>{if(!this.form || this.saving)return;this.generation++;this.receiptPending=false;this.form={...this.form,query:$('query').value,match_scope:$('match-scope').value,taskId:null,phase:'editing'};this.task=null;this.view.clear();this.view.$('results').replaceChildren();this.forms.write(this.cfg,this.form).catch(()=>{});this.view.status('条件已修改，点击抓取生成新预览。');};
+    $('query').oninput=edit;$('match-scope').onchange=edit;
+    const labelEdit=()=>{
+      if(!this.form || this.saving)return;
+      const kind=$('source-kind').value;this.view.$('source-label-field').hidden=kind==='public';
+      this.form.source_binding={kind,label:kind==='public'?'公开网页':$('source-label').value};
+      this.forms.write(this.cfg,this.form).catch(()=>{});
+      if(this.task)this.renderTask(this.task);
+    };
+    $('source-kind').onchange=labelEdit;$('source-label').oninput=labelEdit;
     // Called directly in the click handler to retain Chrome's permission user gesture.
     $('capture').onclick=this.guard(()=>this.capture());
     $('save').onclick=this.guard(()=>this.save());
@@ -48,6 +60,7 @@ export class CaptureController {
     $('large').onclick=this.guard(()=>this.browser.tabs.create({url:this.browser.runtime.getURL('workspace.html')+`?tab=${this.form.tabId}`}));
   }
   capture(choice) {
+    if(this.saving)return;
     if(!this.form) throw Error('worker_unavailable');
     const query=this.view.$('query').value.trim();
     if(!query) throw Error('query_required');
@@ -55,7 +68,7 @@ export class CaptureController {
     if(!this.cfg.uid) throw Error('backend_login_required');
     if(!/^https?:/.test(this.form.url)) throw Error('unsupported');
     this.generation++;this.task=null;this.view.clear();this.view.$('results').replaceChildren();
-    this.form={...this.form,query,choice,taskId:crypto.randomUUID(),phase:'prepared'};
+    this.form={...this.form,query,match_scope:this.view.$('match-scope').value || 'content',choice,taskId:crypto.randomUUID(),phase:'prepared'};
     const generation=this.generation, form={...this.form};
     const persisted=this.forms.write(this.cfg,form);
     const permitted=this.browser.permissions.request({origins:[new URL(this.form.url).origin+'/*']});
@@ -63,7 +76,7 @@ export class CaptureController {
     return Promise.all([persisted,permitted]).then(async([,allowed])=>{if(generation!==this.generation)return;if(!allowed)throw Error('permission_denied');await this.dispatch(form,generation);});
   }
   async dispatch(form={...this.form},generation=this.generation) {
-    await this.client.send({type:'extract.start',version:2,request_id:form.taskId,tabId:form.tabId,url:form.url,query:form.query,...(form.choice?{choice:form.choice}:{})});
+    await this.client.send({type:'extract.start',version:2,request_id:form.taskId,tabId:form.tabId,url:form.url,query:form.query,match_scope:form.match_scope || 'content',...(form.choice?{choice:form.choice}:{})});
     if(generation!==this.generation)return;
     this.form.phase='reading';await this.forms.write(this.cfg,this.form);await this.refresh();
   }
@@ -76,7 +89,7 @@ export class CaptureController {
       if(!this.form.taskId)return;
       const task=await this.client.send({type:'extract.get',id:this.form.taskId});
       if(generation!==this.generation)return;
-      this.task=task;this.view.task(task,{stale:task.query!==this.view.$('query').value.trim(),saving:this.saving,onChoice:id=>this.guard(()=>this.capture(id))()});
+      this.task=task;this.renderTask(task);
       if(task.state==='succeeded') {
         const r=task.result;const outcome=r.outcome?.status || (r.candidates.length?'matched':r.navigation?.length?'navigation_required':'no_match');
         this.view.status(outcome==='navigation_required'?'已定位课程，需打开详情才能读取所需内容。':outcome==='no_match'?'页面结构已识别，当前条件没有匹配内容。':`已按条件读取 ${r.candidates.length} 条，请核对预览及完整度。`);
@@ -99,7 +112,7 @@ export class CaptureController {
     const {tasks}=await this.client.send({type:'extract.list'}), root=this.view.$('history');root.replaceChildren();
     for(const t of tasks) {
       const row=this.view.node('p',`${t.query || '旧版预览'} · ${t.state} `);
-      if(t.schema_version===2)row.append(this.view.button('查看预览',this.guard(async()=>{this.generation++;this.form={tabId:t.tabId,url:t.url,query:t.query,taskId:t.id,phase:'reading'};this.view.$('query').value=t.query;this.view.page({url:t.url});await this.forms.write(this.cfg,this.form);await this.refresh(true);})));
+      if(t.schema_version===2)row.append(this.view.button('查看预览',this.guard(async()=>{this.generation++;this.form={tabId:t.tabId,url:t.url,query:t.query,match_scope:t.match_scope || 'content',taskId:t.id,phase:'reading'};this.view.$('query').value=t.query;this.view.select('match-scope',this.form.match_scope);this.showPage({url:t.url});await this.forms.write(this.cfg,this.form);await this.refresh(true);})));
       row.append(this.view.button('删除预览',this.guard(async()=>{await this.client.send({type:'extract.delete',id:t.id});if(this.form.taskId===t.id){this.form.taskId=null;this.task=null;this.view.clear();await this.forms.write(this.cfg,this.form);}await this.history();})));
       root.append(row);
     }
@@ -109,15 +122,24 @@ export class CaptureController {
     if(this.saving || !this.task)return;
     const task=this.task,query=this.view.$('query').value.trim(),generation=this.generation;
     if(query!==task.query)throw Error('query_changed');
+    if((task.intent?.match_scope || 'content')!==(this.view.$('match-scope').value || 'content'))throw Error('query_changed');
+    const binding=task.result?.source==='generic'?this.view.binding():null;
     try {const tab=await this.browser.tabs.get(this.form.tabId);if(tab.url!==this.form.url)throw Error('route_mismatch');}catch(e){if(e.message==='route_mismatch')throw e; /* closed original tab: frozen preview remains valid */}
     if(generation!==this.generation)return;
-    this.saving=true;this.view.$('save').disabled=true;
+    this.saving=true;this.view.$('save').disabled=true;this.view.$('query').disabled=true;this.view.$('capture').disabled=true;this.view.$('match-scope').disabled=true;
     try {
-      const result=await this.client.send({type:'extract.save',id:task.id,query});
+      const result=await this.client.send({type:'extract.save',id:task.id,query,...(binding?{source_binding:binding}:{})});
       if(generation!==this.generation)return;
       this.task={...task,submission:result};this.view.status('已进入持久提交队列，正在查询后端确认。');
       await this.refresh(true);
-    } finally {this.saving=false;}
+    } finally {this.saving=false;this.view.$('query').disabled=false;this.view.$('capture').disabled=false;this.showPage({url:this.form.url});if(this.task)this.renderTask(this.task);}
+  }
+  renderTask(task) {this.view.task(task,{stale:task.query!==this.view.$('query').value.trim() || (task.intent?.match_scope || task.result?.intent?.match_scope || 'content')!==(this.view.$('match-scope').value || 'content'),saving:this.saving,onChoice:id=>this.guard(()=>this.capture(id))()});}
+  showPage(tab) {
+    this.view.page({...tab,title:tab.title || (this.task?.result?.url && this.task.result.url===tab.url?this.task.result.title:'')});let source;
+    try {source=new SiteRegistry().resolve(tab.url).source;}catch {source='restricted';}
+    this.view.$('source-mode').textContent=source==='generic'?'通用 DOM 提取':source==='restricted'?'页面受限':'校园专用提取';
+    this.view.$('match-scope').disabled=source!=='generic';
   }
   dispose() {clearInterval(this.timer);}
 }

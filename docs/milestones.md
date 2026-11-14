@@ -38,3 +38,10 @@ P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期
 ### 2026-11-05 浏览器切片证据边界
 
 代码与契约：[插件说明](browser-extension.md)、[IC-BROWSER-001](architecture/browser-capture-v1.md)；复现：[合成结构夹具](../devtools/campus_fixture/README.md)。新增后端契约／HTTP 集成测试、真实 worker 的模拟 API 测试和 Flutter 差异 widget 测试。真实 Chrome 在 loopback 夹具完成所选保存、关页后台重读和原事项版本展示；这不等于真实 MUST 页面验收，不将 R0/R4 标记完成。个人执行记录和原始证据按工作区约定保存在 Git 忽略的 `docs/local-development/` 与 `data/`。
+
+
+### 2026-11-14 通用 DOM 与网页资料切片（0.7.0）
+
+F14 按用户最新要求进入当前阶段：普通 HTTP(S) 站点不再因未登记域名直接拒绝；字面条件提取匹配片段、双栏预览、来源标签隔离、整组资料明确保存及同 URL/条件版本更新。校园专用规则保留，不通过 generic 放宽账号、原生身份或摘要只预览限制。新增 [IC-WEB-CAPTURE-001](architecture/universal-web-capture-v1.md)，不启用通用后台监测。
+
+本轮 Node 92、后端相关65、Flutter 11通过，ruff/analyze/Web构建通过；真实 Chrome 在无适配标记的 loopback 页面提取2条并确认保存为资料37。HTTP集成验证资料36原记录更新及请求幂等；独立浏览器核验 Flutter 来源列表、片段与v4差异。解锁后已复验关闭原页、重载扩展、恢复预览及更新原资料37至v2；Flutter已展开该v2原文差异。在途回执丢失仍由模拟 API 覆盖。Gmail生产 DOM与所有页面类型不在通过声明中。个人命令与证据保留在本地忽略目录，不把本里程碑解释成所有网站验收。

@@ -73,3 +73,5 @@ Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项�
 事项详情额外返回 `browser_monitor` 和 `source_fields`；版本 changed 字典可含 `source_fields` 的前后值。个人 note/deadline_override 继续经原 `/api/items/{id}/state` 管理，不随来源覆盖。新注册账号不再自动订阅公共演示来源；演示 seed 仍显式创建演示订阅。
 
 2026-11-11：[条件先行读取／预览契约 v2](../architecture/page-extraction-v1.md)，读取／预览不调用网络保存接口。只有明确保存才走上述 captures，recipe.version=2、strategy=snapshot 表示仅快照保存，后端强制 supported=false、enabled=false，不进入调度。v1 recipe 与信封 schema_version=1 保持兼容；recipe 改变仍需显式重绑，未自动迁移。事项详情中的监测布尔字段不再返回数据库整数。
+
+2026-11-14：[通用 DOM 资料契约](../architecture/universal-web-capture-v1.md) 增加 POST `/api/v1/web-captures`、GET `/api/v1/web-captures/{request_id}`、GET `/api/v1/web-captures`。整组片段作为一份资料，按 owner＋来源标签＋URL＋条件＋范围合并，明确保存后更新版本，不产生监测配置。信封 schema_version=1，提交回执的 candidate_ids 必须覆盖全部片段，results 恰有一项集合结果；读取回执仅对 owner 可见。事项字段 `web_capture` 提供来源、条件、范围、片段及依据，兼容旧事项的 null。资料列表返回当前 owner 最近100份的摘要，不返回片段正文。

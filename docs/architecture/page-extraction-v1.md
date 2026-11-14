@@ -17,7 +17,7 @@
 | 接口用途 | 先确定用户条件和页面范围，只提取匹配内容；明确保存全部预览结果 |
 | 通信方式 | 扩展 runtime message；内容脚本处于 isolated world；不使用 AX、debugger、OCR 或学校私有 API |
 
-扩展内部消息版本与后端信封版本独立。保存复用 [IC-BROWSER-001](browser-capture-v1.md) 的 schema_version=1 和 snapshot recipe v2，不增加新的网络端点。原 v1 无条件 channel/section 读取请求被拒绝；历史草稿只读，不自动迁入新保存流程。既有监测 recipe v1 仍兼容。
+扩展内部消息版本与后端信封版本独立。校园原生事项保存复用 [IC-BROWSER-001](browser-capture-v1.md) 的 schema_version=1 和 snapshot recipe v2，不增加新的网络端点。原 v1 无条件 channel/section 读取请求被拒绝；历史草稿只读，不自动迁入新保存流程。既有监测 recipe v1 仍兼容。
 
 ## 2. 通信协议
 
@@ -105,3 +105,11 @@ Timeline 按当前已加载的活动单元返回 timeline_event（原生事件�
 如果课程概览中有可见原生 coursename 链接却被未知内容边界阻断，主范围读取返回 unsupported_dom，不能仅用最近访问课程建立部分索引后报告成功或零匹配。明确指定右侧区块的读取不受无关左栏结构失败影响。
 
 保存、幂等、身份和网络契约不变。混合入口/摘要预览仍禁止整批保存；用户缩小为“课程名的作业”或进入原文详情后重新抓取。此修订先于代码，现已按此实现；分层验证与限制在本轮本地报告中记录。
+
+## 7. 通用 DOM 扩展（2026-11-14）
+
+见 [IC-WEB-CAPTURE-001](universal-web-capture-v1.md)。runtime version=2 兼容增加 match_scope=content/title，默认 content；通用域名使用 LiteralIntentParser，校园专用语法不变。任务记录 match_scope；泛站候选类型 web_fragment，entity_id=null、target=null，account.state=unknown，独立 FragmentPipeline 校验，不通过校园 CandidateFactory 冒造身份。
+
+extract.save 在 generic 结果时额外接收 source_binding={kind,label}，首次提交前持久冻结；不同标签重试报 idempotency_conflict。只接受任务冻结正文，不接受 UI 新正文或子集。原生结果拒绝此字段，仍走 v1 captures。通用走新的 web-captures 持久 outbox；原请求即使保存回执丢失也复用任务 UUID。
+
+匹配定位是当前 DOM 本地遍历，不声称从未读取非匹配文本；边界保证非匹配正文不序列化、不上传。主 frame＋开放 Shadow DOM，嵌入页面覆盖明确提示。已知校园域名不回退 generic；不扩大其身份／账号或只预览策略。

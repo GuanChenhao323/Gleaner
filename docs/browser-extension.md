@@ -1,8 +1,24 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-14，扩展 **0.6.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-14，扩展 **0.7.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
 
-## 当前交互
+## 通用网页提取（0.7.0）
+
+普通 HTTP(S) 页面使用通用 DOM 提取，不再因域名没有登记而直接拒绝。已知校园域名仍优先使用专用适配器，其错误与仅预览限制不会回退绕过。具体网络契约：[IC-WEB-CAPTURE-001](architecture/universal-web-capture-v1.md)。
+
+1. 当前页点击插件，输入字面关键词／短语；普通网页可选“正文与列表”或“仅标题与链接标题”。不做自由自然语言问答。
+2. 点“提取匹配内容”，核对结果；点“展开双栏预览”在独立页左侧修改条件、右侧核对原文依据。条件或范围修改后旧预览不可保存。
+3. 普通页片段允许保存。选择“公开网页”或输入私人来源标签；标签只隔离资料，不证明网站账号已认证。切换网页账号时换标签。一次保存整组，不逐条勾选。
+4. 同工作台账号、来源标签、完整 URL、规范化条件、匹配范围组成一份资料。重新提取并明确保存后更新版本；不会按片段位置冒认原生事项，也不自动监测。工作台“信息源→网页资料快照”可找到资料、原文和变化。
+5. 提交持久入队和后端确认分别显示；通用回执必须逐一确认 fragment ID，再显示单份资料的新增／更新／已有及版本。worker 回收后的已完成预览可恢复；未完成读取明确中断。
+
+遍历当前主 frame 可见文本定位命中，只序列化匹配的有限段落／列表行／表格行，支持开放 Shadow DOM；不读取隐藏内容、输入值、编辑草稿、脚本样式。不自动打开详情、翻页或读取 iframe、关闭 Shadow DOM、图片／画布。列表摘要不等于邮件正文。单片段≤20000字、预览≤100条、保存≤30个片段且整组格式化正文≤20000字；超限拒绝而不静默截断。
+
+通用本地复现：启动结构夹具后打开 `/generic`（无适配标记），查询“项目会议”匹配两行，排除第三行、隐藏文本和输入值；保存整组后在管理台制造变化，回原页刷新、重新提取并明确保存。`node extension/tests/generic-live.mjs` 是模拟 DOM＋真实本地 HTTP；不是 Chrome 权限或 Gmail 验收。
+
+对象边界：FragmentVisibility、FragmentText、FragmentBoundary、GenericFragmentExtractor 分别处理资格／投影／块边界／匹配；LiteralIntentParser 保持普通查询原词；FragmentPipeline、WebCapturePayload 校验预览／提交；WebCaptureContract、WebCaptureService 管理网络校验与集合身份；既有 Pipeline 管理事项和版本。没有新增第三方运行依赖、浏览器权限或 AX 支持。最低 Chrome 110 不变。
+
+## 校园页面交互（保留原生身份规则）
 
 1. Flutter 信息源提供学院公告／学生系统、教师信息、Moodle 三个真实入口。学生系统、Moodle 分别在原站自行登录；教师网页公开。不在 Campus Radar 输入学校密码。旧 localhost 演示订阅另列，不等于学校网站已连接。
 2. 在原网页点插件，输入想抓取的内容，例如 `人工智能`、`Timeline`、`网络编程的作业`、`奖学金公告`、`这位老师的邮箱和办公室`。先输入条件，再点“抓取匹配内容”。无需打开大预览页才能输入。

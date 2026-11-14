@@ -119,6 +119,11 @@ class Api {
     if (result['monitors'] is! List) throw ApiException(502, 'invalid_response', '来源列表格式异常');
     return (result['monitors'] as List).map((m) => Map<String, dynamic>.from(m as Map)).toList();
   }
+  Future<List<Map<String, dynamic>>> webCaptures() async {
+    final result = await _browser('GET', '/api/v1/web-captures');
+    if (result['collections'] is! List) throw ApiException(502, 'invalid_response', '网页资料列表格式异常');
+    return (result['collections'] as List).map((m) => Map<String, dynamic>.from(m as Map)).toList();
+  }
   Future<void> browserControl(int id, int revision, bool enabled) async { await _browser('PUT', '/api/v1/monitors/$id', data: {'revision': revision, 'enabled': enabled}); }
   Future<void> browserCheck(int id) async { await _browser('POST', '/api/v1/monitors/$id/check', data: {}); }
   Future<void> browserRemove(int id) async { await _browser('DELETE', '/api/v1/monitors/$id'); }

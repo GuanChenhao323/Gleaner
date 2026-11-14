@@ -44,6 +44,17 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         path = u.path
         cookie = self.headers.get("Cookie", "")
+        if path == "/generic":
+            # No campus marker or account attribute: exercises the default
+            # unregistered-site path, including mail-shaped nested row content.
+            return self.send(f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>通用网页提取 · 合成邮件列表</title>
+<style>body{{font:16px system-ui;max-width:980px;margin:40px auto;padding:16px;background:#f5faf7;color:#183c32}}[role=row]{{padding:24px;border:1px solid #b8cfc0;margin:12px;background:white;border-radius:10px}}span{{margin-right:20px}}</style></head>
+<body><header><h1>通用 DOM 合成列表</h1><p>无站点适配标记；全部是虚构数据。不是 Gmail 验收。</p></header>
+<main role="grid"><div role="row"><span>林同学</span><span>项目<b>会议</b>：周五讨论，模拟版本 {STATE["revision"]}。</span></div>
+<div role="row"><span>林同学</span><span>项目会议：请携带方案摘要。</span></div>
+<div role="row"><span>其他同学</span><span>无关第三条，不应随条件保存。</span></div></main>
+<p hidden>项目会议的隐藏内容不得读取。</p><input placeholder="输入框不会被提取" value="项目会议的敏感输入值">
+<p><a href="/admin">模拟管理台：改变版本后重新提取并保存</a></p></body></html>""")
         account = (
             "student-b"
             if "fixture_account=student-b" in cookie

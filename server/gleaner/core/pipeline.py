@@ -87,6 +87,7 @@ def item_public(
         "important_change": bool(attrs.get("important_change")),
         "summary_by": attrs.get("summary_by", "rule"),
         "source_fields": attrs.get("raw_fields", {}),
+        "web_capture": attrs.get("web_capture"),
     }
     if source is not None:
         out["source"] = {

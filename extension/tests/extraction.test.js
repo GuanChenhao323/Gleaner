@@ -96,7 +96,7 @@ test('timetable filters course and retains missing date/week context without inf
 test('login, loading shells, unsupported source and changed route/account are distinct failures',()=>{
   assert.throws(()=>rendered('<input type="password">').read('网络编程的作业'),/need_login/);
   assert.throws(()=>rendered('<div id="app">正在加载…</div>').read('作业'),/page_not_ready/);
-  assert.throws(()=>rendered('<main>body</main>','https://unknown.test/').read('作业'),/unsupported/);
+  assert.equal(rendered('<main>body</main>','https://unknown.test/').read('作业').outcome.status,'no_match');
   assert.throws(()=>assertSamePage({url,account:{native:'a'}},{url,account:{native:'b'}}),/account_mismatch/);
   assert.throws(()=>assertSamePage({url},{url:url+'#next'}),/route_mismatch/);
   assert.throws(()=>extract(rendered(courses()),'奖学金公告'),/wrong_section/);

@@ -85,3 +85,25 @@ test('config and draft queries remain responsive while monitor navigation is pen
     const tasks=await worker.send({type:'extract.list'});assert.deepEqual(tasks.value.tasks,[]);
   } finally {clearTimeout(timer);release();await worker.send({type:'status'});}
 });
+
+test('generic outbox survives popup loss, closed source and worker replacement with the same collection receipt',async()=>{
+  const id=crypto.randomUUID(),url='https://unregistered.example.test/inbox#loaded',text='项目会议的列表摘要';
+  const fragment={candidate_id:'candidate-1',record_type:'web_fragment',save_allowed:true,raw:{title:'项目会议',text,fields:{}},evidence:[{channel:'dom',locator:'div:nth-child(1)',text}],context:{frame_url:url,boundary:'table_row',completeness:'fragment',matched_by:'literal'}};
+  const task={id,owner:cfg.server+'|1',schema_version:2,state:'succeeded',url,tabId:999,query:'项目会议',expires_at:Date.now()+3600000,result:{source:'generic',url,title:'虚构列表',observed_at:Date.now(),intent:{query:'项目会议',match_scope:'content'},candidates:[fragment]}};
+  const data={config:cfg,device:'device-a',salt:'salt-a',extractionDrafts:[task]},committed=new Map();let lost=true;
+  const fetcher=async(url,options)=>{
+    if(url.endsWith('/claim'))return json(envelope({job:null}));
+    assert.ok(url.endsWith('/web-captures'));const body=JSON.parse(options.body);
+    assert.equal(body.binding,undefined);assert.equal(body.fragments.length,1);
+    if(!committed.has(body.request_id))committed.set(body.request_id,envelope({request_id:body.request_id,candidate_ids:['candidate-1'],results:[{candidate_id:'collection',capture_id:crypto.randomUUID(),item_id:91,source_id:92,version:1,fragment_count:1,status:'new'}]}));
+    if(lost){lost=false;throw Error('lost acknowledgement');}return json(committed.get(body.request_id));
+  };
+  let worker=await boot(data,fetcher);
+  const message={type:'extract.save',id,query:'项目会议',source_binding:{kind:'labeled',label:'模拟学校邮箱'}};
+  assert.equal((await worker.send(message)).ok,true);await worker.send({type:'status'});
+  assert.equal(data.outbox[0].state,'pending');data.outbox[0].next=0;
+  worker=await boot(data,fetcher);const status=await worker.send({type:'status'});
+  assert.equal(status.value.entries[0].state,'confirmed');assert.equal(committed.size,1);
+  assert.equal((await worker.send(message)).value.request_id,id);assert.equal(data.outbox.length,1);
+  assert.equal((await worker.send({type:'extract.get',id})).value.result.candidates[0].raw.text,text);
+});

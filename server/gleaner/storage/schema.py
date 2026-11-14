@@ -233,6 +233,19 @@ MIGRATIONS: list[str] = [
 
 # Browser capture v1: private entity identity + backend-owned schedule and durable leases.
 SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS web_collections (
+        id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        identity_key TEXT NOT NULL, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        created_at REAL NOT NULL, UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS web_capture_requests (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        request_id TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL,
+        created_at REAL NOT NULL, PRIMARY KEY(owner_id, request_id)
+    )""",
+]
+
+SCHEMA += [
     """CREATE TABLE IF NOT EXISTS browser_requests (
         owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         request_id TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL,

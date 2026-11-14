@@ -14,6 +14,7 @@ import '../../widgets/common.dart';
 import '../sources/browser_monitors.dart';
 import 'source_changes.dart';
 import 'item_load_failure.dart';
+import 'web_capture_details.dart';
 
 class ItemDetail extends ConsumerStatefulWidget {
   final int id;
@@ -70,7 +71,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
       children: [
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Pill(kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
+          Pill(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
           if (item.course.isNotEmpty) CourseTag(item.course),
           if (item.priority != 'low') Pill('${priorityLabel(item.priority)} · ${item.score} 分', color: item.priority == 'urgent' ? Brand.urgent : cs.primary),
           if (item.deleted) Pill('来源已删除', color: cs.error, icon: Icons.delete_outline),
@@ -128,6 +129,8 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             ]),
           ),
         ],
+        if (item.raw['web_capture'] is Map)
+          WebCaptureDetails(Map<String, dynamic>.from(item.raw['web_capture'] as Map)),
         if (item.body.isNotEmpty) ...[
           const SectionHeader('原文内容'),
           Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(item.body, style: t.textTheme.bodyMedium?.copyWith(height: 1.7)))),
@@ -151,7 +154,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             ListTile(
               leading: Icon(sourceIcon(item.source?.type ?? '')),
               title: Text(item.source?.name ?? '未知来源'),
-              subtitle: Text('最后成功检查：${relative(tsToDate(item.source?.lastSuccessAt))}'),
+              subtitle: Text('${item.raw['web_capture'] is Map ? '最后保存' : '最后成功检查'}：${relative(tsToDate(item.source?.lastSuccessAt))}'),
             ),
             if (item.channels.length > 1)
               ListTile(
@@ -200,7 +203,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       backgroundColor: widget.embedded ? cs.surface : null,
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(kindLabel(item.kind)),
+        title: Text(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind)),
         actions: [
           IconButton(
             tooltip: item.state.starred ? '取消收藏' : '收藏',

@@ -1,5 +1,6 @@
 import {SiteRegistry, safeUrl} from './sites.js';
 import {CandidateFactory, uniqueCandidates} from './candidates.js';
+import {FragmentPipeline} from './fragments.js';
 
 /** Validate the scoped-reader port and normalize it into the existing save contract. */
 export class ExtractionPipeline {
@@ -7,6 +8,7 @@ export class ExtractionPipeline {
   extract(snapshot,intent) {
     const site=this.sites.resolve(snapshot.url,snapshot.fixture);
     if(snapshot.login) throw Error('need_login');
+    if(site.source==='generic')return new FragmentPipeline().extract(snapshot,intent);
     if(!Array.isArray(snapshot.records) || snapshot.intent?.query!==intent.query || snapshot.records.length>100) throw Error('invalid_snapshot');
     const account=site.private?snapshot.account:{state:'public',native:'public'};
     const factory=new CandidateFactory({...snapshot,account},site.source);

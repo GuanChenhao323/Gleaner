@@ -81,3 +81,20 @@ test('preview-only guidance leads contacts and timeline to appropriate next acti
   h.view.task({schema_version:2,state:'succeeded',result:{candidates:[c]}});assert.ok(!h.view.$('preview').textContent.includes('课程名的作业'));assert.equal(h.view.$('preview').querySelector('article').querySelectorAll('pre').length,2);assert.equal(h.view.$('save').textContent,'联系信息仅预览');assert.equal(h.view.$('save').disabled,true);
   h.view.task({schema_version:2,state:'succeeded',result:{candidates:[{...c,record_type:'timeline_event',save_reason:'timeline_preview_only'}]}});assert.match(h.view.$('preview').textContent,/进入活动详情/);assert.equal(h.view.$('save').textContent,'仅预览，请打开活动详情');assert.equal(h.view.$('save').disabled,true);
 });
+
+test('generic source label gates save, while changing matching scope invalidates the old preview',async()=>{
+  const h=await harness({tabGet:async()=>({id:1,url:'https://unknown.example.test/'})});
+  h.view.$('query').value='项目会议';await h.controller.capture();
+  h.controller.task.result.source='generic';h.controller.task.result.candidates.forEach(c=>c.record_type='web_fragment');h.controller.renderTask(h.controller.task);
+  assert.equal(h.view.$('save').disabled,true);
+  h.view.select('source-kind','labeled');h.view.$('source-kind').onchange();
+  h.view.$('source-label').value='学校邮箱';h.view.$('source-label').oninput();assert.equal(h.view.$('save').disabled,false);
+  h.view.select('match-scope','title');h.view.$('match-scope').onchange();assert.equal(h.controller.task,null);assert.equal(h.view.$('save').disabled,true);
+});
+
+test('reopening after original tab closes restores preview instead of dereferencing absent page metadata',async()=>{
+  const h=await harness();h.view.$('query').value='网络编程的作业';await h.controller.capture();
+  h.controller.browser.tabs.get=async()=>{throw Error('No tab with id');};
+  const reopened=new CaptureController({browser:h.controller.browser,client:h.controller.client,forms:h.forms,view:h.view,location:{href:'chrome-extension://test/workspace.html?tab=1'}});
+  await reopened.init();try {assert.equal(reopened.task.state,'succeeded');assert.match(h.view.$('page').textContent,/原网页已关闭/);assert.equal(h.view.$('save').disabled,false);await reopened.save();assert.match(h.view.$('results').textContent,/新增 2/);}finally {reopened.dispose();}
+});

@@ -72,11 +72,11 @@
     metadata() {
       const local = ['localhost','127.0.0.1'].includes(location.hostname);
       const fixture = local ? document.querySelector('meta[name="campus-radar-fixture"]')?.content || '' : '';
-      const source = fixture || ({'moodle.must.edu.mo':'moodle','student-wmweb.must.edu.mo':'student','infoportal-web.must.edu.mo':'student','classtimetable-coes-wmweb.must.edu.mo':'student','fie.must.edu.mo':'fie'})[location.hostname];
+      const source = (['moodle','student','fie'].includes(fixture)?fixture:'') || ({'moodle.must.edu.mo':'moodle','student-wmweb.must.edu.mo':'student','infoportal-web.must.edu.mo':'student','classtimetable-coes-wmweb.must.edu.mo':'student','fie.must.edu.mo':'fie'})[location.hostname] || 'generic';
       const accountNode = document.querySelector('body[data-account-id],body[data-userid],.usermenu[data-userid],.usermenu [data-userid]');
       const account = accountNode?.getAttribute('data-account-id') || accountNode?.getAttribute('data-userid') || (() => { const a = document.querySelector('.usermenu a[href*="/user/profile.php"]'); return a ? new URL(a.getAttribute('href'),location.href).searchParams.get('id') || '' : ''; })();
-      const login = /\/(login|sso|auth)(\/|\.|$)/i.test(location.pathname) || [...document.querySelectorAll('input[type="password"]')].some(n=>this.visible(n,true));
-      return {url:location.href,title:document.title,source,fixture,account:{state:source==='fie'?'public':account?'known':'unknown',native:source==='fie'?'public':account},login,frames:document.querySelectorAll('iframe').length,ready:document.readyState};
+      const login = (source!=='generic' && /\/(login|sso|auth)(\/|\.|$)/i.test(location.pathname)) || [...document.querySelectorAll('input[type="password"]')].some(n=>this.visible(n,true));
+      return {url:location.href,title:document.title,source,fixture,account:{state:source==='fie'?'public':source!=='generic' && account?'known':'unknown',native:source==='fie'?'public':source==='generic'?'':account},login,frames:document.querySelectorAll('iframe').length,ready:document.readyState};
     }
     labels(root, mapping) {
       const out = {};

@@ -29,6 +29,7 @@ from ..storage.db import Database, loads
 from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
 from .templates import get_template, list_templates
+from .web_captures import WebCaptureService
 
 Publish = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -126,6 +127,7 @@ class API:
     def register(self, r: Router) -> None:
         a = self.authed
         BrowserMonitorService(self.db, self.pipeline).register(r, a)
+        WebCaptureService(self.db, self.pipeline).register(r, a)
         r.add("GET", "/health", self.health)
         r.add("GET", "/api/health", self.health)
         r.add("POST", "/api/auth/code", self.send_code)

@@ -17,8 +17,8 @@ export class SiteRegistry {
       'fie.must.edu.mo': 'fie',
       'moodle.must.edu.mo': 'moodle',
     })[url.hostname];
-    if (!source || (!local && url.protocol !== 'https:')) throw Error('unsupported');
-    return { source, local, private: source !== 'fie', url: url.href };
+    if (source && !local && url.protocol !== 'https:') throw Error('unsupported');
+    return { source: source || 'generic', local, private: source ? source !== 'fie' : null, url: url.href };
   }
 }
 

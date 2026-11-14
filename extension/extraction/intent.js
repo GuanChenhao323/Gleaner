@@ -6,6 +6,16 @@ export function normalize(value) {
   return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s\u200b]+/g, ' ').trim().split('').map(c => map.get(c) || c).join('');
 }
 
+/** Unknown sites use literal matching: school vocabulary is never stripped. */
+export class LiteralIntentParser {
+  parse(value, matchScope='content') {
+    if(typeof value!=='string' || !value.trim()) throw Error('query_required');
+    if(value.trim().length>200) throw Error('query_too_long');
+    if(!['content','title'].includes(matchScope)) throw Error('invalid_request');
+    return {version:2,query:value.trim(),mode:'literal',match_scope:matchScope,kind:'auto',target:value.trim(),keyword:'',fields:[],current:false,all:false};
+  }
+}
+
 export class IntentParser {
   parse(value) {
     if (typeof value !== 'string' || !value.trim()) throw Error('query_required');

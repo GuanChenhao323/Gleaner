@@ -11,6 +11,7 @@ import '../../core/store.dart';
 import '../../widgets/common.dart';
 import 'browser_monitors.dart';
 import 'campus_source_entries.dart';
+import 'web_captures.dart';
 
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
@@ -20,7 +21,7 @@ class SourcesPage extends ConsumerWidget {
     final sources = ref.watch(sourcesProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('信息源'), actions: [
-        IconButton(tooltip: '刷新状态', icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(sourcesProvider)),
+        IconButton(tooltip: '刷新状态', icon: const Icon(Icons.refresh), onPressed: () {ref.invalidate(sourcesProvider);ref.invalidate(webCapturesProvider);}),
         const SizedBox(width: 8),
       ]),
       floatingActionButton: FloatingActionButton.extended(
@@ -35,6 +36,7 @@ class SourcesPage extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
           children: [
             const CampusSourceEntries(),
+            const WebCapturesPanel(),
             const BrowserMonitorsPanel(),
             if (list.isEmpty) const Text('还没有保存的信息。使用插件输入条件、预览并保存后，记录与来源会出现在这里。模拟模板仅供演示，可由下方添加入口主动选择。'),
             if (list.any((s) => s.type != 'browser')) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('已有订阅（含本地演示／旧采集来源；不代表上方学校网站已接通）')),

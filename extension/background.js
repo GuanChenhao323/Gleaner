@@ -27,7 +27,7 @@ async function accountKey(adapter, account) {
 }
 const domReader = new DomPageReader(chrome);
 const extraction = new PageExtractionService({ browser: chrome, repository: new DraftRepository(storage),
-  reader: domReader, config, accountKey, enqueue: enqueueCapture });
+  reader: domReader, config, accountKey, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture });
 // Content scripts have no reason to access Campus Radar tokens or private drafts.
 storage.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
 async function invoke(tabId, method, arg) {
@@ -189,6 +189,13 @@ async function enqueueCapture(cfg, m) {
   await storage.set({ intents: [...intents, intent] });
   queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); }).catch(() => {}));
   return { request_id: intent.id, device_id: id };
+}
+async function enqueueWebCapture(cfg,payload) {
+  const {device:id}=await device();
+  // The atomic outbox write is the durable submission, before acknowledgement.
+  await box.add(cfg,'/api/v1/web-captures',{...payload,device_id:id});
+  queueMicrotask(()=>serial(()=>box.flush(cfg)).catch(()=>{}));
+  return {request_id:payload.request_id,device_id:id};
 }
 async function processIntents(cfg) {
   const intents = (await storage.get('intents')).intents || [];

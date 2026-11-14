@@ -5,9 +5,15 @@ export class Outbox {
   async all() { return (await this.storage.get('outbox')).outbox || []; }
   async add(cfg, path, body) {
     const all = await this.all();
+    let signature;
+    if(body.request_id) {
+      signature=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(body))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+      const previous=all.find(r=>r.scope===scope(cfg) && r.path===path && r.request_id===body.request_id);
+      if(previous && previous.signature) {if(previous.signature!==signature)throw Error('idempotency_conflict');return previous.id;}
+    }
     const rows = [...all.filter(r => r.state !== 'confirmed'), ...all.filter(r => r.state === 'confirmed').slice(-15)];
     if (rows.length >= 60 || JSON.stringify(rows).length + JSON.stringify(body).length > 2000000) throw Error('outbox_full');
-    const entry = { id: crypto.randomUUID(), request_id: body.request_id, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
+    const entry = { id: crypto.randomUUID(), request_id: body.request_id, signature, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
     await this.storage.set({ outbox: [...rows, entry] });
     return entry.id;
   }

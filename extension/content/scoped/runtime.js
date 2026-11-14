@@ -6,6 +6,7 @@
     const dom=new R.DomAccess(), meta=dom.metadata();
     if(meta.login) throw Error('need_login');
     if(!meta.source) throw Error('unsupported');
+    if(meta.source!=='generic' && intent.match_scope==='title')throw Error('unsupported_query');
     if(meta.ready==='loading' || [...document.querySelectorAll('#app,#root,main,[aria-busy="true"]')].some(n=>dom.visible(n) && (n.getAttribute('aria-busy')==='true' || !n.firstElementChild && /^(loading|正在加载|載入中)[.…\s]*$/i.test([...n.childNodes].filter(c=>c.nodeType===3).map(c=>c.textContent.slice(0,80)).join('').trim())))) throw Error('page_not_ready');
     const adapter=R.adapters.find(a=>a.supports(meta)); if(!adapter) throw Error('unsupported_dom');
     const found=adapter.run(dom,meta,intent,choice);

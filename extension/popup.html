@@ -1,20 +1,33 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus Radar · 按条件抓取</title><link rel="stylesheet" href="workspace.css"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campus Radar · 网页提取</title><link rel="stylesheet" href="workspace.css"></head>
 <body class="popup"><main>
-<header><h1>Campus Radar</h1><p id="account">正在连接…</p></header>
-<details id="connection"><summary>Campus Radar 连接设置</summary>
+<header class="app-header"><div><p class="eyebrow">CAMPUS RADAR</p><h1>网页提取</h1></div><button id="workbench" type="button">打开工作台 ↗</button></header>
+<details id="connection"><summary>连接设置 · <span id="account">正在连接…</span></summary>
 <label>后端地址<input id="server" value="http://localhost:8080" type="url"></label>
-<div id="login-fields"><p>这里登录工作台账号。学校账号请在学校原站自行登录。</p>
+<div id="login-fields"><p>这里登录工作台账号。网站账号请在原站自行登录。</p>
 <label>邮箱<input id="email" type="email" autocomplete="username"></label><label>密码<input id="password" type="password" autocomplete="current-password"></label>
 <button id="allow" type="button">允许连接</button><button id="login" type="button">登录 Campus Radar</button></div><button id="logout" type="button" hidden>退出工作台账号</button></details>
-<p id="page" class="page">当前网页</p>
-<label for="query">想抓取什么？</label><input id="query" disabled type="text" maxlength="200" placeholder="例如：网络编程的作业" autocomplete="off">
-<p class="muted">支持课程名、标题关键词、人员字段。Moodle 例：人工智能、Timeline、Moodle Support 的邮箱、网络编程的作业；其他例：奖学金公告、这位老师的邮箱。</p>
-<button id="capture" disabled class="primary" type="button">抓取匹配内容</button>
-<p class="muted">仅当前页已加载内容；不自动翻页或进入其他课程。未匹配时不会改为整页采集。</p>
-<p id="status" role="status" aria-live="polite"></p><section id="preview" aria-label="匹配预览"></section>
-<button id="save" class="primary" type="button" disabled>保存匹配结果</button><p class="muted">先核对预览，再一次保存全部匹配项。保存快照不会自动开启监测。</p>
-<section id="results" aria-label="后端确认结果"></section>
-<div class="actions"><button id="refresh" type="button">刷新任务与回执</button><button id="retry" type="button">重试未确认提交</button><button id="drafts" type="button">管理本地预览</button><button id="large" type="button">展开预览</button><button id="workbench" type="button">打开工作台</button></div>
-<div id="history"></div><p class="muted">抓取完成前请保留原网页。读取任务及预览在本地保留 24 小时；后台被回收时，未完成读取会明确标为中断，需重新抓取。提交进入持久队列后可关闭弹窗。</p>
+<div class="capture-layout">
+<section class="conditions" aria-label="提取条件">
+<p class="eyebrow">01 · 设置条件</p><h2>从当前网页提取</h2>
+<div class="source-card"><span id="source-mode" class="badge">当前网页</span><p id="page" class="page">正在获取来源…</p></div>
+<label for="query">你想提取什么？</label><input id="query" disabled type="text" maxlength="200" placeholder="输入关键词或短语，例如：项目会议" autocomplete="off">
+<p class="muted" id="query-help">普通网页按字面关键词／短语匹配，不是自然语言问答。校园页面保留课程、Timeline、人员字段等专用规则。</p>
+<label for="match-scope">匹配位置</label><select id="match-scope"><option value="content">正文与列表</option><option value="title">仅标题与链接标题</option></select>
+<p id="scope-help" class="muted">只读取当前已加载内容，不自动打开详情、翻页或下载附件。</p>
+<button id="capture" disabled class="primary full" type="button">提取匹配内容</button>
+<div class="scope-note"><strong>范围由你决定</strong><p>没有匹配时不会改为整页采集。修改条件后，旧预览立即失效。普通网页片段不代表完整文章或邮件。</p></div>
+<button id="large" type="button" class="full">展开双栏预览 ↗</button>
+</section>
+<section class="review" aria-label="核对并保存">
+<div class="review-heading"><div><p class="eyebrow">02 · 核对与保存</p><h2>匹配预览</h2></div><span class="badge">仅当前已加载内容</span></div>
+<p id="status" role="status" aria-live="polite">输入条件，提取后在这里核对原文。</p>
+<section id="preview" aria-label="匹配预览"><div class="empty-state"><span>⌕</span><h3>只提取你需要的部分</h3><p>先输入条件，再查看匹配片段与原文依据。</p></div></section>
+<div class="save-area"><div id="source-binding" hidden>
+<label for="source-kind">这份资料来自哪个来源身份？</label><select id="source-kind"><option value="">请选择来源身份</option><option value="labeled">私人来源 · 自定义标签</option><option value="public">公开网页</option></select>
+<label id="source-label-field" for="source-label">来源标签<input id="source-label" maxlength="80" placeholder="例如：个人邮箱、学校邮箱" autocomplete="off"></label>
+<p class="muted">同标签、完整 URL、条件和范围更新同一份资料。标签仅用于隔离，不证明网站账号已认证；切换网站账号时请换标签。整组匹配保存为一份资料，明确保存后才更新版本。</p></div><button id="save" class="primary full" type="button" disabled>保存匹配结果</button><p class="muted">核对后一次保存；不会自动开启监测。</p><section id="results" aria-label="后端确认结果"></section></div>
+</section></div>
+<footer><div class="actions"><button id="refresh" type="button">刷新任务与回执</button><button id="retry" type="button">重试未确认提交</button><button id="drafts" type="button">本地预览记录</button></div>
+<div id="history"></div><p class="muted">读取完成前请保留原网页。预览在本地保留 24 小时；读取中后台被回收会标为中断。提交进入持久队列后可关闭弹窗，重新打开查询确认结果。</p></footer>
 </main><script type="module" src="popup.js"></script></body></html>
