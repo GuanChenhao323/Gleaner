@@ -37,9 +37,9 @@ export class Outbox {
       await this.storage.set({ outbox: rows });
     }
   }
-  async retry(cfg) {
+  async retry(cfg, requestId) {
     const rows = await this.all();
-    for (const row of rows) if (row.scope === scope(cfg) && ['failed', 'auth_required'].includes(row.state)) Object.assign(row, { state: 'pending', attempts: 0, next: 0 });
+    for (const row of rows) if (row.scope === scope(cfg) && (!requestId || row.request_id === requestId) && (['failed', 'auth_required'].includes(row.state) || requestId && row.state === 'pending' && row.error)) Object.assign(row, { state: 'pending', attempts: 0, next: 0 });
     await this.storage.set({ outbox: rows });
   }
 }

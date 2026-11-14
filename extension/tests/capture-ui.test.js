@@ -13,8 +13,8 @@ async function harness({permission=async()=>true,tabGet}={}) {
   const store=storage(),forms=new CaptureFormStore(store),view=new CaptureView(document),messages=[];
   let task;
   const browser={tabs:{query:async()=>[{id:1}],get:tabGet || (async()=>({id:1,url:'https://moodle.must.edu.mo/my/',title:'合成面板'}))},permissions:{request:permission,contains:async()=>true}};
-  const client={send:async m=>{messages.push(m);if(m.type==='config')return cfg;if(m.type==='extract.start'){task={id:m.request_id,schema_version:2,state:'succeeded',query:m.query,result:{intent:{query:m.query},candidates:[candidate(1),candidate(2)]}};return {id:task.id};}if(m.type==='extract.get')return structuredClone(task);if(m.type==='extract.save'){task.submission={request_id:task.id};return task.submission;}if(m.type==='status')return {entries:[{request_id:task.id,state:'confirmed',response:{results:[{status:'new',item_id:11},{status:'new',item_id:12}]}}],intents:[]};if(m.type==='extract.list')return {tasks:[]};}};
-  const controller=new CaptureController({browser,client,forms,view,location:{href:'chrome-extension://test/popup.html'}});await controller.init();controller.dispose();
+  const client={send:async m=>{messages.push(m);if(m.type==='config')return cfg;if(m.type==='connection.check')return {state:'connected',uid:cfg.uid,email:cfg.email};if(m.type==='extract.start'){task={id:m.request_id,schema_version:2,state:'succeeded',query:m.query,result:{intent:{query:m.query},candidates:[candidate(1),candidate(2)]}};return {id:task.id};}if(m.type==='extract.get')return structuredClone(task);if(m.type==='extract.save'){task.submission={request_id:task.id};return task.submission;}if(m.type==='status')return {entries:[{request_id:task.id,state:'confirmed',response:{results:[{status:'new',item_id:11},{status:'new',item_id:12}]}}],intents:[]};if(m.type==='extract.list')return {tasks:[]};}};
+  const controller=new CaptureController({browser,client,forms,view,location:{href:'chrome-extension://test/popup.html'}});await controller.init();clearInterval(controller.timer);
   return {controller,view,forms,messages,setTask:t=>task=t};
 }
 
@@ -88,13 +88,13 @@ test('generic source label gates save, while changing matching scope invalidates
   h.controller.task.result.source='generic';h.controller.task.result.candidates.forEach(c=>c.record_type='web_fragment');h.controller.renderTask(h.controller.task);
   assert.equal(h.view.$('save').disabled,true);
   h.view.select('source-kind','labeled');h.view.$('source-kind').onchange();
-  h.view.$('source-label').value='学校邮箱';h.view.$('source-label').oninput();assert.equal(h.view.$('save').disabled,false);
+  h.view.$('source-label').value='学校邮箱';h.view.$('source-label').oninput();assert.equal(h.view.$('save').disabled,true);await h.controller.confirmBinding();assert.equal(h.view.$('save').disabled,false);
   h.view.select('match-scope','title');h.view.$('match-scope').onchange();assert.equal(h.controller.task,null);assert.equal(h.view.$('save').disabled,true);
 });
 
 test('reopening after original tab closes restores preview instead of dereferencing absent page metadata',async()=>{
   const h=await harness();h.view.$('query').value='网络编程的作业';await h.controller.capture();
   h.controller.browser.tabs.get=async()=>{throw Error('No tab with id');};
-  const reopened=new CaptureController({browser:h.controller.browser,client:h.controller.client,forms:h.forms,view:h.view,location:{href:'chrome-extension://test/workspace.html?tab=1'}});
+  const reopened=new CaptureController({browser:h.controller.browser,client:h.controller.client,forms:h.forms,view:h.view,location:{href:'chrome-extension://test/popup.html?tab=1'}});
   await reopened.init();try {assert.equal(reopened.task.state,'succeeded');assert.match(h.view.$('page').textContent,/原网页已关闭/);assert.equal(h.view.$('save').disabled,false);await reopened.save();assert.match(h.view.$('results').textContent,/新增 2/);}finally {reopened.dispose();}
 });

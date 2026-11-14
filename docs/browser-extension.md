@@ -1,16 +1,18 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-14，扩展 **0.7.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-15，扩展 **0.8.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
 
-## 通用网页提取（0.7.0）
+## 单弹窗与通用网页提取（0.8.0）
 
 普通 HTTP(S) 页面使用通用 DOM 提取，不再因域名没有登记而直接拒绝。已知校园域名仍优先使用专用适配器，其错误与仅预览限制不会回退绕过。具体网络契约：[IC-WEB-CAPTURE-001](architecture/universal-web-capture-v1.md)。
 
 1. 当前页点击插件，输入字面关键词／短语；普通网页可选“正文与列表”或“仅标题与链接标题”。不做自由自然语言问答。
-2. 点“提取匹配内容”，核对结果；点“展开双栏预览”在独立页左侧修改条件、右侧核对原文依据。条件或范围修改后旧预览不可保存。
-3. 普通页片段允许保存。选择“公开网页”或输入私人来源标签；标签只隔离资料，不证明网站账号已认证。切换网页账号时换标签。一次保存整组，不逐条勾选。
+2. 点输入框右侧“提取”，在同一弹窗核对紧凑预览；“展开片段”查看完整片段、字段、原文依据和链接。不打开独立预览页。条件、范围或当前页 URL／hash 修改后旧预览不可保存。
+3. 普通页片段允许保存。结果出现后选择“公开网页”，或输入私人来源标签并点“确定”；标签只隔离资料，不证明网站账号已认证。切换网页账号时换标签。一次保存整组，不逐条勾选。
 4. 同工作台账号、来源标签、完整 URL、规范化条件、匹配范围组成一份资料。重新提取并明确保存后更新版本；不会按片段位置冒认原生事项，也不自动监测。工作台“信息源→网页资料快照”可找到资料、原文和变化。
 5. 提交持久入队和后端确认分别显示；通用回执必须逐一确认 fragment ID，再显示单份资料的新增／更新／已有及版本。worker 回收后的已完成预览可恢复；未完成读取明确中断。
+
+采集面板内部约定见 [IC-PANEL-001](architecture/capture-panel-v1.md)。连接行通过 worker 调用既有 `GET /api/me` 核对 uid／email；本地配置不能作为连接成功证明。网络不可达仍可读取本地页面并保留预览，保存等待确认；401 提示重新登录工作台。设置在弹窗内折叠，不输入学校密码。最近记录仅查看原冻结预览，提取输入只读，并提供“返回当前网页”。重试只针对当前 request_id。预览与回执轮询不收起已展开内容。
 
 遍历当前主 frame 可见文本定位命中，只序列化匹配的有限段落／列表行／表格行，支持开放 Shadow DOM；不读取隐藏内容、输入值、编辑草稿、脚本样式。不自动打开详情、翻页或读取 iframe、关闭 Shadow DOM、图片／画布。列表摘要不等于邮件正文。单片段≤20000字、预览≤100条、保存≤30个片段且整组格式化正文≤20000字；超限拒绝而不静默截断。
 
@@ -21,9 +23,9 @@
 ## 校园页面交互（保留原生身份规则）
 
 1. Flutter 信息源提供学院公告／学生系统、教师信息、Moodle 三个真实入口。学生系统、Moodle 分别在原站自行登录；教师网页公开。不在 Campus Radar 输入学校密码。旧 localhost 演示订阅另列，不等于学校网站已连接。
-2. 在原网页点插件，输入想抓取的内容，例如 `人工智能`、`Timeline`、`网络编程的作业`、`奖学金公告`、`这位老师的邮箱和办公室`。先输入条件，再点“抓取匹配内容”。无需打开大预览页才能输入。
+2. 在原网页点插件，输入想抓取的内容，例如 `人工智能`、`Timeline`、`网络编程的作业`、`奖学金公告`、`这位老师的邮箱和办公室`。先输入条件，再点“提取”。所有操作均在工具栏弹窗内完成。
 3. 插件先定位目标课程／标题／个人字段，再读取匹配内容。优先匹配原文中的完整双语课程别名；同名不同班仍只确认课程范围，不要求逐条选作业。零匹配不会变成整页采集；复杂条件明确拒绝。需要同时限制课程和标题可写 `课程：网络编程；关键词：实验`。
-4. 课程概览与原生归属明确的作业分组显示；活动主标题、类型、课程原文分开，不删除原站实际名为 assignment 的标题。查看“识别范围”和“原文依据”可核对覆盖与来源。核对整组匹配预览、原始字段、原文依据和限制，再点一次“保存匹配结果”。没有逐项复选框；不满足预期时修改条件重新抓取。修改输入立即禁用旧结果。
+4. 课程概览与原生归属明确的作业分组显示；活动主标题、类型、课程原文分开，不删除原站实际名为 assignment 的标题。展开“读取范围与限制”和“原文依据”可核对覆盖与来源。核对整组匹配预览、原始字段、原文依据和限制，再点一次“保存匹配结果”。没有逐项复选框；不满足预期时修改条件重新抓取。修改输入立即禁用旧结果。
 5. 入队与后端确认分开显示；只有严格逐项回执才能显示新增／更新／已有／失败及工作台链接。保存快照**不启用监测**；重新抓取后明确保存相同身份，可更新原事项与版本。
 
 Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业条件只读作业，Timeline 按已加载活动逐条预览，保留日期／时间原文；Moodle Support 独立读取联系信息，可输入“Moodle Support 的邮箱”投影字段。课程卡片、时间线摘要、联系区块和附件元信息标为仅预览，不能生成提交 target；本组含预览项时保存禁用，需缩小条件或打开详情。作业详情可按活动标题读取，附件只有已加载名称／链接时不下载文件、不冒充完整正文。未识别布局返回明确失败，只有已识别布局且目标不存在才显示零匹配；已定位课程但无正文显示需要进入详情。
@@ -43,7 +45,9 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 | ExtractionPipeline / CandidateFactory | 统一技术结果、原生身份、可保存性、人员字段投影视图 |
 | DraftRepository / PageExtractionService | 持久任务、owner 隔离、幂等、恢复与保存编排；通过注入依赖测试 |
 | ResultGroups · ui/result-groups.js | 课程、作业、Timeline、联系信息分组；不决定保存或扩大读取范围 |
-| ui/{controller,view,form-store,client}.js | 流程编排、纯显示、表单存储、消息端口分离；popup/workspace 共享 |
+| CaptureController · ui/controller.js | 依赖 browser/client/forms/view 端口，编排当前页／历史、账号代次、持久任务恢复与原请求重试 |
+| CaptureView / PanelPolicy / PreviewView / SourceBindingView / ReceiptView | 组合式界面、保存资格、紧凑原文预览、标签明确确认、严格回执显示；不实现站点或后端业务规则 |
+| ui/{form-store,client,dom,errors}.js | owner/tab 表单与独立历史表单、消息端口、安全 DOM 构造及中文错误映射 |
 | background.js / lib/{api,outbox}.js | 持久意图和提交回执、严格 HTTP 响应；保留既有 v1 监测执行器 |
 | Core / Flutter | 鉴权、事项身份、分类去重、快照版本调度；管理、来源、差异展示 |
 
@@ -57,7 +61,7 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 4. 打开 `http://127.0.0.1:8098/login`，模拟学校登录后进入 `/capture/moodle-dashboard`。该合成场景采用脱敏双栏结构，内容 aside 与 side-pre 侧栏分开：`人工智能` 预览课程卡片，`Timeline` 逐条预览右侧活动，`Moodle Support 的邮箱` 预览右侧联系字段，`网络编程的作业` 只读两条完整作业并可一次保存。一次保存后打开工作台回执链接。
 5. `/capture/courses?ambiguous=1` 验证同名课程确认；修改关键词验证零匹配；管理台修改后重新抓取并明确保存，查看原事项版本。新快照不支持自动重新获取。
 
-来源权限按 origin 请求 optional host permissions；第一次权限提示可能关闭 popup。条件／请求先持久化，重新打开插件可继续登记同一任务，避免重复抓取。读取完成前需保留原页；成功草稿在本地保留 24 小时，可在“管理本地预览”查看和删除。每账号最多 10 条、全扩展 20 条、2.5M 字符。后台回收时未完成读取标为中断，需重新抓取；已入持久提交队列的结果可重开查询。
+来源权限按 origin 请求 optional host permissions；第一次权限提示可能关闭 popup。条件／请求先持久化，重新打开插件可继续登记同一任务，避免重复抓取。读取完成前需保留原页；成功草稿在本地保留 24 小时，可在“最近记录”查看和确认删除。每账号最多 10 条、全扩展 20 条、2.5M 字符。后台回收时未完成读取标为中断，需重新抓取；已入持久提交队列的结果可重开查询。
 
 ## 来源边界与旧监测兼容
 
@@ -72,6 +76,6 @@ Moodle 普通课程词预览当前相关卡片及已加载信息；显式作业�
 
 ## 验证与官方依据
 
-`node --test extension/tests/*.test.js` 验证模拟 DOM／Chrome API；`node extension/tests/extraction-live.mjs` 需 8080 和 8098，验证模拟 DOM＋真实本地 HTTP；`.venv/bin/python -m pytest server/tests/test_browser_capture.py server/tests/test_extension_build.py -q` 验证后端和 DOM-only 权限边界。首次安装 JS 测试依赖用 `npm --prefix extension ci`；生产扩展无运行时第三方库。普通网页 harness 不算真实扩展验收。
+`node --test extension/tests/*.test.js` 验证模拟 DOM／Chrome API；`node extension/tests/extraction-live.mjs` 需 8080 和 8098，验证模拟 DOM＋真实本地 HTTP；`.venv/bin/python -m pytest server/tests/test_browser_capture.py server/tests/test_extension_build.py -q` 验证后端和 DOM-only 权限边界。首次安装 JS 测试依赖用 `npm --prefix extension ci`；生产扩展无运行时第三方库。普通网页 harness 不算真实扩展验收。单弹窗、回执丢失恢复、重登和历史隔离新增回归见 `extension/tests/panel.test.js`。
 
 最低 **Chrome 110**，使用 scripting/activeTab/storage/alarms；不申请 debugger，不依赖新版本专属 alarm 选项。2026-11-11 核对官方 [scripting 与 isolated world](https://developer.chrome.com/docs/extensions/reference/api/scripting)、[MV3 生命周期及 Chrome 110 API 调用重置计时器](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle/)。最低版本是工程基线，未在 Chrome 110 实机测试；真实 Chrome 版本、具体证据和未验证项保存在本地开发报告。

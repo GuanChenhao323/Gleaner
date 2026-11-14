@@ -107,3 +107,44 @@ test('generic outbox survives popup loss, closed source and worker replacement w
   assert.equal((await worker.send(message)).value.request_id,id);assert.equal(data.outbox.length,1);
   assert.equal((await worker.send({type:'extract.get',id})).value.result.candidates[0].raw.text,text);
 });
+
+test('connection probe verifies real profile, rejects empty/expired sessions and never exposes credentials',async()=>{
+  const data={config:{...cfg,email:'demo@example.test'},device:'device-a',salt:'salt-a'};
+  let mode='valid';
+  const worker=await boot(data,async url=>{
+    if(url.endsWith('/claim'))return json(envelope({job:null}));
+    assert.ok(url.endsWith('/api/me'));
+    if(mode==='empty')return json({});
+    if(mode==='expired')return new Response(JSON.stringify({error:'unauthorized'}),{status:401,headers:{'Content-Type':'application/json'}});
+    if(mode==='mismatch')return json({id:2,email:'other@example.test'});
+    return json({id:1,email:'demo@example.test',mqtt_password:'not-for-the-popup'});
+  });
+  assert.deepEqual((await worker.send({type:'connection.check'})).value,{state:'connected',uid:1,email:'demo@example.test'});
+  for(const [next,error] of [['empty','invalid_session_response'],['expired','unauthorized'],['mismatch','backend_account_changed']]){
+    mode=next;assert.equal((await worker.send({type:'connection.check'})).error,error);
+  }
+});
+
+test('connection check remains responsive while monitor claim waits',async()=>{
+  let release,entered;const waiting=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+  const worker=await boot({config:cfg,device:'device-a',salt:'salt-a'},async url=>{
+    if(url.endsWith('/api/me'))return json({id:1,email:'demo@example.test'});
+    entered();await waiting;return json(envelope({job:null}));
+  },{drain:false});
+  await started;let timer;
+  try{
+    const probe=await Promise.race([worker.send({type:'connection.check'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('probe blocked by monitor')),200);})]);
+    assert.equal(probe.value.state,'connected');
+  }finally{clearTimeout(timer);release();await worker.send({type:'status'});}
+});
+
+test('connection reply from a previous owner is rejected after config changes',async()=>{
+  let release,entered;const waiting=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+  const data={config:cfg,device:'device-a',salt:'salt-a'};
+  const worker=await boot(data,async url=>{
+    if(url.endsWith('/claim'))return json(envelope({job:null}));
+    entered();await waiting;return json({id:1,email:'demo@example.test'});
+  });
+  const probe=worker.send({type:'connection.check'});await started;
+  data.config={...cfg,uid:2};release();assert.equal((await probe).error,'backend_account_changed');
+});

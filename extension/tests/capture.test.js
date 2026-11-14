@@ -100,3 +100,27 @@ test('401 waits for backend re-login; transient failures stop after three attemp
   for(let i=0;i<4;i++){retryData.outbox[0].next=0;await offline.flush(cfg);}
   assert.equal(attempts,3);assert.equal(retryData.outbox[0].state,'failed');
 });
+
+
+test('targeted retry preserves other accounts, other requests and rejected/confirmed results', async()=>{
+  const own='http://localhost|1';
+  const rows=[
+    {scope:own,request_id:'retry-me',state:'failed',attempts:3,next:999,error:'backend_timeout'},
+    {scope:own,request_id:'other',state:'failed',attempts:3,next:999},
+    {scope:'http://localhost|2',request_id:'retry-me',state:'auth_required',attempts:1,next:999},
+    {scope:own,request_id:'retry-me',state:'rejected',attempts:1,next:999},
+    {scope:own,request_id:'retry-me',state:'confirmed',attempts:0,next:999},
+  ];
+  const data={outbox:structuredClone(rows)},storage={get:async()=>structuredClone(data),set:async p=>Object.assign(data,structuredClone(p))};
+  await new Outbox(storage).retry({server:'http://localhost',uid:1},'retry-me');
+  assert.equal(data.outbox[0].state,'pending');assert.equal(data.outbox[0].attempts,0);
+  assert.deepEqual(data.outbox.slice(1),rows.slice(1));
+});
+
+test('session check requires positive integer owner and nonempty email, independent of capture envelopes',async()=>{
+  for(const value of [{},{id:0,email:'a@test'},{id:1.5,email:'a@test'},{id:1,email:''},{id:1,email:'  '},{id:1,email:3}]){
+    await assert.rejects(request({server:'http://localhost'},'/api/me',undefined,{session:true,fetcher:async()=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}})}),/invalid_session_response/);
+  }
+  const profile={id:1,email:'demo@example.test'};
+  assert.deepEqual(await request({server:'http://localhost'},'/api/me',undefined,{session:true,fetcher:async()=>new Response(JSON.stringify(profile),{headers:{'Content-Type':'application/json'}})}),profile);
+});

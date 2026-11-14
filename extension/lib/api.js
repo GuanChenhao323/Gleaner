@@ -1,7 +1,7 @@
 export class ApiError extends Error {
   constructor(code, status = 0) { super(code); this.code = code; this.status = status; }
 }
-export async function request(cfg, path, body, { login = false, fetcher = fetch } = {}) {
+export async function request(cfg, path, body, { login = false, session = false, fetcher = fetch } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
@@ -12,7 +12,9 @@ export async function request(cfg, path, body, { login = false, fetcher = fetch 
     try { data = await res.json(); } catch { throw new ApiError('invalid_response', res.status); }
     if (!res.ok) throw new ApiError(typeof data?.error === 'string' ? data.error : 'request_failed', res.status);
     if (!data || Array.isArray(data) || typeof data !== 'object') throw new ApiError('invalid_response', res.status);
-    if (login) {
+    if (session) {
+      if (!Number.isInteger(data.id) || data.id <= 0 || typeof data.email !== 'string' || !data.email.trim()) throw new ApiError('invalid_session_response');
+    } else if (login) {
       if (typeof data.token !== 'string' || !data.token || !Number.isInteger(data.user?.id) || typeof data.user.email !== 'string') throw new ApiError('invalid_login_response');
     } else if (data.schema_version !== 1 || data.ok !== true) throw new ApiError('invalid_response', res.status);
     if (path === '/api/v1/captures' && (!Array.isArray(data.results) || data.request_id !== body.request_id || data.results.length !== body.targets.length || data.results.some((r, i) => r.candidate_id !== body.targets[i].candidate_id || !['new', 'changed', 'unchanged', 'failed'].includes(r.status) || (r.status === 'failed' ? typeof r.error !== 'string' : (!Number.isInteger(r.item_id) || !Number.isInteger(r.monitor_id)))))) throw new ApiError('invalid_capture_response');

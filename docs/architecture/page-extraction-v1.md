@@ -12,7 +12,7 @@
 
 | 项目 | 说明 |
 |---|---|
-| 发送模块 | popup／独立预览页的 CaptureController |
+| 发送模块 | 单弹窗的 CaptureController |
 | 接收模块 | PageExtractionService、DomPageReader、页面范围适配器、DraftRepository |
 | 接口用途 | 先确定用户条件和页面范围，只提取匹配内容；明确保存全部预览结果 |
 | 通信方式 | 扩展 runtime message；内容脚本处于 isolated world；不使用 AX、debugger、OCR 或学校私有 API |
@@ -113,3 +113,6 @@ Timeline 按当前已加载的活动单元返回 timeline_event（原生事件�
 extract.save 在 generic 结果时额外接收 source_binding={kind,label}，首次提交前持久冻结；不同标签重试报 idempotency_conflict。只接受任务冻结正文，不接受 UI 新正文或子集。原生结果拒绝此字段，仍走 v1 captures。通用走新的 web-captures 持久 outbox；原请求即使保存回执丢失也复用任务 UUID。
 
 匹配定位是当前 DOM 本地遍历，不声称从未读取非匹配文本；边界保证非匹配正文不序列化、不上传。主 frame＋开放 Shadow DOM，嵌入页面覆盖明确提示。已知校园域名不回退 generic；不扩大其身份／账号或只预览策略。
+
+
+2026-11-15：界面收敛为单弹窗，独立双栏页移除；UI 状态、连接检查和指定请求重试见 [IC-PANEL-001](capture-panel-v1.md)。本次不改变提取 version=2、原生身份、完整度和保存网络契约。

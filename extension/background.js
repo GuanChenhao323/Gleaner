@@ -132,6 +132,12 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     }
     if (m.type === 'logout') { await storage.set({ config: { server: cfg.server } }); return {}; }
     if (!cfg.uid || !cfg.token) throw Error('backend_login_required');
+    if (m.type === 'connection.check') {
+      const user = await request(cfg, '/api/me', undefined, { session: true });
+      const current = await config();
+      if (user.id !== cfg.uid || current.uid !== cfg.uid || current.server !== cfg.server) throw Error('backend_account_changed');
+      return { state: 'connected', uid: user.id, email: user.email };
+    }
     if (m.type?.startsWith('extract.')) return extraction.handle(cfg, m);
     if (m.type === 'scan') {
       const page = await invoke(m.tabId, 'wait');
@@ -162,11 +168,14 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       return { entries: rows.filter(r => r.scope === scope(cfg)).map(({ body, ...r }) => r), intents: ((await storage.get('intents')).intents || []).filter(r => r.scope === scope(cfg)).map(({ selected, captured, binding, ...r }) => r) };
     }
     if (m.type === 'wake') { await processIntents(cfg); await wake(); return {}; }
-    if (m.type === 'retry') { await box.retry(cfg); await box.flush(cfg); return {}; }
+    if (m.type === 'retry') {
+      if (m.request_id !== undefined && (typeof m.request_id !== 'string' || !m.request_id || m.request_id.length > 100)) throw Error('invalid_request');
+      await box.retry(cfg, m.request_id); await box.flush(cfg); return {};
+    }
     throw Error('unknown_message');
   };
   // Reads have their own repository/reader queue; monitor navigation must not block popup queries.
-  const independent = ['config', 'extract.start', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
+  const independent = ['config', 'connection.check', 'extract.start', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
   (independent ? action() : serial(action)).then(value => reply({ ok: true, value }), e => reply({ ok: false, error: e.code || e.message }));
   return true;
 });

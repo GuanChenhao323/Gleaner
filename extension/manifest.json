@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Campus Radar",
-  "version": "0.7.0",
-  "description": "输入条件，从当前网页 DOM 提取匹配片段；双栏预览后明确保存，校园页面保留专用规则。",
+  "version": "0.8.0",
+  "description": "在插件弹窗中输入条件、提取当前网页、核对匹配片段并保存到 Campus Radar。",
   "minimum_chrome_version": "110",
   "action": {
     "default_title": "采集到 Campus Radar",
