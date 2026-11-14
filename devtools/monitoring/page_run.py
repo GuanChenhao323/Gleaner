@@ -217,36 +217,55 @@ def source_fingerprint() -> str:
 
 def summarize(rounds: list[dict], duration: float, interval: float) -> dict:
     """Judge actual request starts; slow delivery must not manufacture two hours."""
+
+    def bounds(r, clock):
+        if r.get("timing_basis") == "network_send_bounds":
+            return (
+                r.get(f"content_started_lower_{clock}"),
+                r.get(f"content_started_upper_{clock}"),
+            )
+        point = r.get(f"content_started_{clock}")
+        return point, point
+
     successes = [r for r in rounds if r["state"] == "delivered"]
     observed = [
         r
         for r in successes
         if r.get("request_start_observed") is True
         and all(
-            type(r.get(key)) in (int, float) and math.isfinite(r[key])
-            for key in ("content_started_mono", "content_started_utc")
+            type(v) in (int, float) and math.isfinite(v)
+            for c in ("mono", "utc")
+            for v in bounds(r, c)
         )
+        and all(bounds(r, c)[0] <= bounds(r, c)[1] for c in ("mono", "utc"))
     ]
-    mono = [r["content_started_mono"] for r in observed]
-    utc = [r["content_started_utc"] for r in observed]
-    mono_gaps = [b - a for a, b in pairwise(mono)]
-    utc_gaps = [b - a for a, b in pairwise(utc)]
-    span = mono[-1] - mono[0] if mono else 0
-    wall_span = utc[-1] - utc[0] if utc else 0
+    mono = [bounds(r, "mono") for r in observed]
+    utc = [bounds(r, "utc") for r in observed]
+    gaps = [
+        value
+        for times in (mono, utc)
+        for a, b in pairwise(times)
+        for value in (b[0] - a[1], b[1] - a[0])
+    ]
+    span = mono[-1][0] - mono[0][1] if len(mono) > 1 else 0
+    wall_span = utc[-1][0] - utc[0][1] if len(utc) > 1 else 0
     return {
         "successful_rounds": len(successes),
         "failed_rounds": len(rounds) - len(successes),
         "observed_content_requests": len(observed),
         "span_s": span,
         "wall_span_s": wall_span,
-        "min_gap_s": min([*mono_gaps, *utc_gaps], default=0),
-        "max_gap_s": max([*mono_gaps, *utc_gaps], default=0),
+        "min_gap_s": min(gaps, default=0),
+        "max_gap_s": max(gaps, default=0),
+        "timing_basis": "conservative_network_bounds"
+        if any(r.get("timing_basis") == "network_send_bounds" for r in observed)
+        else "observed_header_send",
         "passed": bool(
             successes
             and len(observed) == len(successes) == len(rounds)
             and span >= duration
             and wall_span >= duration
-            and all(interval <= gap <= interval + 40 for gap in [*mono_gaps, *utc_gaps])
+            and all(interval <= gap <= interval + 40 for gap in gaps)
         ),
     }
 
@@ -359,6 +378,11 @@ class Harness:
                     "started_mono",
                     "started_utc",
                     "request_start_observed",
+                    "timing_basis",
+                    "started_lower_mono",
+                    "started_upper_mono",
+                    "started_lower_utc",
+                    "started_upper_utc",
                     "finished_mono",
                     "utc",
                     "redirect_same_origin",
@@ -511,6 +535,12 @@ class Harness:
                             content_started_utc=request["started_utc"],
                             request_start_observed=request["request_start_observed"],
                         )
+                        if request.get("timing_basis") == "network_send_bounds":
+                            result["timing_basis"] = request["timing_basis"]
+                            for clock in ("mono", "utc"):
+                                for edge in ("lower", "upper"):
+                                    key = f"started_{edge}_{clock}"
+                                    result[f"content_{key}"] = request[key]
                         self.last_content_request = None
                     self.rounds.append(result)
                     self.append("round", result)

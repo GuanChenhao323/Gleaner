@@ -1,9 +1,11 @@
 import asyncio
 import json
 from argparse import Namespace
+from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
-from devtools.monitoring.page_run import normalize
+from devtools.monitoring.page_run import normalize, summarize
 from devtools.monitoring.youtube_browser import BrowserProbe, PinnedTunnel
 from devtools.monitoring.youtube_compare import (
     INITIAL_COOKIES,
@@ -119,6 +121,33 @@ def test_network_comparison_does_not_emit_identity_or_html():
     assert all(x not in repr(events) for x in ("8.8.8.8", "1.1.1.1", "HTML_SECRET"))
 
 
+def test_browser_continuity_uses_conservative_network_bounds():
+    rounds = []
+    for i in range(13):
+        rounds.append(
+            {
+                "state": "delivered",
+                "request_start_observed": True,
+                "timing_basis": "network_send_bounds",
+                "content_started_mono": i * 601,
+                "content_started_utc": 10000 + i * 601,
+                "content_started_lower_mono": i * 601,
+                "content_started_upper_mono": i * 601 + 1,
+                "content_started_lower_utc": 10000 + i * 601,
+                "content_started_upper_utc": 10001 + i * 601,
+                "mono": i * 601 + 100,
+                "utc": 10100 + i * 601,
+            }
+        )
+    assert summarize(rounds, 7200, 600)["passed"]
+    assert summarize(rounds, 7212, 600)["span_s"] == 7211
+    assert not summarize(rounds, 7212, 600)["passed"]
+    rounds[0]["content_started_upper_mono"] = 5
+    assert not summarize(rounds, 7200, 600)["passed"]
+    rounds[0]["content_started_upper_mono"] = -1
+    assert summarize(rounds, 7200, 600)["observed_content_requests"] == 12
+
+
 @pytest.mark.parametrize(
     "url,method,kind,reason",
     [
@@ -130,6 +159,8 @@ def test_network_comparison_does_not_emit_identity_or_html():
         ("https://accounts.google.com/", "GET", "document", "scope"),
         ("https://www.youtube.com:444/", "GET", "document", "scope"),
         ("https://www.youtube.com/s/desktop/app.js?secret=x", "GET", "script", "dependency"),
+        ("https://www.youtube.com/s/desktop/%2e%2e/app.js", "GET", "script", "dependency"),
+        ("https://www.youtube.com/s/desktop/../app.js", "GET", "script", "dependency"),
         ("https://127.0.0.1/", "GET", "document", "scope"),
         ("http://www.youtube.com/", "GET", "document", "scope"),
     ],
@@ -189,7 +220,7 @@ async def test_tunnel_rejects_private_dns_without_connecting(monkeypatch):
         await tunnel.close()
 
 
-async def test_browser_timing_uses_actual_header_send_not_delivery():
+async def test_browser_timing_brackets_network_send_without_using_delivery():
     policy = experimental_policy("youtube", TARGET)
     probe = BrowserProbe(policy, AuthManager(policy))
     try:
@@ -202,17 +233,76 @@ async def test_browser_timing_uses_actual_header_send_not_delivery():
                 "wallTime": 1000,
             }
         )
-        probe.response_received(
-            {
-                "type": "Document",
-                "requestId": "id",
-                "response": {"url": TARGET, "timing": {"requestTime": 11, "sendStart": 200}},
-            }
+        probe.document_released = {"lower_mono": 11, "lower_utc": 1001}
+        probe.guard = SimpleNamespace(
+            document_received={"network_id": "id", "upper_mono": 12, "upper_utc": 1002}
         )
-        assert probe.document_timing == {
-            "started_mono": 11.2,
-            "started_utc": 1001.2,
-            "request_start_observed": True,
-        }
+        timing = probe.request_bounds()
+        assert timing["started_lower_mono"] == 11 and timing["started_upper_mono"] == 12
+        assert timing["started_lower_utc"] == 1001 and timing["started_upper_utc"] == 1002
+        assert timing["request_start_observed"] is True
+        probe.guard.document_received["network_id"] = "unmatched"
+        with pytest.raises(MonitorError, match="browser_missing_request_timing"):
+            probe.request_bounds()
+    finally:
+        await probe.close()
+
+
+async def test_native_cookie_snapshot_preserves_scope_and_clears_removed_credentials():
+    policy = experimental_policy("youtube", TARGET)
+    events = []
+    auth = AuthManager(policy, FakeClock())
+    context = auth.create(1, "test")
+    auth.import_cookies(
+        context.auth_id,
+        credentials(),
+        backend_epoch=auth.backend_epoch,
+        expected_revision=0,
+        request_id="one",
+    )
+    lease = await auth.acquire(context.auth_id)
+    probe = BrowserProbe(policy, auth, policy_event=events.append)
+
+    class NativeContext:
+        items: ClassVar[list[dict]] = [
+            {
+                "name": "LOGIN_INFO",
+                "value": "NATIVE_SECRET",
+                "domain": ".youtube.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "expires": -1,
+                "sameSite": "None",
+            },
+            {
+                "name": "SID",
+                "value": "FORBIDDEN_SECRET",
+                "domain": ".youtube.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "expires": -1,
+                "sameSite": "None",
+            },
+        ]
+
+        async def cookies(self):
+            return self.items.copy()
+
+        async def clear_cookies(self, **where):
+            self.items = [c for c in self.items if not all(c[k] == v for k, v in where.items())]
+
+    native = NativeContext()
+    probe.context = native
+    try:
+        await probe.sync_auth(lease)
+        assert auth.header(lease, TARGET) == "LOGIN_INFO=NATIVE_SECRET"
+        assert events[-1]["cookie_count"] == 1
+        assert "SECRET" not in repr(events)
+        native.items = []
+        with pytest.raises(MonitorError, match="auth_required"):
+            await probe.sync_auth(lease)
+        assert not len(context.jar) and context.state == "auth_required"
     finally:
         await probe.close()
