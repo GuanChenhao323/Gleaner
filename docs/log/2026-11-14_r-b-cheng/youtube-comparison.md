@@ -26,4 +26,6 @@
 - 本地新增 16 项测试通过，覆盖 Cookie 导入/响应区分、原 profile 保留、参数与账号绑定、网络标识脱敏、robots/跨域/请求方法限制、CONNECT 目的地与私有 DNS 拒绝、实际发送计时。Playwright 1.65.2 / Chromium 159.0.8154.6 无真实凭证启动检查通过。
 - 首次完整测试为 377 passed、3 skipped、1 failed；失败为既有 `test_e2e.py::test_full_demo_path` 的 WebSocket 重连回放断言。单独复验通过（1 passed，10.09 秒）；不修改无关推送代码，收尾再次执行完整检查。
 - `e6a8c4b`：仅对手动验证入口开放实验工厂并将全部监测 devtools Python 源码纳入摘要。生产监测模块未修改。
+- `5b63c03`：实验代码与边界测试提交；52 项相关检查通过。HTTP 首次运行 `http-01.jsonl` 导入四项 Cookie 后在地址检查阶段 `blocked`，0 次内容请求，0 次成功；已退出并清理内存凭证。
+- 无凭证诊断确认系统 DNS 返回一项公网 IPv4 和一项私有 IPv6，原有全量地址检查正常拒绝。显式调用现有 CloudflareDNS 后全部结果为公网，robots HTTP 200 / 792 字节，目标允许，`/youtubei/v1/browse` 禁止。实验后续两组统一显式选择此 DoH 解析器，不向私有地址连接，不拓宽 Fake-IP 范围，不修改系统代理/DNS 或默认传输。配置改变后从新 run_id 开始。
 - 待补：本地检查、实际每组运行证据、Terra 监管结论、清理与有效提交。

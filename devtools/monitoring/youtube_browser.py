@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from gleaner.collector.fetcher import parse_retry_after, parse_robots
 from gleaner.monitoring.models import MonitorError, SafeResponse
-from gleaner.monitoring.transport import HTTPXTransport
+from gleaner.monitoring.transport import CloudflareDNS, HTTPXTransport
 from gleaner.net.egress import is_public
 
 
@@ -45,6 +45,13 @@ class PinnedTunnel:
                 header = await reader.readuntil(b"\r\n\r\n")
                 first = header.split(b"\r\n", 1)[0]
                 if first != f"CONNECT {self.host}:443 HTTP/1.1".encode():
+                    self.emit(
+                        {
+                            "kind": "browser_tunnel_denied",
+                            "reason": "unapproved_destination",
+                            "utc": time.time(),
+                        }
+                    )
                     writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
                     await writer.drain()
                     return
@@ -122,7 +129,9 @@ class BrowserProbe:
         self.policy, self.auth = policy, auth
         self.event = kwargs.get("event", lambda _: None)
         self.emit = kwargs.get("policy_event", lambda _: None)
-        self.http = HTTPXTransport(policy, auth, **kwargs)
+        self.http = HTTPXTransport(
+            policy, auth, resolver=CloudflareDNS(policy.host, event=self.emit), **kwargs
+        )
         self.tunnel = PinnedTunnel(policy.host, self.http.resolver, self.emit)
         self.runtime = self.browser = self.context = self.page = self.cdp = None
         self.rules = None
@@ -294,6 +303,7 @@ class BrowserProbe:
         self.page = await self.context.new_page()
         self.cdp = await self.context.new_cdp_session(self.page)
         await self.cdp.send("Network.enable")
+        await self.cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
         self.cdp.on("Network.requestWillBeSent", self.request_started)
         self.cdp.on("Network.responseReceived", self.response_received)
         self.emit(

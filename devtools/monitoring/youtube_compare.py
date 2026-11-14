@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 from gleaner.monitoring.models import MonitorError
 from gleaner.monitoring.pages import PageMonitor, PageTask
 from gleaner.monitoring.profiles import page_policy
-from gleaner.monitoring.transport import HTTPXTransport
+from gleaner.monitoring.transport import CloudflareDNS, HTTPXTransport
 
 from .page_run import DiagnosticSessionInspector, Harness
 
@@ -42,6 +42,15 @@ def experimental_policy(profile, url):
     return replace(
         page_policy(profile, url), cookie_names=(*INITIAL_COOKIES, "LOGIN_INFO")
     )
+
+
+def experimental_http(policy, auth, **kwargs):
+    # Explicit experiment configuration; never connect to rejected system answers.
+    # Every DoH result still passes the existing public-address and Host/SNI checks.
+    resolver = CloudflareDNS(
+        policy.host, event=kwargs.get("policy_event", lambda _: None)
+    )
+    return HTTPXTransport(policy, auth, resolver=resolver, **kwargs)
 
 
 class ProbeMonitor(PageMonitor):
@@ -118,7 +127,7 @@ class NetworkInspector(DiagnosticSessionInspector):
 
 
 def make_harness(args):
-    transport = HTTPXTransport
+    transport = experimental_http
     if args.backend == "playwright":
         from .youtube_browser import BrowserProbe
 
@@ -145,7 +154,7 @@ async def main(args):
                 "backend": args.backend,
                 "initial_cookie_names": list(INITIAL_COOKIES),
                 "response_cookie_names": list(harness.policy.cookie_names),
-                "egress": "direct_pinned_dns",
+                "egress": "direct_cloudflare_doh_pinned",
                 "user_agent": "GleanerMonitor/1.0",
                 "credential_persistence": "memory_only",
                 "html_kind": "main_document_response",
