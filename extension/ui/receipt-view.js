@@ -11,13 +11,14 @@ export class ReceiptPresenter {
       (row.status === 'failed' ? typeof row.error !== 'string' : !Number.isInteger(row.item_id) || row.item_id <= 0)))
       return {state: 'unconfirmed', error: 'invalid_capture_response'};
     const count = status => rows.filter(row => row.status === status).length;
-    const failed = count('failed'), generic = Boolean(rows[0].capture_id);
+    const failed = count('failed'), generic = Boolean(rows[0].capture_id), timeline=entry.response.capture_type==='timeline_summary';
     let title = generic ? count('new') ? '已保存为 1 份网页资料' : count('changed') ? `已更新这份网页资料 · v${rows[0].version}` : '资料已存在 · 内容无变化'
       : `后端已确认：新增 ${count('new')}，更新 ${count('changed')}，已有 ${count('unchanged')}，失败 ${failed}。`;
     if (failed) title = `后端已返回结果：成功 ${rows.length - failed}，失败 ${failed}。`;
+    if(timeline)title=title.replace('网页资料','活动摘要资料');
     const reading=Number.isInteger(entry.response.reading_source_id)&&entry.response.reading_source_id>0;
     return {state: failed ? 'partial' : 'success', title, rows, generic,
-      detail: reading ? `${generic?`${rows[0].fragment_count} 个片段 · v${rows[0].version} · `:''}原条件与来源已关联，可在工作台查看检查状态。` : generic ? `${rows[0].fragment_count} 个片段 · 资料版本 ${rows[0].version} · 未启用监测` : '保存不会自动启用监测。'};
+      detail: reading ? `${generic?`${rows[0].fragment_count} ${timeline?'条活动摘要':'个片段'} · v${rows[0].version} · `:''}原条件与来源已关联，可在工作台查看检查状态。` : generic ? `${rows[0].fragment_count} 个片段 · 资料版本 ${rows[0].version} · 未启用监测` : '保存不会自动启用监测。'};
   }
 }
 

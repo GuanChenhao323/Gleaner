@@ -47,7 +47,7 @@ test('assignment title keyword also works without pretending it is a course name
 test('Timeline in the real-shaped right column previews loaded events separately, never unrelated bodies',()=>{
   const p=rendered(columns(card(101,'测试课程'),timeline(event()+event(9002,{name:'测试测验',time:'00:00'}))+support+'<section class="block"><h5>Private files</h5><p id="unmatched">不相关正文</p></section>'));
   Object.defineProperty(p.document.querySelector('#unmatched'),'textContent',{get(){throw Error('unmatched body read');}});
-  const r=result(p,'Timeline');assert.equal(r.candidates.length,2);assert.match(r.candidates[0].raw.text,/测试实验/);assert.ok(!JSON.stringify(r).includes('不相关正文'));assert.ok(!JSON.stringify(r).includes('support@example.test'));assert.equal(r.candidates[0].record_type,'timeline_event');assert.equal(r.candidates[0].save_reason,'timeline_preview_only');assert.equal(r.candidates[0].target,null);
+  const r=result(p,'Timeline');assert.equal(r.candidates.length,2);assert.match(r.candidates[0].raw.text,/测试实验/);assert.ok(!JSON.stringify(r).includes('不相关正文'));assert.ok(!JSON.stringify(r).includes('support@example.test'));assert.equal(r.candidates[0].record_type,'timeline_event');assert.equal(r.save_mode,'timeline_summary');assert.equal(r.candidates[0].save_allowed,false);assert.equal(r.candidates[0].save_reason,'account_unknown');assert.equal(r.candidates[0].target,null);
   assert.equal(r.candidates[0].raw.fields.date_text,'Sunday, 15 November 2026');assert.equal(r.candidates[1].raw.fields.datetime_text,'00:00');assert.match(r.candidates[0].evidence[0].text,/Sunday, 15 November 2026/);assert.equal(r.coverage.regions[0].status,'matched');
 });
 

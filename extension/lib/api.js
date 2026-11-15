@@ -18,11 +18,12 @@ export async function request(cfg, path, body, { login = false, session = false,
       if (typeof data.token !== 'string' || !data.token || !Number.isInteger(data.user?.id) || typeof data.user.email !== 'string') throw new ApiError('invalid_login_response');
     } else if (data.schema_version !== 1 || data.ok !== true) throw new ApiError('invalid_response', res.status);
     if (path === '/api/v1/captures' && (!Array.isArray(data.results) || data.request_id !== body.request_id || data.results.length !== body.targets.length || data.results.some((r, i) => r.candidate_id !== body.targets[i].candidate_id || !['new', 'changed', 'unchanged', 'failed'].includes(r.status) || (r.status === 'failed' ? typeof r.error !== 'string' : (!Number.isInteger(r.item_id) || !Number.isInteger(r.monitor_id)))))) throw new ApiError('invalid_capture_response');
-    if(path==='/api/v1/web-captures' && body!==undefined) {
+    if(['/api/v1/web-captures','/api/v1/timeline-captures'].includes(path) && body!==undefined) {
       const row=data.results?.[0],ids=body.fragments.map(f=>f.candidate_id);
       if(data.request_id!==body.request_id || !Array.isArray(data.results) || data.results.length!==1 || JSON.stringify(data.candidate_ids)!==JSON.stringify(ids) || row?.candidate_id!=='collection' || !['new','changed','unchanged'].includes(row.status) || !['item_id','source_id','version'].every(k=>Number.isInteger(row[k]) && row[k]>0) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(row.capture_id || '') || row.fragment_count!==ids.length)throw new ApiError('invalid_capture_response');
+      if(path==='/api/v1/timeline-captures' && data.capture_type!=='timeline_summary')throw new ApiError('invalid_capture_response');
     }
-    if(['/api/v1/captures','/api/v1/web-captures'].includes(path)&&body?.reading&&data.results?.every(r=>r.status!=='failed')&&(!Number.isInteger(data.reading_source_id)||data.reading_source_id<=0))throw new ApiError('invalid_capture_response');
+    if(['/api/v1/captures','/api/v1/web-captures','/api/v1/timeline-captures'].includes(path)&&body?.reading&&data.results?.every(r=>r.status!=='failed')&&(!Number.isInteger(data.reading_source_id)||data.reading_source_id<=0))throw new ApiError('invalid_capture_response');
     if (path.endsWith('/result') && (data.job_id !== Number(path.split('/').at(-2)) || !['changed', 'unchanged', 'failed'].includes(data.status))) throw new ApiError('invalid_result_response');
     if(path==='/api/v1/reading-jobs/claim') {
       const j=data.job;

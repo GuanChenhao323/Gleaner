@@ -38,9 +38,10 @@ export class PreviewView extends DomView {
     if (outcome === 'navigation_required') root.append(this.node('p', '已定位目标课程，当前页只有入口或缺少匹配正文；请打开课程详情后重新提取。', 'warning'));
     for (const n of r.navigation || []) root.append(this.link(`打开课程：${n.title}`, n.url));
     const count = candidates.filter(c => c.save_allowed).length;
+    if(r.save_mode==='timeline_summary') root.append(this.node('p','当前活动摘要将合为一份资料，保留课程、时间原文和详情链接；未读取活动详情或其他分页。','muted'));
     if (candidates.length && !generic && count !== candidates.length) {
       root.append(this.node('p', `可保存 ${count} 条，仅预览 ${candidates.length - count} 条。`, 'muted'));
-      if (count !== candidates.length) root.append(this.node('p', this.groups.previewGuidance(candidates).message, 'muted'));
+      if (count !== candidates.length) root.append(this.node('p', r.save_mode==='timeline_summary'?'尚未核对学校账号，请在原站登录后重新提取。':this.groups.previewGuidance(candidates).message, 'muted'));
     }
     const groups = this.groups.arrange(candidates);
     if (!generic && groups.length === 1) this.$('preview-count').textContent = `${candidates.length} 条 · ${groups[0].title}`;
@@ -61,7 +62,7 @@ export class PreviewView extends DomView {
   candidate(c, query) {
     const card = this.node('article', '', 'result-card'), title = this.node('h3'); title.append(this.highlight(c.raw.title, query));
     card.append(title);
-    const type = {web_fragment:'网页片段 · 非完整正文', course_entry:'课程概览 · 仅预览', page_section:'页面区块 · 仅预览', assignment:'作业', timeline_event:'活动摘要 · 仅预览', contact_info:'联系信息 · 仅预览'}[c.record_type];
+    const type = {web_fragment:'网页片段 · 非完整正文', course_entry:'课程概览 · 仅预览', page_section:'页面区块 · 仅预览', assignment:'作业', timeline_event:c.save_allowed?'活动摘要 · 可保存为资料':'活动摘要 · 仅预览', contact_info:'联系信息 · 仅预览'}[c.record_type];
     if (type && (c.record_type !== 'assignment' || !c.save_allowed)) card.append(this.node('p', type, 'candidate-type'));
     const excerpt = this.node('p', '', 'excerpt'); excerpt.append(this.highlight(Array.from(c.raw.text).slice(0, 240).join(''), query)); card.append(excerpt);
     const full = this.node('details', '', 'full-fragment'), summary = this.node('summary', '原文');

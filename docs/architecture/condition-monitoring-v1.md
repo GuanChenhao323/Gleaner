@@ -2,11 +2,11 @@
 
 **接口 ID：** IC-READING-SOURCE-001
 
-**版本：** v1.0（已实现；实际验收范围见本地报告）
+**版本：** v1.1（已实现；实际验收范围见本地报告）
 
 **负责人：** 插件／Core／Flutter
 
-**最后更新：** 2026-11-15
+**最后更新：** 2026-11-16
 
 ## 1. 接口概述
 
@@ -59,3 +59,7 @@ Chrome 每分钟唤醒、提交心跳、优先清空 outbox 后领取任务；�
 verify 成功只证明当次按同身份／视图重入，不能证明永久登录。check 成功且内容变化，调用已有保存服务更新原集合／原生事项、版本及投递；不改个人状态、备注和 deadline_override。不变化不生成新版本；失败不覆盖成功基线和时间。账号不符撤销验证并暂停，须回到原账号重新验证；普通恢复不能解除。修改／停止配置的在途结果不得提交。
 
 旧数据没有原条件时展示“旧采集来源／资料”，可打开原文重新采集；不从旧正文猜关键词。测试分后端、Chrome API 模拟、真实 Chrome 本地、授权真实来源，不能相互替代。
+
+## 2026-11-16 Timeline 集合表示
+
+配方可选representation=timeline_summary，仅source=moodle、content范围、Timeline／时间线意图、空choice／view可用；表示参与来源身份。初次保存经Timeline专用契约核对source_binding与recipe.binding相同，并原子关联。重读上传typed fragments，Core沿Timeline契约校验，复用原集合版本而非创建原生作业。比较标题／正文／课程／日期时间原文／详情链接与重复数量，忽略顺序和DOM locator变化。旧未带representation配方及身份不变。[摘要契约](timeline-summary-v1.md)。

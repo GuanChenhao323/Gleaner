@@ -158,7 +158,11 @@ class ReadingSourceCard extends StatelessWidget {
                 ),
                 meta(
                   Icons.inventory_2_outlined,
-                  '${s.matchCount} ${s.platform == 'generic' ? '个片段' : '条匹配'} · ${s.items.length} 份资料',
+                  '${s.matchCount} ${s.isTimeline
+                      ? '条活动摘要'
+                      : s.platform == 'generic'
+                      ? '个片段'
+                      : '条匹配'} · ${s.items.length} 份资料',
                 ),
               ],
             ),

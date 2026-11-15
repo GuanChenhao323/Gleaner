@@ -82,3 +82,7 @@ Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项�
 [IC-READING-SOURCE-001](../architecture/condition-monitoring-v1.md) 在既有两类保存接口兼容增加可选 `reading`，事务关联 `reading_source_id`；缺省继续旧语义。GET `/api/v1/reading-sources`、PUT `.../{id}` 管理原条件来源；POST `.../{id}/check` 排队 verify/check，GET `.../{id}/checks` 读日志；POST `/api/v1/reading-devices/heartbeat`、`/api/v1/reading-jobs/claim`、`.../{id}/result` 负责同 owner 设备心跳、180秒租约和严格确认。
 
 默认手动，验证后可启用1800／3600／7200秒周期，暂停仍可单次。验证不更新内容基线或成功检查时间；检查变化复用已有保存服务关联原资料／版本。重复上报幂等，配置修订撤销旧租约，已删除来源不自动复活。原生 v2 snapshot 与旧 v1 计划不迁移；学校 Cookie／密码不传到本接口。来源、设备与资料均按当前 owner 隔离。
+
+### Timeline 活动摘要集合（2026-11-16）
+
+POST `/api/v1/timeline-captures`，GET同路径列表及 `/{request_id}` 回执。Bearer与schema_version=1／ok信封沿用集合保存；专用来源账号和summary字段严格校验，强制原条件关联，返回capture_type=timeline_summary及一个collection结果。与captures原生事项、web-captures通用快照分开。后台沿reading-sources租约及representation重读，失败保护不变。完整字段、身份和兼容见 [Timeline 摘要契约](../architecture/timeline-summary-v1.md)。

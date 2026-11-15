@@ -30,6 +30,7 @@ from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
 from .reading_sources import ReadingSourceService
 from .templates import get_template, list_templates
+from .timeline_captures import TimelineCaptureContract
 from .web_captures import WebCaptureService
 
 Publish = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -129,11 +130,15 @@ class API:
         a = self.authed
         native = BrowserMonitorService(self.db, self.pipeline)
         web = WebCaptureService(self.db, self.pipeline)
-        reading = ReadingSourceService(self.db, web, native)
-        native.on_capture = web.on_capture = reading.attach
-        native.validate_reading = web.validate_reading = reading.validate_capture
+        timeline = WebCaptureService(self.db, self.pipeline, TimelineCaptureContract())
+        reading = ReadingSourceService(self.db, web, native, timeline)
+        native.on_capture = web.on_capture = timeline.on_capture = reading.attach
+        native.validate_reading = web.validate_reading = timeline.validate_reading = (
+            reading.validate_capture
+        )
         native.register(r, a)
         web.register(r, a)
+        timeline.register(r, a)
         reading.register(r, a)
         r.add("GET", "/health", self.health)
         r.add("GET", "/api/health", self.health)

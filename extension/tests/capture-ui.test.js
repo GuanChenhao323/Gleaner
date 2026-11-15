@@ -79,7 +79,7 @@ test('a missing target region renders failure rather than an apparently successf
 test('preview-only guidance leads contacts and timeline to appropriate next actions without duplicate field text',async()=>{
   const h=await harness(),c={...candidate(1),record_type:'contact_info',save_allowed:false,save_reason:'contact_preview_only',raw:{title:'Moodle Support',text:'邮箱：support@example.test',fields:{email:'support@example.test'}}};
   h.view.task({schema_version:2,state:'succeeded',result:{candidates:[c]}});assert.ok(!h.view.$('preview').textContent.includes('课程名的作业'));assert.equal(h.view.$('preview').querySelector('article').querySelectorAll('pre').length,2);assert.equal(h.view.$('save').textContent,'联系信息仅预览');assert.equal(h.view.$('save').disabled,true);
-  h.view.task({schema_version:2,state:'succeeded',result:{candidates:[{...c,record_type:'timeline_event',save_reason:'timeline_preview_only'}]}});assert.match(h.view.$('preview').textContent,/进入活动详情/);assert.equal(h.view.$('save').textContent,'仅预览，请打开活动详情');assert.equal(h.view.$('save').disabled,true);
+  h.view.task({schema_version:2,state:'succeeded',result:{candidates:[{...c,record_type:'timeline_event',save_reason:'timeline_preview_only'}]}});assert.match(h.view.$('preview').textContent,/重新提取/);assert.equal(h.view.$('save').textContent,'请重新提取以保存活动摘要');assert.equal(h.view.$('save').disabled,true);
 });
 
 test('generic source label gates save, while changing matching scope invalidates the old preview',async()=>{

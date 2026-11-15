@@ -28,8 +28,14 @@ MESSAGES = {
 
 
 class ReadingSourceService:
-    def __init__(self, db: Database, web: WebCaptureService, native: BrowserMonitorService) -> None:
-        self.db, self.web, self.native = db, web, native
+    def __init__(
+        self,
+        db: Database,
+        web: WebCaptureService,
+        native: BrowserMonitorService,
+        timeline: WebCaptureService | None = None,
+    ) -> None:
+        self.db, self.web, self.native, self.timeline = db, web, native, timeline
         self.recipes = ReadingRecipe()
 
     @staticmethod
@@ -87,15 +93,22 @@ class ReadingSourceService:
     def validate_capture(self, body: dict[str, Any], kind: str) -> dict[str, Any]:
         recipe = self.recipes.validate(body["reading"])
         generic = kind == "generic"
+        timeline = kind == "timeline_summary"
+        if timeline != (recipe.get("representation") == "timeline_summary"):
+            raise ContractError("invalid_reading_recipe")
         if (recipe["source"] == "generic") != generic:
             raise ContractError("invalid_reading_recipe")
-        if generic:
+        if generic or timeline:
             if (
                 recipe["url"] != body["source"]["url"]
                 or recipe["query"] != body["query"]
                 or recipe["match_scope"] != body["match_scope"]
             ):
                 raise ContractError("invalid_reading_recipe")
+            if timeline:
+                if recipe["binding"] != body["source_binding"]:
+                    raise ContractError("invalid_binding")
+                return recipe
             if recipe.get("source_label") != body["source_binding"]["label"]:
                 raise ContractError("invalid_binding")
             expected = "public" if body["source_binding"]["kind"] == "public" else "unverified"
@@ -395,7 +408,8 @@ class ReadingSourceService:
         if not isinstance(snapshot, dict):
             raise ContractError("invalid_snapshot")
         generic = recipe["source"] == "generic"
-        if generic:
+        timeline = recipe.get("representation") == "timeline_summary"
+        if generic or timeline:
             # Preserve the saved collection identity and title; changing text does not
             # authorize a new URL, label, query, owner or native target identity.
             value = {
@@ -412,7 +426,12 @@ class ReadingSourceService:
             for key in ("query", "match_scope", "source_binding"):
                 if snapshot.get(key) != base[key]:
                     raise ContractError("scope_mismatch")
-            self.web.contract.validate(value)
+            if timeline and snapshot.get("collection_type") != "timeline_summary":
+                raise ContractError("scope_mismatch")
+            service = self.timeline if timeline else self.web
+            if service is None:
+                raise ContractError("unsupported")
+            service.contract.validate(value)
         else:
             if snapshot.get("binding") != base["binding"]:
                 raise ContractError("account_mismatch")
@@ -538,18 +557,27 @@ class ReadingSourceService:
                             "UPDATE reading_sources SET verified = 1 WHERE id = ?", row["id"]
                         )
                     else:
-                        generic = loads(row["recipe"])["source"] == "generic"
-                        changed = semantic_snapshot(value, generic) != semantic_snapshot(
-                            loads(row["last_snapshot"]), generic
-                        )
+                        recipe = loads(row["recipe"])
+                        generic = recipe["source"] == "generic"
+                        timeline = recipe.get("representation") == "timeline_summary"
+                        changed = semantic_snapshot(
+                            value, generic or timeline
+                        ) != semantic_snapshot(loads(row["last_snapshot"]), generic or timeline)
                         result = "changed" if changed else "unchanged"
                         if changed:
                             value["request_id"] = str(
                                 uuid.uuid5(uuid.NAMESPACE_URL, f"reading:{uid}:{jid}")
                             )
-                            receipt = await (self.web if generic else self.native).capture(
-                                uid, value
-                            )
+                            if timeline:
+                                if self.timeline is None:
+                                    raise ContractError("unsupported")
+                                receipt = await self.timeline.capture(
+                                    uid, value, from_reading_job=True
+                                )
+                            else:
+                                receipt = await (self.web if generic else self.native).capture(
+                                    uid, value
+                                )
                             if any(r["status"] == "failed" for r in receipt["results"]):
                                 raise ContractError("capture_failed", 409)
                             await self.link(row["id"], receipt["results"])

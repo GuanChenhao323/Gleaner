@@ -109,6 +109,24 @@ test('generic outbox survives popup loss, closed source and worker replacement w
   assert.equal((await worker.send({type:'extract.get',id})).value.result.candidates[0].raw.text,text);
 });
 
+test('actual worker persists Timeline summary to its typed endpoint after popup and original tab close',async()=>{
+  const id=crypto.randomUUID(),url='https://moodle.must.edu.mo/my/',intent={version:2,query:'Timeline',kind:'auto',target:'timeline',fields:[]};
+  const row={candidate_id:'candidate-1',record_type:'timeline_event',save_allowed:true,entity_id:null,target:null,url:'https://moodle.must.edu.mo/mod/assign/view.php?id=42',raw:{title:'合成提醒',text:'合成摘要',fields:{course:'合成课程',date_text:'',datetime_text:'23:59'}},evidence:[{channel:'dom',locator:'div',text:'合成摘要'}]};
+  const task={id,owner:cfg.server+'|1',schema_version:2,state:'succeeded',url,tabId:999,query:'Timeline',intent,expires_at:Date.now()+3600000,result:{source:'moodle',save_mode:'timeline_summary',url,observed_at:Date.now(),intent,binding:{adapter:'moodle',origin:'https://moodle.must.edu.mo',account_key:'key'},candidates:[row]}};
+  const data={config:cfg,device:'device-a',salt:'salt-a',extractionDrafts:[task]},committed=new Map();let lost=true;
+  const fetcher=async(url,options)=>{
+    if(url.endsWith('/claim'))return json(envelope({job:null}));
+    assert.ok(url.endsWith('/timeline-captures'));const body=JSON.parse(options.body);
+    assert.equal(body.reading.representation,'timeline_summary');assert.equal(body.fragments.length,1);
+    if(!committed.has(body.request_id))committed.set(body.request_id,envelope({capture_type:'timeline_summary',reading_source_id:7,request_id:body.request_id,candidate_ids:['candidate-1'],results:[{candidate_id:'collection',capture_id:crypto.randomUUID(),item_id:91,source_id:92,version:1,fragment_count:1,status:'new'}]}));
+    if(lost){lost=false;throw Error('lost acknowledgement');}return json(committed.get(body.request_id));
+  };
+  let worker=await boot(data,fetcher);assert.equal((await worker.send({type:'extract.save',id,query:'Timeline'})).ok,true);
+  await worker.send({type:'status'});assert.equal(data.outbox[0].state,'pending');data.outbox[0].next=0;
+  worker=await boot(data,fetcher);await worker.send({type:'status'});
+  assert.equal(data.outbox[0].state,'confirmed');assert.equal(committed.size,1);
+});
+
 test('connection probe verifies real profile, rejects empty/expired sessions and never exposes credentials',async()=>{
   const data={config:{...cfg,email:'demo@example.test'},device:'device-a',salt:'salt-a'};
   let mode='valid';

@@ -3,13 +3,14 @@ import {safeUrl, SiteRegistry} from './sites.js';
 import {IntentParser,LiteralIntentParser} from './intent.js';
 import {WebCapturePayload,sourceBinding} from './web-payload.js';
 import {ReadingRecipeFactory} from '../monitoring/recipe.js';
+import {TimelineCapturePayload} from './timeline-summary.js';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Orchestrates ports; source DOM rules and UI state do not live in this service. */
 export class PageExtractionService {
-  constructor({browser,repository,reader,config,accountKey,enqueue,enqueueWeb,pipeline=new ExtractionPipeline(),parser=new IntentParser()}) {
-    Object.assign(this,{browser,repository,reader,config,accountKey,enqueue,enqueueWeb,pipeline,parser});
+  constructor({browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,pipeline=new ExtractionPipeline(),parser=new IntentParser()}) {
+    Object.assign(this,{browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,pipeline,parser});
     this.ready=repository.recover(); this.queue=Promise.resolve();
   }
   owner(cfg) { if(!cfg.uid || !cfg.token) throw Error('backend_login_required'); return `${cfg.server}|${cfg.uid}`; }
@@ -63,6 +64,16 @@ export class PageExtractionService {
       const task=await this.repository.get(owner,input.id);
       if(task.schema_version!==2 || task.state!=='succeeded') throw Error('preview_required');
       if(typeof input.query!=='string' || input.query.trim()!==task.query) throw Error('query_changed');
+      if(task.result?.save_mode==='timeline_summary') {
+        if(input.source_binding)throw Error('invalid_request');
+        if(!task.result.binding)throw Error('account_unknown');
+        if(task.submission)return task.submission;
+        const payload=new TimelineCapturePayload().create(task);
+        payload.reading=new ReadingRecipeFactory().create(task);
+        if(!payload.reading || !this.enqueueTimeline)throw Error('reading_unavailable');
+        const submission=await this.enqueueTimeline(cfg,payload);
+        await this.repository.update(owner,task.id,{submission});return submission;
+      }
       if(task.result?.source==='generic') {
         const binding=sourceBinding(input.source_binding);
         if(task.save_binding && JSON.stringify(binding)!==JSON.stringify(task.save_binding))throw Error('idempotency_conflict');

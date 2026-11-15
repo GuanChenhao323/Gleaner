@@ -61,6 +61,17 @@ def normalized_query(value: str) -> str:
 class WebCaptureContract:
     """Strict validation/projection, separate from persistence and transport."""
 
+    capture_kind = "generic"
+    endpoint = "/api/v1/web-captures"
+    subtype = "web_reference"
+    label = "网页资料"
+
+    def source_url(self, value: Any) -> str:
+        return source_url(value)
+
+    def binding(self, value: Any, url: str) -> dict[str, str]:
+        return binding_value(value)
+
     def validate(self, body: Any) -> dict[str, Any]:
         allowed = {
             "schema_version",
@@ -73,6 +84,8 @@ class WebCaptureContract:
             "source_binding",
             "fragments",
         }
+        if self.capture_kind != "generic":
+            allowed.add("collection_type")
         if not isinstance(body, dict) or set(body) != allowed:
             raise ContractError("invalid_request")
         if type(body["schema_version"]) is not int or body["schema_version"] != 1:
@@ -87,7 +100,7 @@ class WebCaptureContract:
         src = body["source"]
         if not isinstance(src, dict) or set(src) != {"url", "title"}:
             raise ContractError("invalid_request")
-        url, title = source_url(src["url"]), string(src["title"], 300)
+        url, title = self.source_url(src["url"]), string(src["title"], 300)
         query = string(body["query"], 200)
         if body["match_scope"] not in ("content", "title"):
             raise ContractError("invalid_request")
@@ -98,47 +111,18 @@ class WebCaptureContract:
             or not 0 < at <= time.time() * 1000 + 300000
         ):
             raise ContractError("invalid_observation")
-        binding = binding_value(body["source_binding"])
+        binding = self.binding(body["source_binding"], url)
         fragments = body["fragments"]
         if not isinstance(fragments, list) or not 1 <= len(fragments) <= 30:
             raise ContractError("invalid_targets")
         ids, projected = set(), []
         for f in fragments:
-            if not isinstance(f, dict) or set(f) != {
-                "candidate_id",
-                "title",
-                "text",
-                "evidence",
-                "context",
-            }:
-                raise ContractError("invalid_snapshot")
-            cid = string(f["candidate_id"], 100)
+            cid = string(f.get("candidate_id") if isinstance(f, dict) else None, 100)
             if cid in ids:
                 raise ContractError("duplicate_candidates")
             ids.add(cid)
-            raw = raw_content({"title": f["title"], "text": f["text"]})
-            evidence, ctx = f["evidence"], f["context"]
-            if (
-                not isinstance(evidence, dict)
-                or set(evidence) != {"channel", "locator", "text"}
-                or evidence["channel"] != "dom"
-                or evidence["text"] != raw["text"]
-            ):
-                raise ContractError("invalid_evidence")
-            string(evidence["locator"], 4000)
-            if (
-                not isinstance(ctx, dict)
-                or set(ctx) != {"frame_url", "boundary", "completeness", "matched_by"}
-                or ctx["frame_url"] != url
-                or ctx["completeness"] != "fragment"
-                or ctx["matched_by"] != "literal"
-                or ctx["boundary"] not in ("paragraph", "list_row", "table_row", "section", "text")
-            ):
-                raise ContractError("invalid_context")
-            projected.append({**f, "candidate_id": cid, "title": raw["title"], "text": raw["text"]})
-        text = "\n\n".join(
-            f"【片段 {i + 1}】{f['title']}\n{f['text']}" for i, f in enumerate(projected)
-        )
+            projected.append({**self.fragment(f, url), "candidate_id": cid})
+        text = self.collection_text(projected)
         if len(text) > 20000:
             raise ContractError("content_too_large")
         return {
@@ -148,6 +132,65 @@ class WebCaptureContract:
             "source_binding": binding,
             "fragments": projected,
             "text": text,
+        }
+
+    def fragment(self, f: Any, url: str) -> dict[str, Any]:
+        if not isinstance(f, dict) or set(f) != {
+            "candidate_id",
+            "title",
+            "text",
+            "evidence",
+            "context",
+        }:
+            raise ContractError("invalid_snapshot")
+        raw = raw_content({"title": f["title"], "text": f["text"]})
+        evidence, ctx = f["evidence"], f["context"]
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != {"channel", "locator", "text"}
+            or evidence["channel"] != "dom"
+            or evidence["text"] != raw["text"]
+        ):
+            raise ContractError("invalid_evidence")
+        string(evidence["locator"], 4000)
+        if (
+            not isinstance(ctx, dict)
+            or set(ctx) != {"frame_url", "boundary", "completeness", "matched_by"}
+            or ctx["frame_url"] != url
+            or ctx["completeness"] != "fragment"
+            or ctx["matched_by"] != "literal"
+            or ctx["boundary"] not in ("paragraph", "list_row", "table_row", "section", "text")
+        ):
+            raise ContractError("invalid_context")
+        return {**f, "title": raw["title"], "text": raw["text"]}
+
+    def fragment_text(self, f: dict[str, Any], number: int) -> str:
+        return f"【片段 {number}】{f['title']}\n{f['text']}"
+
+    def collection_text(self, fragments: list[dict[str, Any]]) -> str:
+        return "\n\n".join(self.fragment_text(f, i + 1) for i, f in enumerate(fragments))
+
+    def identity(self, value: dict[str, Any]) -> list[Any]:
+        return [
+            value["source_binding"],
+            value["source"]["url"],
+            normalized_query(value["query"]),
+            value["match_scope"],
+        ]
+
+    def metadata(self, value: dict[str, Any], cid: str) -> dict[str, Any]:
+        return {
+            "capture_id": cid,
+            "source": value["source"],
+            "query": value["query"],
+            "match_scope": value["match_scope"],
+            "source_binding": value["source_binding"],
+            "account_state": "unverified",
+            "observed_at": value["observed_at"],
+            "scope": "current_rendered_view",
+            "completeness": "fragment",
+            "monitoring": False,
+            "fragments": value["fragments"],
         }
 
 
@@ -180,9 +223,9 @@ class WebCaptureService:
                     {"schema_version": 1, "ok": False, "error": "invalid_request"}, 422
                 )
 
-        router.add("POST", "/api/v1/web-captures", authed(handle))
-        router.add("GET", "/api/v1/web-captures/{request_id}", authed(handle))
-        router.add("GET", "/api/v1/web-captures", authed(handle))
+        router.add("POST", self.contract.endpoint, authed(handle))
+        router.add("GET", self.contract.endpoint + "/{request_id}", authed(handle))
+        router.add("GET", self.contract.endpoint, authed(handle))
 
     async def collections(self, uid: int) -> dict[str, Any]:
         rows = await self.db.fetch(
@@ -204,6 +247,8 @@ class WebCaptureService:
                     ),
                 }
                 for r in rows
+                if loads(r["attrs"], {}).get("web_capture", {}).get("collection_type", "generic")
+                == self.contract.capture_kind
             ],
         }
 
@@ -215,21 +260,30 @@ class WebCaptureService:
         )
         if not row:
             raise ContractError("not_found", 404)
-        return loads(row["response"])
+        response = loads(row["response"])
+        if response.get("capture_type", "generic") != self.contract.capture_kind:
+            raise ContractError("not_found", 404)
+        return response
 
-    async def capture(self, uid: int, body: Any) -> dict[str, Any]:
+    async def capture(
+        self, uid: int, body: Any, *, from_reading_job: bool = False
+    ) -> dict[str, Any]:
         value = self.contract.validate(
             {k: v for k, v in body.items() if k != "reading"} if isinstance(body, dict) else body
         )
         if isinstance(body, dict) and "reading" in body:
             if not self.validate_reading:
                 raise ContractError("reading_unavailable")
-            self.validate_reading(body, "generic")
+            self.validate_reading(body, self.contract.capture_kind)
+        if (
+            self.contract.capture_kind != "generic"
+            and not from_reading_job
+            and "reading" not in body
+        ):
+            raise ContractError("invalid_reading_recipe")
         rid, signature = value["request_id"], digest(body)
         binding, source = value["source_binding"], value["source"]
-        identity = digest(
-            [binding, source["url"], normalized_query(value["query"]), value["match_scope"]]
-        )
+        identity = digest(self.contract.identity(value))
         async with self.db.transaction():
             previous = await self.db.fetchone(
                 "SELECT * FROM web_capture_requests WHERE owner_id = ? AND request_id = ?", uid, rid
@@ -250,7 +304,7 @@ class WebCaptureService:
                     {
                         "owner_id": uid,
                         "type": "browser",
-                        "name": f"网页资料：{value['query']}",
+                        "name": f"{self.contract.label}：{value['query']}",
                         "endpoint": source["url"],
                         "config": {"runner": "snapshot", "source_binding": binding},
                         "via_agent": 1,
@@ -275,19 +329,7 @@ class WebCaptureService:
                 )
                 collection = {"id": cid, "source_id": sid}
             cid, sid = collection["id"], collection["source_id"]
-            metadata = {
-                "capture_id": cid,
-                "source": source,
-                "query": value["query"],
-                "match_scope": value["match_scope"],
-                "source_binding": binding,
-                "account_state": "unverified",
-                "observed_at": value["observed_at"],
-                "scope": "current_rendered_view",
-                "completeness": "fragment",
-                "monitoring": False,
-                "fragments": value["fragments"],
-            }
+            metadata = self.contract.metadata(value, cid)
             counts = await self.pipeline.ingest(
                 {
                     "source_id": sid,
@@ -302,7 +344,7 @@ class WebCaptureService:
                             "url": source["url"],
                             "attrs": {
                                 "web_capture": metadata,
-                                "subtype": "web_reference",
+                                "subtype": self.contract.subtype,
                                 "suppress_deadline": True,
                             },
                         }
@@ -342,11 +384,13 @@ class WebCaptureService:
                     }
                 ],
             }
+            if self.contract.capture_kind != "generic":
+                response["capture_type"] = self.contract.capture_kind
             if isinstance(body, dict) and "reading" in body:
                 if not self.on_capture:
                     raise ContractError("reading_unavailable")
                 response["reading_source_id"] = await self.on_capture(
-                    uid, body, response, "generic"
+                    uid, body, response, self.contract.capture_kind
                 )
             await self.db.execute(
                 "INSERT INTO web_capture_requests (owner_id, request_id, digest, response, created_at) VALUES (?, ?, ?, ?, ?)",

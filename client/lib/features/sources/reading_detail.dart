@@ -7,6 +7,7 @@ import '../../core/models.dart';
 import '../../core/session.dart';
 import '../../widgets/common.dart';
 import '../inbox/source_changes.dart';
+import '../inbox/web_capture_details.dart';
 import 'reading_source.dart';
 import 'reading_settings.dart';
 
@@ -190,6 +191,14 @@ class _SavedItem extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SelectableText(item.body),
+                    if ((item.raw['web_capture'] as Map?)?['collection_type'] ==
+                        'timeline_summary')
+                      WebCaptureDetails(
+                        Map<String, dynamic>.from(
+                          item.raw['web_capture'] as Map,
+                        ),
+                        hasReadingSource: true,
+                      ),
                     if (item.state.note.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 15),

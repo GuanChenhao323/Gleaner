@@ -60,3 +60,7 @@ DOM 只处理主 frame 和开放 Shadow DOM（已由合成结构验证）；ifra
 ## 2026-11-15 兼容扩展：条件来源
 
 扩展 0.9.0 的明确保存可选携带 `reading`，按 [IC-READING-SOURCE-001](condition-monitoring-v1.md) 原子关联原集合，回执增加 `reading_source_id`。不带该对象的旧客户端仍仅保存快照。公开声明的来源可经重读测试后配置手动／周期检查；私人来源标签不能证明账号身份，无法可靠核对账号时仍保留原页手动采集。原 URL／条件／范围／标签的整组版本与原有幂等语义保持。
+
+## 2026-11-16 集合事务复用
+
+WebCaptureContract的来源／绑定／片段／正文／元信息策略可替换，由TimelineCaptureContract复用集合事务及幂等存储。通用端点字段、身份和校园域名拒绝规则保持；Timeline使用独立端点与账号绑定，不能用公共标签绕过校园限制。回执按类型隔离，generic集合列表不混入Timeline。见 [IC-TIMELINE-SUMMARY-001](timeline-summary-v1.md)。

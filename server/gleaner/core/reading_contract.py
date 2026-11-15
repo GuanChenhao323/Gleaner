@@ -44,7 +44,7 @@ class ReadingRecipe:
         }
         if (
             not isinstance(value, dict)
-            or set(value) - (keys | {"source_label"})
+            or set(value) - (keys | {"source_label", "representation"})
             or not keys <= set(value)
             or type(value["version"]) is not int
             or value["version"] != 1
@@ -115,11 +115,22 @@ class ReadingRecipe:
             "unverified",
         ):
             raise ContractError("account_required")
+        if "representation" in value and (
+            value["representation"] != "timeline_summary"
+            or value["source"] != "moodle"
+            or intent.get("target", "").casefold() not in ("timeline", "时间线")
+            or intent.get("kind") != "auto"
+            or intent["fields"]
+            or value["choice"]
+            or value["view"]
+            or value["match_scope"] != "content"
+        ):
+            raise ContractError("invalid_reading_recipe")
         recipe.update(url=url, query=query)
         return recipe
 
     def identity(self, recipe: dict[str, Any]) -> list[Any]:
-        return [
+        values = [
             recipe["binding"],
             recipe.get("source_label", ""),
             recipe["url"],
@@ -128,12 +139,20 @@ class ReadingRecipe:
             recipe["choice"],
             recipe["view"],
         ]
+        if "representation" in recipe:
+            values.append(recipe["representation"])
+        return values
 
 
 def semantic_snapshot(snapshot: dict[str, Any], generic: bool) -> list[Any]:
     """Ignore positions/evidence churn, keep duplicate fragments and actual fields."""
     if generic:
-        values = [[f["title"], f["text"]] for f in snapshot["fragments"]]
+        values = [
+            [f["title"], f["text"], f["url"], f["fields"]]
+            if snapshot.get("collection_type") == "timeline_summary"
+            else [f["title"], f["text"]]
+            for f in snapshot["fragments"]
+        ]
     else:
         values = [[t["entity_id"], t["locator"], t["raw"]] for t in snapshot["targets"]]
     return sorted(values, key=compact)

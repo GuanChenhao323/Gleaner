@@ -12,6 +12,7 @@ export class ReadingRecipeFactory {
       if(values.length && values.every(v=>v===values[0]))view[key]=values[0];
     }
     return {version:1,url:task.url,query:task.query,match_scope:task.match_scope || 'content',
+      ...(result.save_mode==='timeline_summary'?{representation:'timeline_summary'}:{}),
       intent,choice:task.choice || '',source:result.source,view,
       source_label:generic?sourceBinding.label:'',
       binding:generic?{adapter:'generic',origin:new URL(task.url).origin,account_key:sourceBinding.kind==='public'?'public':'unverified'}:result.binding};

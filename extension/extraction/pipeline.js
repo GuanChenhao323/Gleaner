@@ -1,6 +1,7 @@
 import {SiteRegistry, safeUrl} from './sites.js';
 import {CandidateFactory, uniqueCandidates} from './candidates.js';
 import {FragmentPipeline} from './fragments.js';
+import {TimelineSummaryPolicy} from './timeline-summary.js';
 
 /** Validate the scoped-reader port and normalize it into the existing save contract. */
 export class ExtractionPipeline {
@@ -27,7 +28,8 @@ export class ExtractionPipeline {
       if(!/^\d+$/.test(c.id) || typeof c.title!=='string' || c.title.length>300) throw Error('invalid_snapshot');
       return {id:c.id,title:c.title,context:c.context || ''};
     });
-    return {source:site.source,url:snapshot.url,channel:'dom',intent,account,candidates,choices,
+    const summary=new TimelineSummaryPolicy().apply(candidates,intent,account,site.source,snapshot.url);
+    return {source:site.source,url:snapshot.url,title:snapshot.title || '',channel:'dom',intent,account,...summary,choices,
       state:snapshot.state==='needs_choice'?'needs_choice':'succeeded',
       outcome:snapshot.outcome || {status:candidates.length?'matched':snapshot.navigation?.length?'navigation_required':'no_match',page_type:site.source},
       navigation:(snapshot.navigation || []).map(n=>({title:n.title,url:safeUrl(n.url,snapshot.url)})).filter(n=>n.url),

@@ -1,6 +1,14 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-15，扩展 **0.8.1**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.2](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-16，扩展 **0.10.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+
+## Timeline 活动摘要保存（0.10.0）
+
+在已登录且可核对账号的 Moodle Dashboard 输入 Timeline／时间线，预览当前已加载活动后，“保存为一份活动摘要（N条）”将整组资料及原条件关联到工作台。仍显示“活动摘要”，逐条保留日期／时间原文与详情链接，不读取详情正文，不生成原生事件ID。旧冻结预览保持原限制，需重新提取；超过30条或正文20,000字符不截断保存，未知学校账号禁止保存。课程入口、Support及混合结果不在本次开放范围。
+
+`TimelineSummaryPolicy`独立决定集合资格，`TimelineCapturePayload`投影冻结数据，持久outbox提交 `/api/v1/timeline-captures`；回执必须确认摘要类型、全部候选、资料版本和来源关联。后端通过 `TimelineCaptureContract`复用集合事务；原通用端点继续拒绝校园来源。来源配方新增 `representation:timeline_summary`，重读仍用同一DOM端口与账号核对，更新同一集合；重排不报内容变化，时间／链接变化可产生版本。
+
+工作台标注活动摘要资料，显示活动详情链接及原文字段，来源验证／手动／周期与失败保护沿既有流程。[字段与身份契约](architecture/timeline-summary-v1.md)，本地复现脚本 `node devtools/timeline_monitoring_smoke.mjs` 使用模拟DOM／浏览器端口和真实loopback HTTP，不是真实Chrome验收。
 
 ## 原条件来源与后台检查（0.9.0）
 

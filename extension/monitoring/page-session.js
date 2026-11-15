@@ -1,5 +1,6 @@
 import {ExtractionPipeline} from '../extraction/pipeline.js';
 import {WebCapturePayload} from '../extraction/web-payload.js';
+import {TimelineCapturePayload} from '../extraction/timeline-summary.js';
 
 /** Account proof is independent of rendering and extraction. */
 export class SourceSessionVerifier {
@@ -82,6 +83,11 @@ export class ConditionalPageReader {
     for(const candidate of result.candidates)for(const [key,value] of Object.entries(recipe.view)) {
       if((candidate.target?.locator.view?.[key] ?? candidate.raw.fields?.[key])!==value)throw Error('view_mismatch');
     }
+    if(recipe.representation==='timeline_summary') {
+      const payload=new TimelineCapturePayload().create({id:crypto.randomUUID(),query:recipe.query,result:{...result,binding:recipe.binding}});
+      return {account_key,snapshot:payload};
+    }
+    if(result.save_mode==='timeline_summary')throw Error('view_mismatch');
     if(recipe.source==='generic') {
       const binding={kind:'public',label:recipe.source_label};
       const payload=new WebCapturePayload().create({id:crypto.randomUUID(),query:recipe.query,result},binding);

@@ -58,6 +58,7 @@ class ReadingSource {
   String get query => recipe['query'] as String;
   String get url => recipe['url'] as String;
   String get platform => recipe['source'] as String;
+  bool get isTimeline => recipe['representation'] == 'timeline_summary';
   bool get isPublic => (recipe['binding'] as Map)['account_key'] == 'public';
   String get identity => isPublic
       ? '公开网页'
@@ -65,9 +66,11 @@ class ReadingSource {
       ? '${recipe['source_label']} · 账号未核对'
       : '原学校账号 · 本机 Chrome';
   String get title =>
-      '${const {'moodle': 'Moodle', 'student': 'WeMust', 'fie': '教师资料', 'generic': '网页资料'}[platform] ?? platform} · $query';
+      '${isTimeline ? 'Moodle 活动摘要' : const {'moodle': 'Moodle', 'student': 'WeMust', 'fie': '教师资料', 'generic': '网页资料'}[platform] ?? platform} · $query';
   String get scope => recipe['match_scope'] == 'title'
       ? '标题与链接标题'
+      : isTimeline
+      ? '当前已加载活动 · 摘要整组'
       : platform == 'generic'
       ? '正文与列表 · 整组匹配'
       : '原条件与约定视图';

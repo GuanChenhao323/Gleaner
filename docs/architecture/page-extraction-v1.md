@@ -2,11 +2,11 @@
 
 **接口 ID：** IC-EXTRACTION-001
 
-**版本：** v2.2（2026-11-14）
+**版本：** v2.3（2026-11-16）
 
 **负责人：** 插件／网页采集
 
-**最后更新：** 2026-11-14
+**最后更新：** 2026-11-16
 
 ## 1. 接口概述
 
@@ -120,3 +120,7 @@ extract.save 在 generic 结果时额外接收 source_binding={kind,label}，首
 ## 2026-11-15 兼容扩展：冻结重读上下文
 
 0.9.0 在明确保存时从现有提取 intent v2 冻结原 URL／条件／范围／视图与账号绑定，随可选 `reading` 提交（[IC-READING-SOURCE-001](condition-monitoring-v1.md)）。后台仍调用同一 DOM 读取与匹配管线，不扩大候选范围；在读取私有正文前及提取后核对账号。旧预览缺少 v2 intent 时只按原快照保存，不虚构重读条件。提取契约本身不变。
+
+## 2026-11-16 v2.3：Timeline 摘要集合例外
+
+明确Timeline／时间线查询、纯timeline_event组及可靠学校账号时，新结果带save_mode=timeline_summary，候选save_allowed=true、completeness=summary、entity_id／target仍为空；不升级为完整原生事项。未知账号仍禁止，混合组及旧冻结预览保持原限制。单组保存走 [IC-TIMELINE-SUMMARY-001](timeline-summary-v1.md)，不走captures原生target或generic回退。DOM records的complete=false与原文依据保持。超过30条／集合正文20,000字符不截断。此前本契约“Timeline仅预览”由本节更新，课程卡片／Support限制保留。
