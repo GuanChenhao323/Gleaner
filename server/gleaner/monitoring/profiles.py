@@ -7,7 +7,7 @@ import hmac
 import json
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -35,6 +35,38 @@ _YOUTUBE_COOKIES = (
     "__Secure-3PSIDCC",
 )
 _BILIBILI_COOKIES = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "buvid3", "buvid4")
+YOUTUBE_SESSION_COOKIES = (
+    "__Secure-3PSID",
+    "__Secure-3PAPISID",
+    "__Secure-3PSIDTS",
+    "__Secure-3PSIDCC",
+)
+
+
+@dataclass(frozen=True)
+class BrowserRules:
+    """Trusted application configuration, never executable input from upstream tasks."""
+
+    asset_path_pattern: str = r"(?!)"
+    ready_selector: str | None = None
+    login_state_script: str | None = None
+    ready_timeout_ms: int = 20_000
+
+    def __post_init__(self) -> None:
+        if not 0 < self.ready_timeout_ms <= 20_000:
+            raise ValueError("browser readiness timeout must be bounded")
+        re.compile(self.asset_path_pattern)
+
+
+YOUTUBE_BROWSER_RULES = BrowserRules(
+    asset_path_pattern=r"/s/desktop/[A-Za-z0-9_./-]+\.(?:js|css)",
+    ready_selector="button#avatar-btn",
+    login_state_script="() => typeof window.ytcfg?.get === 'function' ? window.ytcfg.get('LOGGED_IN') : null",
+)
+
+
+def profile_family(profile: str) -> str:
+    return "youtube" if profile in ("youtube_http_v2", "youtube_browser_v1") else profile
 
 
 @dataclass(frozen=True)
@@ -42,6 +74,14 @@ class PagePolicy(SitePolicy):
     site_profile: str = "youtube"
     cookie_domains: tuple[str, ...] = ()
     allow_default_cookie_path: bool = True
+    initial_cookie_names: tuple[str, ...] | None = None
+    backend_kind: str = "http"
+    dns_strategy: str = "compatible"
+    browser_rules: BrowserRules | None = None
+
+    @property
+    def import_cookie_names(self) -> tuple[str, ...]:
+        return self.cookie_names if self.initial_cookie_names is None else self.initial_cookie_names
 
     def canonical(self, url: str, *, target: bool = False) -> str:
         allowed = self.target_urls if target else (*self.target_urls, self.origin + "/robots.txt")
@@ -77,6 +117,18 @@ class PagePolicy(SitePolicy):
 
 def page_policy(profile: str, target_url: str) -> SitePolicy:
     """Only trusted profiles are registered; the caller chooses an exact public target."""
+    if profile in ("youtube_http_v2", "youtube_browser_v1"):
+        base = page_policy("youtube", target_url)
+        return replace(
+            base,
+            adapter_id=profile + "_html",
+            site_profile=profile,
+            cookie_names=(*YOUTUBE_SESSION_COOKIES, "LOGIN_INFO"),
+            initial_cookie_names=YOUTUBE_SESSION_COOKIES,
+            dns_strategy="cloudflare",
+            backend_kind="playwright" if profile == "youtube_browser_v1" else "http",
+            browser_rules=YOUTUBE_BROWSER_RULES if profile == "youtube_browser_v1" else None,
+        )
     try:
         p = urlsplit(target_url)
         if (
@@ -143,6 +195,7 @@ class SessionInspector:
 
     def __init__(self, profile: str) -> None:
         self.profile = profile
+        self.family = profile_family(profile)
         self._key = secrets.token_bytes(32)
         self._moodle = MoodleAdapter()
 
@@ -158,7 +211,7 @@ class SessionInspector:
             return AccessVerdict("forbidden", "http_403")
         if response.status in (412, 429):
             return AccessVerdict("forbidden", "access_challenge")
-        if self.profile == "moodle":
+        if self.family == "moodle":
             return self._moodle.inspect(response)
         if response.status != 200 or response.content_type.split(";")[0].strip().lower() not in (
             "text/html",
@@ -170,7 +223,7 @@ class SessionInspector:
             text = script.string or ""
             pattern = (
                 r"ytcfg\.set\s*\(\s*"
-                if self.profile == "youtube"
+                if self.family == "youtube"
                 else r"(?:window\.)?__INITIAL_STATE__\s*=\s*"
             )
             for match in re.finditer(pattern, text):
@@ -180,12 +233,12 @@ class SessionInspector:
                     continue
                 if not isinstance(data, dict):
                     continue
-                info = data if self.profile == "youtube" else data.get("loginInfo", {})
+                info = data if self.family == "youtube" else data.get("loginInfo", {})
                 if not isinstance(info, dict):
                     continue
-                logged = info.get("LOGGED_IN" if self.profile == "youtube" else "isLogin")
+                logged = info.get("LOGGED_IN" if self.family == "youtube" else "isLogin")
                 if type(logged) is bool:
-                    principal = info.get("DATASYNC_ID" if self.profile == "youtube" else "mid")
+                    principal = info.get("DATASYNC_ID" if self.family == "youtube" else "mid")
                     return AccessVerdict(
                         "authenticated" if logged else "auth_required",
                         "explicit_login_flag",

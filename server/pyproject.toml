@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = ["playwright==1.65.2"] # optional registered browser transport
 browser-validation = ["playwright==1.65.2"] # opt-in devtools comparison only
 dev = [
   "pytest>=8",

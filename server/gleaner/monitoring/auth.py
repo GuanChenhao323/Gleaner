@@ -193,7 +193,8 @@ class AuthManager:
                 if not all(isinstance(v, str) for v in (name, value, domain, path)):
                     raise MonitorError("invalid")
                 if (
-                    not self.policy.cookie_allowed(name, domain, path, host_only, secure)
+                    name not in self.policy.import_cookie_names
+                    or not self.policy.cookie_allowed(name, domain, path, host_only, secure)
                     or record.get("same_site", "")
                     not in ("strict", "lax", "none", "unspecified", "no_restriction")
                     or any(ord(ch) < 32 or ord(ch) == 127 for ch in name + value + domain + path)
@@ -346,7 +347,7 @@ class AuthManager:
         if c.state == "revoked":
             cleanup = self._invalidate_resource(auth_id)
             if cleanup is not None:
-                await cleanup
+                await asyncio.shield(cleanup)
             return
         if c.revision != expected_revision:
             raise MonitorError("revision_conflict")
@@ -358,7 +359,7 @@ class AuthManager:
         self._save(auth_id)
         cleanup = self._invalidate_resource(auth_id)
         if cleanup is not None:
-            await cleanup
+            await asyncio.shield(cleanup)
 
     def close(self) -> None:
         cleanup_failed = False

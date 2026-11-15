@@ -44,6 +44,10 @@ class SitePolicy:
     request_headers: tuple[tuple[str, str], ...] = ()
     allow_default_cookie_path: bool = False
 
+    @property
+    def import_cookie_names(self) -> tuple[str, ...]:
+        return self.cookie_names
+
     def cookie_allowed(
         self, name: str, domain: str, path: str, host_only: bool, secure: bool
     ) -> bool:

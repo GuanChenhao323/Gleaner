@@ -24,10 +24,10 @@ from uuid import uuid4
 
 from bs4 import BeautifulSoup
 from gleaner.monitoring.auth import AuthManager
+from gleaner.monitoring.backends import create_page_transport
 from gleaner.monitoring.models import MonitorError
 from gleaner.monitoring.pages import HTMLReceipt, HTMLSnapshot, PageMonitor
 from gleaner.monitoring.profiles import SessionInspector, page_policy
-from gleaner.monitoring.transport import HTTPXTransport
 from gleaner.net.http import Request, Response
 from gleaner.net.http.message import Headers
 from gleaner.net.http.server import HTTPServer, ServerConfig
@@ -85,9 +85,10 @@ def normalize(records: object, names: tuple[str, ...]) -> list[dict]:
 
 
 class MemorySink:
-    def __init__(self) -> None:
+    def __init__(self, emit=lambda _: None) -> None:
         self.receipts: dict[str, HTMLReceipt] = {}
         self.count = 0
+        self.emit = emit
 
     async def accept(self, snapshot: HTMLSnapshot) -> HTMLReceipt:
         if snapshot.snapshot_id not in self.receipts:
@@ -95,6 +96,15 @@ class MemorySink:
                 snapshot.snapshot_id, True
             )
             self.count += 1
+            self.emit(
+                {
+                    "snapshot_id": snapshot.snapshot_id,
+                    "accepted": True,
+                    "received_bytes": len(snapshot.body),
+                    "body_sha256": hashlib.sha256(snapshot.body).hexdigest(),
+                    "utc": time.time(),
+                }
+            )
         # Full HTML reaches this boundary unchanged. No page or business data is retained.
         return self.receipts[snapshot.snapshot_id]
 
@@ -152,7 +162,7 @@ class DiagnosticSessionInspector(SessionInspector):
     def inspect(self, response):
         verdict = super().inspect(response)
         if (
-            self.profile in ("bilibili", "youtube")
+            self.family in ("bilibili", "youtube")
             and response.status == 200
             and response.content_type.split(";")[0].strip().lower()
             in ("text/html", "application/xhtml+xml")
@@ -162,7 +172,7 @@ class DiagnosticSessionInspector(SessionInspector):
             states = []
             pattern = (
                 r"ytcfg\.set\s*\(\s*"
-                if self.profile == "youtube"
+                if self.family == "youtube"
                 else r"(?:window\.)?__INITIAL_STATE__\s*=\s*"
             )
             for script in scripts:
@@ -173,7 +183,7 @@ class DiagnosticSessionInspector(SessionInspector):
                         continue
                     if isinstance(data, dict):
                         states.append(data)
-            if self.profile == "youtube":
+            if self.family == "youtube":
                 flags = [state.get("LOGGED_IN") for state in states]
                 signals = {
                     "config_objects": len(states),
@@ -276,7 +286,7 @@ class Harness:
         args: argparse.Namespace,
         *,
         policy_factory=page_policy,
-        transport_factory=HTTPXTransport,
+        transport_factory=create_page_transport,
         monitor_factory=PageMonitor,
         inspector_factory=DiagnosticSessionInspector,
         import_names: tuple[str, ...] | None = None,
@@ -284,7 +294,7 @@ class Harness:
         self.args = args
         self.policy = policy_factory(args.site, args.target)
         self.import_names = (
-            self.policy.cookie_names if import_names is None else import_names
+            self.policy.import_cookie_names if import_names is None else import_names
         )
         if not set(self.import_names) <= set(self.policy.cookie_names):
             raise ValueError("import names exceed the response cookie scope")
@@ -295,7 +305,7 @@ class Harness:
         self.inspector = inspector_factory(
             args.site, lambda signals: self.append("auth_diagnostic", signals)
         )
-        self.sink = MemorySink()
+        self.sink = MemorySink(lambda event: self.append("receipt", event))
         self.report = Path(args.report)
         self.report.parent.mkdir(parents=True, exist_ok=True)
         if self.report.exists():
@@ -628,7 +638,15 @@ async def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--site", choices=("moodle", "youtube", "bilibili"), required=True
+        "--site",
+        choices=(
+            "moodle",
+            "youtube",
+            "bilibili",
+            "youtube_http_v2",
+            "youtube_browser_v1",
+        ),
+        required=True,
     )
     parser.add_argument("--target", required=True)
     parser.add_argument("--interval", type=float, default=600)
