@@ -1,6 +1,8 @@
 # YouTube HTTP / Playwright 对照验证
 
-## 本轮结果
+后续状态：Mac 解锁后的 Playwright-02 已通过真实两小时，且可选通用后端已接入并通过真实单轮烟测。最新结果与使用方式见 [playwright-resume.md](playwright-resume.md)。以下保留第一次收尾时的历史状态与未开始记录。
+
+## 第一次收尾结果
 
 **修正后的 HTTP 实验路径通过真实两小时；Playwright 在会话导入前因 Mac 锁屏阻断，对照未完成，未接入通用浏览器后端。**
 
