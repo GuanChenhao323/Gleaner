@@ -3,6 +3,8 @@ import { Outbox, scope } from './lib/outbox.js';
 import { DomPageReader } from './extraction/readers.js';
 import { DraftRepository } from './extraction/drafts.js';
 import { PageExtractionService } from './extraction/service.js';
+import {PageReentry,SourceSessionVerifier,ConditionalPageReader} from './monitoring/page-session.js';
+import {ReadingJobExecutor} from './monitoring/jobs.js';
 const storage = chrome.storage.local;
 const box = new Outbox(storage);
 const files = ['content/runtime.js', 'adapters/must_moodle.js', 'adapters/must_student_portal.js', 'adapters/must_fie_people.js', 'content/capture.js'];
@@ -26,6 +28,9 @@ async function accountKey(adapter, account) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}|${adapter}|${account}`)))].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 const domReader = new DomPageReader(chrome);
+const reentry=new PageReentry(chrome,storage,domReader);
+const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,
+  reader:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey)),reentry,config,device});
 const extraction = new PageExtractionService({ browser: chrome, repository: new DraftRepository(storage),
   reader: domReader, config, accountKey, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture });
 // Content scripts have no reason to access Campus Radar tokens or private drafts.
@@ -98,7 +103,7 @@ async function wake() {
   }
   const { device: id } = await device();
   const { job } = await request(cfg, '/api/v1/monitor-jobs/claim', { device_id: id });
-  if (!job) return;
+  if (!job) { await readingJobs.wake(cfg); return; }
   await storage.set({ activeJob: { scope: scope(cfg), job, queued: false } });
   let payload = { schema_version: 1, device_id: id, lease: job.lease, revision: job.revision };
   try {
@@ -111,6 +116,7 @@ async function wake() {
   await box.add(cfg, `/api/v1/monitor-jobs/${job.id}/result`, payload);
   await storage.set({ activeJob: { scope: scope(cfg), job, queued: true } });
   await box.flush(cfg); await storage.remove('activeJob');
+  await readingJobs.wake(cfg);
 }
 async function alarm() {
   if (!(await chrome.alarms.get('campus-radar'))) chrome.alarms.create('campus-radar', { periodInMinutes: 1 });
@@ -183,8 +189,8 @@ async function enqueueCapture(cfg, m) {
   if (!Array.isArray(m.selected) || !m.selected.length || m.selected.length > 30) throw Error('invalid_selection');
   if (m.selected.some(c => c.needs_detail)) throw Error('preview_required');
   const { device: id } = await device();
-  const signature = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({binding:m.binding,selected:m.selected,enabled:m.enabled}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
-  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, state: 'pending' };
+  const signature = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({binding:m.binding,selected:m.selected,enabled:m.enabled,reading:m.reading}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, reading:m.reading, state: 'pending' };
   const existing = (await storage.get('intents')).intents || [];
   const previous = existing.find(r => r.scope === scope(cfg) && r.id === intent.id);
   if (previous) {
@@ -221,7 +227,7 @@ async function processIntents(cfg) {
           locator: found.locator, raw: found.raw, recipe: found.recipe, supported: candidate.supported, enabled: Boolean(intent.enabled && candidate.supported) });
         intent.captured = targets; await storage.set({ intents });
       }
-      await box.add(cfg, '/api/v1/captures', { schema_version: 1, request_id: intent.id, device_id: (await device()).device, binding: intent.binding, targets });
+      await box.add(cfg, '/api/v1/captures', { schema_version: 1, request_id: intent.id, device_id: (await device()).device, binding: intent.binding, targets, ...(intent.reading?{reading:intent.reading}:{}) });
       intent.state = 'queued';
       delete intent.selected; delete intent.captured;
     } catch (e) { intent.state = 'failed'; intent.error = e.message; delete intent.selected; delete intent.captured; }

@@ -283,3 +283,43 @@ SCHEMA += [
         checked_at REAL NOT NULL, version INTEGER
     )""",
 ]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS reading_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, identity_key TEXT NOT NULL, recipe TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'manual', paused INTEGER NOT NULL DEFAULT 0,
+        verified INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
+        interval_s INTEGER NOT NULL DEFAULT 1800, next_at REAL NOT NULL DEFAULT 0,
+        pending TEXT NOT NULL DEFAULT '', last_result TEXT NOT NULL DEFAULT 'not_executed',
+        last_attempt_at REAL, last_success_at REAL, error TEXT NOT NULL DEFAULT '',
+        last_snapshot TEXT NOT NULL, created_at REAL NOT NULL,
+        UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_source_items (
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        PRIMARY KEY(reading_id, item_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_devices (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, last_seen_at REAL NOT NULL,
+        PRIMARY KEY(owner_id, device_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, revision INTEGER NOT NULL, purpose TEXT NOT NULL,
+        lease TEXT NOT NULL, expires_at REAL NOT NULL, claimed_at REAL NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 1, finished_at REAL, digest TEXT, response TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_reading_jobs ON reading_jobs(owner_id, device_id, finished_at)",
+    """CREATE TABLE IF NOT EXISTS reading_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL, purpose TEXT NOT NULL, result TEXT NOT NULL,
+        detail TEXT NOT NULL, checked_at REAL NOT NULL
+    )""",
+]

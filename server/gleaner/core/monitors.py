@@ -123,6 +123,8 @@ def raw_content(raw: Any) -> dict[str, Any]:
 class BrowserMonitorService:
     def __init__(self, db: Database, pipeline: Pipeline) -> None:
         self.db, self.pipeline = db, pipeline
+        self.on_capture: Callable[..., Any] | None = None
+        self.validate_reading: Callable[..., Any] | None = None
 
     @staticmethod
     def envelope(**value: Any) -> dict[str, Any]:
@@ -263,6 +265,10 @@ class BrowserMonitorService:
             or len(set(ids)) != len(ids)
         ):
             raise ContractError("duplicate_candidates")
+        if "reading" in body:
+            if not self.validate_reading:
+                raise ContractError("reading_unavailable")
+            self.validate_reading(body, "native")
         payload_hash = digest(body)
         async with self.db.transaction():
             prev = await self.db.fetchone(
@@ -390,6 +396,10 @@ class BrowserMonitorService:
                     }
                 )
             response = self.envelope(request_id=rid, results=results)
+            if "reading" in body:
+                if not self.on_capture:
+                    raise ContractError("reading_unavailable")
+                response["reading_source_id"] = await self.on_capture(uid, body, response, "native")
             await self.db.execute(
                 "INSERT INTO browser_requests (owner_id, request_id, digest, response, created_at) VALUES (?, ?, ?, ?, ?)",
                 uid,

@@ -2,6 +2,7 @@ import {ExtractionPipeline} from './pipeline.js';
 import {safeUrl, SiteRegistry} from './sites.js';
 import {IntentParser,LiteralIntentParser} from './intent.js';
 import {WebCapturePayload,sourceBinding} from './web-payload.js';
+import {ReadingRecipeFactory} from '../monitoring/recipe.js';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -67,6 +68,8 @@ export class PageExtractionService {
         if(task.save_binding && JSON.stringify(binding)!==JSON.stringify(task.save_binding))throw Error('idempotency_conflict');
         if(task.submission)return task.submission;
         const payload=new WebCapturePayload().create(task,binding);
+        const reading=new ReadingRecipeFactory().create(task,binding);
+        if(reading)payload.reading=reading;
         await this.repository.update(owner,task.id,{save_binding:binding});
         if(!this.enqueueWeb)throw Error('worker_unavailable');
         const submission=await this.enqueueWeb(cfg,payload);
@@ -79,7 +82,8 @@ export class PageExtractionService {
       if(candidates.some(c=>!c.save_allowed || !c.target)) throw Error('preview_only');
       if(task.submission) return task.submission;
       const result=await this.enqueue(cfg,{request_id:task.id,tabId:task.tabId,binding:task.result.binding,
-        selected:candidates.map(c=>({...c.target,candidate_id:c.candidate_id,needs_detail:false})),enabled:false});
+        selected:candidates.map(c=>({...c.target,candidate_id:c.candidate_id,needs_detail:false})),enabled:false,
+        reading:new ReadingRecipeFactory().create(task)});
       await this.repository.update(owner,task.id,{submission:result}); return result;
     }
     throw Error('unknown_message');

@@ -13,6 +13,8 @@ import 'features/mail/compose_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/app_shell.dart';
 import 'features/sources/sources_page.dart';
+import 'features/sources/reading_settings.dart';
+import 'features/sources/reading_detail.dart';
 import 'features/transfer/transfer_page.dart';
 
 /// 登录状态变化时让 GoRouter 重新计算 redirect。
@@ -65,6 +67,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/courses', pageBuilder: (_, _) => page(const CoursesPage())),
           GoRoute(path: '/sources', pageBuilder: (_, _) => page(const SourcesPage())),
+          GoRoute(path: '/sources/:id', pageBuilder: (_, s) => page(ReadingDetailPage(id: int.parse(s.pathParameters['id']!), showChanges: s.uri.queryParameters['tab']=='changes'))),
+          GoRoute(path: '/sources/:id/settings', pageBuilder: (_, s) => page(ReadingSettingsPage(id: int.parse(s.pathParameters['id']!)))),
+          GoRoute(path: '/sources/:id/checks', pageBuilder: (_, s) => page(ReadingChecksPage(id: int.parse(s.pathParameters['id']!)))),
           GoRoute(path: '/settings', pageBuilder: (_, _) => page(const SettingsPage())),
         ],
       ),

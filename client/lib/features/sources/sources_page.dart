@@ -9,76 +9,232 @@ import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../widgets/common.dart';
-import 'browser_monitors.dart';
+
+import 'package:go_router/go_router.dart';
+
+import 'reading_source.dart';
+import 'reading_source_card.dart';
 import 'campus_source_entries.dart';
-import 'web_captures.dart';
 
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
+  Future<void> _act(
+    BuildContext context,
+    Future<void> Function() action,
+    String message,
+  ) async {
+    try {
+      await action();
+      if (context.mounted) toast(context, message);
+    } catch (e) {
+      if (context.mounted) toast(context, '$e', error: true);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sources = ref.watch(sourcesProvider);
+    final data = ref.watch(readingSourcesProvider),
+        legacy = ref.watch(sourcesProvider),
+        captures = ref.watch(legacyCapturesProvider);
+    void refresh() {
+      ref.read(readingSourcesProvider.notifier).refresh().catchError((
+        Object e,
+      ) {
+        if (context.mounted) toast(context, '状态刷新失败：$e', error: true);
+      });
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('信息源'), actions: [
-        IconButton(tooltip: '刷新状态', icon: const Icon(Icons.refresh), onPressed: () {ref.invalidate(sourcesProvider);ref.invalidate(webCapturesProvider);}),
-        const SizedBox(width: 8),
-      ]),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showAddSource(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('添加信息源'),
+      appBar: AppBar(
+        title: const Text('信息源'),
+        actions: [
+          IconButton(
+            tooltip: '刷新列表状态（不访问来源网页）',
+            icon: const Icon(Icons.refresh),
+            onPressed: refresh,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: FilledButton.tonalIcon(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (c) => const FractionallySizedBox(
+                  heightFactor: .88,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(24),
+                    child: CampusSourceEntries(),
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('从网页采集'),
+            ),
+          ),
+        ],
       ),
-      body: sources.when(
+      body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '无法获取信息源状态', message: '$e', action: OutlinedButton(onPressed: () => ref.invalidate(sourcesProvider), child: const Text('重试'))),
-        data: (list) => ListView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-          children: [
-            const CampusSourceEntries(),
-            const WebCapturesPanel(),
-            const BrowserMonitorsPanel(),
-            if (list.isEmpty) const Text('还没有保存的信息。使用插件输入条件、预览并保存后，记录与来源会出现在这里。模拟模板仅供演示，可由下方添加入口主动选择。'),
-            if (list.any((s) => s.type != 'browser')) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('已有订阅（含本地演示／旧采集来源；不代表上方学校网站已接通）')),
-            if (list.any((s) => s.type != 'browser')) _Summary(list.where((s) => s.type != 'browser').toList()),
-            for (final s in list.where((s) => s.type != 'browser')) Padding(padding: const EdgeInsets.only(bottom: 10), child: _SourceCard(s)),
-          ],
+        error: (e, _) => EmptyState(
+          icon: Icons.cloud_off,
+          title: '无法读取信息源',
+          message: '$e',
+          action: OutlinedButton(onPressed: refresh, child: const Text('重试')),
         ),
+        data: (rows) {
+          final linked = rows
+              .expand((s) => s.items)
+              .map((i) => i['id'])
+              .toSet();
+          final controller = ref.read(readingSourcesProvider.notifier),
+              cs = Theme.of(context).colorScheme;
+          Widget metric(String value, String label) => Column(
+            children: [
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(color: cs.primary),
+              ),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ],
+          );
+          final oldCaptures = (captures.value ?? <Map<String, dynamic>>[])
+              .where((r) => !linked.contains(r['item_id']))
+              .toList();
+          final oldSources = (legacy.value ?? <Source>[])
+              .where((s) => s.type != 'browser')
+              .toList();
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+            children: [
+              Text(
+                '关注的网页，持续有据可查',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 6),
+              const Text('保存的内容、提取条件与更新状态，集中在这里管理。'),
+              const SizedBox(height: 10),
+              Text(
+                rows.isEmpty
+                    ? '保存后会记录原关键词和执行设备。'
+                    : rows.any((s) => s.deviceOnline)
+                    ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
+                    : '尚未检测到执行设备近期连接 · 保留上次成功结果',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 17),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 18,
+                    horizontal: 8,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, c) => Wrap(
+                      alignment: WrapAlignment.spaceAround,
+                      spacing: 16,
+                      runSpacing: 14,
+                      children: [
+                        metric('${rows.length}', '已保存来源'),
+                        metric(
+                          '${rows.where((s) => s.periodic).length}',
+                          '定期检查中',
+                        ),
+                        metric(
+                          '${rows.where((s) => !['not_executed', 'verified', 'unchanged', 'changed'].contains(s.result) || s.capability == 'account_unknown').length}',
+                          '需要处理',
+                        ),
+                        metric(
+                          '${rows.where((s) => s.result == 'changed').length}',
+                          '本次发现变化',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('我的信息源', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 10),
+              if (rows.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text('还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。'),
+                ),
+              for (final s in rows)
+                ReadingSourceCard(
+                  source: s,
+                  onCheck: () => _act(
+                    context,
+                    () => controller.check(s, 'check'),
+                    '检查已排队；结果确认后更新状态。',
+                  ),
+                  onSettings: () => context.push('/sources/${s.id}/settings'),
+                  onDetails: () => context.push('/sources/${s.id}${s.result=='changed'?'?tab=changes':''}'),
+                  onLogs: () => context.push('/sources/${s.id}/checks'),
+                  onPause: () => _act(
+                    context,
+                    () =>
+                        controller.configure(s, s.settings(paused: !s.paused)),
+                    s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
+                  ),
+                  onOpen: () => launchUrl(Uri.parse(s.url)),
+                ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  '关闭原网页不影响已授权检查。请保持 Chrome、扩展和本地后端运行；检查可能延后。',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              if (oldCaptures.isNotEmpty ||
+                  oldSources.isNotEmpty ||
+                  captures.hasError)
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('旧资料与演示订阅'),
+                  subtitle: const Text('保留已有数据；缺少原条件时请打开原网页重新采集。'),
+                  children: [
+                    if (captures.hasError) Text('旧资料读取失败：${captures.error}'),
+                    for (final r in oldCaptures)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.inventory_2_outlined),
+                          title: Text('${r['title']}'),
+                          subtitle: Text('${r['url']}\n旧采集资料 · 未自动迁入条件监测'),
+                          onTap: () => context.push('/item/${r['item_id']}'),
+                        ),
+                      ),
+                    for (final s in oldSources) _SourceCard(s),
+                    TextButton(
+                      onPressed: () => showAddSource(context, ref),
+                      child: const Text('管理旧模板／演示来源'),
+                    ),
+                  ],
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Summary extends StatelessWidget {
-  final List<Source> list;
-  const _Summary(this.list);
-  @override
-  Widget build(BuildContext context) {
-    final ok = list.where((s) => s.status == 'ok').length;
-    final bad = list.where((s) => s.status == 'failed').length;
-    final login = list.where((s) => s.status == 'need_login').length;
-    final ratios = list.where((s) => s.savedRatio != null).map((s) => s.savedRatio!).toList();
-    final saved = ratios.isEmpty ? null : ratios.reduce((a, b) => a + b) / ratios.length;
-    final cs = Theme.of(context).colorScheme;
-    Widget cell(String v, String l, Color c) => Expanded(
-          child: Column(children: [
-            Text(v, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: c)),
-            Text(l, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
-          ]),
-        );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        child: Row(children: [
-          cell('$ok', '正常', sourceStatus(context, list.firstWhere((s) => s.status == 'ok', orElse: () => list.first)).color),
-          cell('$bad', '检查失败', cs.error),
-          cell('$login', '需要登录', const Color(0xFFE0A43A)),
-          cell(saved == null ? '—' : '${(saved * 100).round()}%', '条件请求命中', cs.primary),
-        ]),
-      ),
-    );
-  }
-}
+final legacyCapturesProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
+  final api = ref.watch(apiProvider);
+  final results = await Future.wait([api.browserMonitors(), api.webCaptures()]);
+  return [
+    ...results[0],
+    ...results[1].map((r) => {...r, 'item_id': r['id']}),
+  ];
+});
 
 class _SourceCard extends ConsumerWidget {
   final Source s;

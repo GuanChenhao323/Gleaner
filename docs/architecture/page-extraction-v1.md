@@ -116,3 +116,7 @@ extract.save 在 generic 结果时额外接收 source_binding={kind,label}，首
 
 
 2026-11-15：界面收敛为单弹窗，独立双栏页移除；UI 状态、连接检查和指定请求重试见 [IC-PANEL-001](capture-panel-v1.md)。本次不改变提取 version=2、原生身份、完整度和保存网络契约。
+
+## 2026-11-15 兼容扩展：冻结重读上下文
+
+0.9.0 在明确保存时从现有提取 intent v2 冻结原 URL／条件／范围／视图与账号绑定，随可选 `reading` 提交（[IC-READING-SOURCE-001](condition-monitoring-v1.md)）。后台仍调用同一 DOM 读取与匹配管线，不扩大候选范围；在读取私有正文前及提取后核对账号。旧预览缺少 v2 intent 时只按原快照保存，不虚构重读条件。提取契约本身不变。

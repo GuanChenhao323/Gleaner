@@ -49,8 +49,8 @@ test('persistent outbox deduplicates web snapshots before and after confirmation
   const body={...h.sent[0],device_id:'fixture'},store=storage(),box=new Outbox(store),path='/api/v1/web-captures';
   const entry=await box.add(cfg,path,body);assert.equal(await box.add(cfg,path,body),entry);
   await assert.rejects(box.add(cfg,path,{...body,query:'changed'}),/idempotency_conflict/);
-  const response={schema_version:1,ok:true,request_id:id,candidate_ids:body.fragments.map(f=>f.candidate_id),results:[{candidate_id:'collection',capture_id:crypto.randomUUID(),source_id:10,item_id:11,version:1,fragment_count:2,status:'new'}]};
-  for(const mutate of [r=>({...r,candidate_ids:['candidate-1']}),r=>({...r,results:[]}),r=>({...r,results:[{...r.results[0],item_id:0}]}),()=>({})])
+  const response={schema_version:1,ok:true,reading_source_id:1,request_id:id,candidate_ids:body.fragments.map(f=>f.candidate_id),results:[{candidate_id:'collection',capture_id:crypto.randomUUID(),source_id:10,item_id:11,version:1,fragment_count:2,status:'new'}]};
+  for(const mutate of [r=>({...r,reading_source_id:null}),r=>({...r,candidate_ids:['candidate-1']}),r=>({...r,results:[]}),r=>({...r,results:[{...r.results[0],item_id:0}]}),()=>({})])
     await assert.rejects(request(cfg,path,body,{fetcher:async()=>json(mutate(response))}),/invalid_.*response/);
   box.api=async(...args)=>request(...args,{fetcher:async()=>json(response)});
   await box.flush(cfg);assert.equal((await box.all())[0].state,'confirmed');assert.equal((await box.all())[0].body,undefined);

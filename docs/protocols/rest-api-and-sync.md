@@ -75,3 +75,10 @@ Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项�
 2026-11-11：[条件先行读取／预览契约 v2](../architecture/page-extraction-v1.md)，读取／预览不调用网络保存接口。只有明确保存才走上述 captures，recipe.version=2、strategy=snapshot 表示仅快照保存，后端强制 supported=false、enabled=false，不进入调度。v1 recipe 与信封 schema_version=1 保持兼容；recipe 改变仍需显式重绑，未自动迁移。事项详情中的监测布尔字段不再返回数据库整数。
 
 2026-11-14：[通用 DOM 资料契约](../architecture/universal-web-capture-v1.md) 增加 POST `/api/v1/web-captures`、GET `/api/v1/web-captures/{request_id}`、GET `/api/v1/web-captures`。整组片段作为一份资料，按 owner＋来源标签＋URL＋条件＋范围合并，明确保存后更新版本，不产生监测配置。信封 schema_version=1，提交回执的 candidate_ids 必须覆盖全部片段，results 恰有一项集合结果；读取回执仅对 owner 可见。事项字段 `web_capture` 提供来源、条件、范围、片段及依据，兼容旧事项的 null。资料列表返回当前 owner 最近100份的摘要，不返回片段正文。
+
+
+## 原条件来源与 Chrome 检查（2026-11-15）
+
+[IC-READING-SOURCE-001](../architecture/condition-monitoring-v1.md) 在既有两类保存接口兼容增加可选 `reading`，事务关联 `reading_source_id`；缺省继续旧语义。GET `/api/v1/reading-sources`、PUT `.../{id}` 管理原条件来源；POST `.../{id}/check` 排队 verify/check，GET `.../{id}/checks` 读日志；POST `/api/v1/reading-devices/heartbeat`、`/api/v1/reading-jobs/claim`、`.../{id}/result` 负责同 owner 设备心跳、180秒租约和严格确认。
+
+默认手动，验证后可启用1800／3600／7200秒周期，暂停仍可单次。验证不更新内容基线或成功检查时间；检查变化复用已有保存服务关联原资料／版本。重复上报幂等，配置修订撤销旧租约，已删除来源不自动复活。原生 v2 snapshot 与旧 v1 计划不迁移；学校 Cookie／密码不传到本接口。来源、设备与资料均按当前 owner 隔离。

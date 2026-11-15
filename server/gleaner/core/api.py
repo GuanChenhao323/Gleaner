@@ -28,6 +28,7 @@ from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
 from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
+from .reading_sources import ReadingSourceService
 from .templates import get_template, list_templates
 from .web_captures import WebCaptureService
 
@@ -126,8 +127,14 @@ class API:
 
     def register(self, r: Router) -> None:
         a = self.authed
-        BrowserMonitorService(self.db, self.pipeline).register(r, a)
-        WebCaptureService(self.db, self.pipeline).register(r, a)
+        native = BrowserMonitorService(self.db, self.pipeline)
+        web = WebCaptureService(self.db, self.pipeline)
+        reading = ReadingSourceService(self.db, web, native)
+        native.on_capture = web.on_capture = reading.attach
+        native.validate_reading = web.validate_reading = reading.validate_capture
+        native.register(r, a)
+        web.register(r, a)
+        reading.register(r, a)
         r.add("GET", "/health", self.health)
         r.add("GET", "/api/health", self.health)
         r.add("POST", "/api/auth/code", self.send_code)
@@ -474,6 +481,11 @@ class API:
         if it["browser_monitor"]:
             for flag in ("enabled", "supported"):
                 it["browser_monitor"][flag] = bool(it["browser_monitor"][flag])
+        it["reading_source"] = await self.db.fetchone(
+            "SELECT r.id, r.last_result, r.last_success_at FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND link.item_id = ? ORDER BY r.id DESC LIMIT 1",
+            user["id"],
+            it["id"],
+        )
         return Response.json_body(it)
 
     async def versions(self, req: Request, user: dict[str, Any]) -> Response:

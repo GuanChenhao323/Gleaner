@@ -128,6 +128,48 @@ class Api {
   Future<void> browserCheck(int id) async { await _browser('POST', '/api/v1/monitors/$id/check', data: {}); }
   Future<void> browserRemove(int id) async { await _browser('DELETE', '/api/v1/monitors/$id'); }
 
+  Future<List<Map<String, dynamic>>> readingSources() async {
+    final result = await _browser('GET', '/api/v1/reading-sources');
+    if (result['sources'] is! List) {
+      throw ApiException(502, 'invalid_response', '条件来源列表格式异常');
+    }
+    return (result['sources'] as List)
+        .map((m) => Map<String, dynamic>.from(m as Map))
+        .toList();
+  }
+
+  Future<void> configureReading(int id, Map<String, dynamic> body) async {
+    final result = await _browser(
+      'PUT',
+      '/api/v1/reading-sources/$id',
+      data: body,
+    );
+    if (result['revision'] is! int) {
+      throw ApiException(502, 'invalid_response', '检查配置未获确认');
+    }
+  }
+
+  Future<void> checkReading(int id, int revision, String purpose) async {
+    final result = await _browser(
+      'POST',
+      '/api/v1/reading-sources/$id/check',
+      data: {'revision': revision, 'purpose': purpose},
+    );
+    if (result['status'] != 'queued' || result['source_id'] != id) {
+      throw ApiException(502, 'invalid_response', '检查请求未获确认');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> readingChecks(int id) async {
+    final result = await _browser('GET', '/api/v1/reading-sources/$id/checks');
+    if (result['checks'] is! List) {
+      throw ApiException(502, 'invalid_response', '检查日志格式异常');
+    }
+    return (result['checks'] as List)
+        .map((m) => Map<String, dynamic>.from(m as Map))
+        .toList();
+  }
+
   // ---- 邮件 ----
   Future<Map<String, dynamic>> sendMail(Map<String, dynamic> body, String key) => _map('POST', '/api/mail/send', data: body, headers: {'Idempotency-Key': key});
   Future<List<Map<String, dynamic>>> sentMails() async {

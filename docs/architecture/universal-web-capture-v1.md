@@ -56,3 +56,7 @@ DOM 只处理主 frame 和开放 Shadow DOM（已由合成结构验证）；ifra
 执行链：content/scoped/generic.js → extraction/fragments.js → extraction/web-payload.js → background.enqueueWebCapture → lib/outbox.js → core/web_captures.py → Pipeline → Flutter。新建 web_collections/web_capture_requests 表，不修改校园 native 监测表结构。服务启动自动建表；已有数据保留。
 
 2026-11-14：Node 92项、后端相关65项、Flutter 11项通过；真实 Chrome 本地无适配标记页面两条匹配和整组保存确认，Flutter 来源、片段与版本差异经独立浏览器核验。真实 Gmail、未登记学校 DOM、Chrome 110 最低版本实机、嵌入／关闭 Shadow DOM 不在本轮通过声明中。真实 Chrome 已验证原页关闭、扩展重载后恢复预览并更新资料37至v2；在途回执丢失／异常响应仍主要由模拟 Chrome API 验证。
+
+## 2026-11-15 兼容扩展：条件来源
+
+扩展 0.9.0 的明确保存可选携带 `reading`，按 [IC-READING-SOURCE-001](condition-monitoring-v1.md) 原子关联原集合，回执增加 `reading_source_id`。不带该对象的旧客户端仍仅保存快照。公开声明的来源可经重读测试后配置手动／周期检查；私人来源标签不能证明账号身份，无法可靠核对账号时仍保留原页手动采集。原 URL／条件／范围／标签的整组版本与原有幂等语义保持。

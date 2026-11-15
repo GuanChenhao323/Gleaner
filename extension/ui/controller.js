@@ -106,7 +106,8 @@ export class CaptureController {
     });
     $('workbench').onclick = this.guard(() => {
       const rows = this.entry?.response?.results || [], item = rows.find(r => r.status !== 'failed' && Number.isInteger(r.item_id) && r.item_id > 0);
-      return this.browser.tabs.create({url: (this.cfg.server || 'http://localhost:8080') + (item ? `/#/item/${item.item_id}` : '/#/sources')});
+      const reading=this.entry?.response?.reading_source_id;
+      return this.browser.tabs.create({url: (this.cfg.server || 'http://localhost:8080') + (Number.isInteger(reading)&&reading>0?'/#/sources':item ? `/#/item/${item.item_id}` : '/#/sources')});
     });
   }
   busy() { return this.saving || Boolean(this.receiptPending && !this.entry?.error); }

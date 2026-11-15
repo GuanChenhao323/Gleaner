@@ -157,6 +157,8 @@ class WebCaptureService:
     ) -> None:
         self.db, self.pipeline = db, pipeline
         self.contract = contract or WebCaptureContract()
+        self.on_capture: Callable[..., Any] | None = None
+        self.validate_reading: Callable[..., Any] | None = None
 
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         async def handle(req: Request, user: dict[str, Any]) -> Response:
@@ -216,7 +218,13 @@ class WebCaptureService:
         return loads(row["response"])
 
     async def capture(self, uid: int, body: Any) -> dict[str, Any]:
-        value = self.contract.validate(body)
+        value = self.contract.validate(
+            {k: v for k, v in body.items() if k != "reading"} if isinstance(body, dict) else body
+        )
+        if isinstance(body, dict) and "reading" in body:
+            if not self.validate_reading:
+                raise ContractError("reading_unavailable")
+            self.validate_reading(body, "generic")
         rid, signature = value["request_id"], digest(body)
         binding, source = value["source_binding"], value["source"]
         identity = digest(
@@ -334,6 +342,12 @@ class WebCaptureService:
                     }
                 ],
             }
+            if isinstance(body, dict) and "reading" in body:
+                if not self.on_capture:
+                    raise ContractError("reading_unavailable")
+                response["reading_source_id"] = await self.on_capture(
+                    uid, body, response, "generic"
+                )
             await self.db.execute(
                 "INSERT INTO web_capture_requests (owner_id, request_id, digest, response, created_at) VALUES (?, ?, ?, ?, ?)",
                 uid,

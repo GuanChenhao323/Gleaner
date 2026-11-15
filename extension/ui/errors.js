@@ -11,6 +11,7 @@ export const FIELD_NAMES={course:'课程',semester:'学期',week:'周次',weekda
 Object.assign(ERRORS,{unsupported_region:'指定区块不存在、未显示或结构尚未识别；未将它当作零匹配，请确认原页已加载。',timeline_preview_only:'这是时间线活动摘要，时间保留原文。请打开原文详情后重新抓取并保存。',contact_preview_only:'这是联系信息预览，不创建作业或待办。'});
 Object.assign(ERRORS,{unsupported:'此页面不能注入网页读取脚本，请打开普通 HTTP(S) 网页。',page_too_large:'页面结构过大，未完成读取。请在内容更集中的页面重试。',source_label_required:'请选择公开网页，或填写私人来源标签并点确定，再保存资料。',specialized_source_required:'这个站点须使用校园专用读取规则。'});
 ERRORS.restricted_page='浏览器限制在此页面运行扩展读取脚本，请打开普通网站页面。';
+Object.assign(ERRORS,{reading_unavailable:'后端尚未支持原条件来源，请更新并重启本地环境后重试原提交。',invalid_reading_recipe:'原条件上下文不完整，保存尚未确认，请在原网页重新提取。'});
 export const errorText=code=>ERRORS[code] || `操作未完成：${code}`;
 
 

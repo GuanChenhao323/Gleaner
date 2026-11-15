@@ -13,7 +13,8 @@ async function boot(data, fetcher, {drain=true}={}) {
     set: async patch => Object.assign(data, clone(patch)),
     remove: async k => { delete data[k]; },
   };
-  globalThis.fetch = fetcher;
+  globalThis.fetch = (url,options)=>url.endsWith('/reading-devices/heartbeat')
+    ? Promise.resolve(json(envelope({device_id:JSON.parse(options.body).device_id}))) : fetcher(url,options);
   globalThis.chrome = {
     storage:{local:storage},
     runtime:{ id:'test-extension', getURL:p=>'chrome-extension://test-extension/'+p,

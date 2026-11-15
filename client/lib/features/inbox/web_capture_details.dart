@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 /// Shows source scope and evidence, without presenting fragments as full articles.
 class WebCaptureDetails extends StatelessWidget {
   final Map<String, dynamic> capture;
-  const WebCaptureDetails(this.capture, {super.key});
+  final bool hasReadingSource;
+  const WebCaptureDetails(
+    this.capture, {
+    super.key,
+    this.hasReadingSource = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,8 +28,16 @@ class WebCaptureDetails extends StatelessWidget {
             SelectableText(
               '条件：${capture['query']}\n匹配位置：${capture['match_scope'] == 'title' ? '标题与链接标题' : '正文与列表'}\n来源标签：${binding['label'] ?? '未提供'}',
             ),
-            const Text('仅当前已加载内容，不代表完整文章或邮件。网站账号未经自动确认，来源标签由用户声明；未启用后台监测。'),
-            const Text('同来源标签、URL、条件及范围，重新提取并明确保存后更新本资料版本。'),
+            Text(
+              hasReadingSource
+                  ? '仅约定视图中的匹配片段，不代表完整文章或邮件。原条件已关联信息源，检查方式与状态请在来源中查看。'
+                  : '仅当前已加载内容，不代表完整文章或邮件。网站账号未经自动确认，来源标签由用户声明；未启用后台监测。',
+            ),
+            Text(
+              hasReadingSource
+                  ? '检查成功且内容变化时更新同一资料的来源版本，个人备注与状态保留。'
+                  : '同来源标签、URL、条件及范围，重新提取并明确保存后更新本资料版本。',
+            ),
             for (final entry in fragments.indexed)
               ExpansionTile(
                 title: Text('片段 ${entry.$1 + 1}：${(entry.$2 as Map)['title']}'),

@@ -12,6 +12,7 @@ import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../sources/browser_monitors.dart';
+import '../sources/reading_source.dart';
 import 'source_changes.dart';
 import 'item_load_failure.dart';
 import 'web_capture_details.dart';
@@ -130,7 +131,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           ),
         ],
         if (item.raw['web_capture'] is Map)
-          WebCaptureDetails(Map<String, dynamic>.from(item.raw['web_capture'] as Map)),
+          WebCaptureDetails(Map<String, dynamic>.from(item.raw['web_capture'] as Map), hasReadingSource: item.raw['reading_source'] is Map),
         if (item.body.isNotEmpty) ...[
           const SectionHeader('原文内容'),
           Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(item.body, style: t.textTheme.bodyMedium?.copyWith(height: 1.7)))),
@@ -139,7 +140,11 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           const SectionHeader('来源原始字段'),
           Card(child: Padding(padding: const EdgeInsets.all(12), child: SelectableText((item.raw['source_fields'] as Map).entries.map((e) => '${const {'course':'课程','semester':'学期','week':'周次','weekday':'星期','period':'节次','datetime_text':'原始时间','office':'办公室','department':'部门','role':'角色','phone':'电话','email':'邮箱','requirements':'要求','subtype':'资料类别'}[e.key] ?? e.key}：${e.value}').join('\n')))),
         ],
-        if (item.raw['browser_monitor'] is Map) ...[
+        if (item.raw['reading_source'] is Map) ...[
+          const SectionHeader('条件来源检查'),
+          Text(readingResultLabel('${(item.raw['reading_source'] as Map)['last_result']}')),
+          TextButton(onPressed: () => context.push('/sources/${(item.raw['reading_source'] as Map)['id']}'), child: const Text('查看来源与检查设置')),
+        ] else if (item.raw['browser_monitor'] is Map) ...[
           const SectionHeader('浏览器来源检查'),
           Text((item.raw['browser_monitor'] as Map)['supported'] != true ? '仅保存快照 · 暂不支持后台检查' : browserCheckLabel('${(item.raw['browser_monitor'] as Map)['last_result']}')),
         ],
@@ -154,7 +159,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             ListTile(
               leading: Icon(sourceIcon(item.source?.type ?? '')),
               title: Text(item.source?.name ?? '未知来源'),
-              subtitle: Text('${item.raw['web_capture'] is Map ? '最后保存' : '最后成功检查'}：${relative(tsToDate(item.source?.lastSuccessAt))}'),
+              subtitle: Text('${item.raw['reading_source'] is Map ? '最后成功检查' : item.raw['web_capture'] is Map ? '最后保存' : '最后成功检查'}：${relative(tsToDate(item.raw['reading_source'] is Map ? ((item.raw['reading_source'] as Map)['last_success_at'] as num?)?.toDouble() : item.source?.lastSuccessAt))}'),
             ),
             if (item.channels.length > 1)
               ListTile(
