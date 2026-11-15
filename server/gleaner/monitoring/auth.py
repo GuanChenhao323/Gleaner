@@ -17,6 +17,8 @@ from uuid import uuid4
 from ..net.http.cookies import Cookie, CookieJar, default_path
 from .models import AuthLease, Clock, MonitorError, SitePolicy
 
+SessionInvalidator = Callable[[], asyncio.Future[None] | None]
+
 
 @dataclass
 class AuthContext:
@@ -44,7 +46,34 @@ class AuthManager:
         self.contexts: dict[str, AuthContext] = {}
         self._presence: dict[str, tuple[int, float, bool]] = {}
         self._imports: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+        self._resources: dict[str, tuple[object, SessionInvalidator]] = {}
         self.persist_metadata: Callable[[dict[str, Any]], None] = lambda _: None
+
+    def attach_resource(self, auth_id: str, owner: object, invalidate: SessionInvalidator) -> None:
+        """Bind one credential-owning runtime; invalidation must fence use synchronously.
+
+        The callback may return an asynchronous cleanup future. Revocation awaits it;
+        synchronous import/close callers also close their transport during shutdown.
+        """
+        self.context(auth_id)
+        current = self._resources.get(auth_id)
+        if current is not None and current[0] is not owner:
+            raise MonitorError("binding_denied")
+        self._resources[auth_id] = (owner, invalidate)
+
+    def detach_resource(self, auth_id: str, owner: object) -> None:
+        current = self._resources.get(auth_id)
+        if current is not None and current[0] is owner:
+            self._resources.pop(auth_id)
+
+    def _invalidate_resource(self, auth_id: str) -> asyncio.Future[None] | None:
+        current = self._resources.get(auth_id)
+        if current is None:
+            return None
+        try:
+            return current[1]()
+        except Exception:
+            raise MonitorError("session_cleanup_failed") from None
 
     def _save(self, auth_id: str) -> None:
         self.persist_metadata(self.metadata(auth_id))
@@ -93,6 +122,7 @@ class AuthManager:
         }
 
     def restore(self, metadata: dict[str, Any]) -> AuthContext:
+        self._invalidate_resource(metadata["auth_id"])
         c = AuthContext(
             metadata["auth_id"],
             metadata["owner_id"],
@@ -204,6 +234,13 @@ class AuthManager:
         c.lease_handle = object()
         c.revision += 1
         c.confirmed_same_account = confirmed_same_account
+        try:
+            self._invalidate_resource(auth_id)
+        except MonitorError:
+            c.jar.clear()
+            c.state = "auth_required"
+            self._save(auth_id)
+            raise
         reply = self.metadata(auth_id)
         self._imports[key] = (digest, reply.copy())
         self._save(auth_id)
@@ -214,6 +251,7 @@ class AuthManager:
         if c.state not in ("unverified", "valid") or not len(c.jar):
             c.state = "auth_required"
             self._save(auth_id)
+            self._invalidate_resource(auth_id)
             raise MonitorError("auth_required")
         return AuthLease(auth_id, c.generation, self.policy.origin, c.lease_handle)
 
@@ -235,6 +273,7 @@ class AuthManager:
         if not value:
             c.state = "auth_required"
             self._save(c.auth_id)
+            self._invalidate_resource(c.auth_id)
             raise MonitorError("auth_required")
         return value
 
@@ -272,6 +311,7 @@ class AuthManager:
                 c.revision += 1
         if not len(c.jar):
             c.state = "auth_required"
+            self._invalidate_resource(c.auth_id)
         self._save(c.auth_id)
 
     def verify(self, lease: AuthLease, principal_key: str | None) -> None:
@@ -280,6 +320,7 @@ class AuthManager:
             c.jar.clear()
             c.state = "auth_required"
             self._save(c.auth_id)
+            self._invalidate_resource(c.auth_id)
             raise MonitorError("account_mismatch")
         if (
             c.state == "unverified"
@@ -289,6 +330,7 @@ class AuthManager:
         ):
             c.state = "auth_required"
             self._save(c.auth_id)
+            self._invalidate_resource(c.auth_id)
             raise MonitorError("account_confirmation_required")
         c.principal_key = principal_key or c.principal_key
         c.was_verified, c.state = True, "valid"
@@ -297,10 +339,14 @@ class AuthManager:
     def require_auth(self, auth_id: str) -> None:
         self.context(auth_id).state = "auth_required"
         self._save(auth_id)
+        self._invalidate_resource(auth_id)
 
     async def revoke(self, auth_id: str, expected_revision: int) -> None:
         c = self.context(auth_id)
         if c.state == "revoked":
+            cleanup = self._invalidate_resource(auth_id)
+            if cleanup is not None:
+                await cleanup
             return
         if c.revision != expected_revision:
             raise MonitorError("revision_conflict")
@@ -310,12 +356,22 @@ class AuthManager:
         c.state = "revoked"
         c.lease_handle = object()
         self._save(auth_id)
+        cleanup = self._invalidate_resource(auth_id)
+        if cleanup is not None:
+            await cleanup
 
     def close(self) -> None:
+        cleanup_failed = False
         for c in self.contexts.values():
             c.jar.clear()
             c.state = "needs_credentials"
             c.generation += 1
             c.lease_handle = object()
             self._save(c.auth_id)
+            try:
+                self._invalidate_resource(c.auth_id)
+            except MonitorError:
+                cleanup_failed = True
         self._imports.clear()
+        if cleanup_failed:
+            raise MonitorError("session_cleanup_failed")
