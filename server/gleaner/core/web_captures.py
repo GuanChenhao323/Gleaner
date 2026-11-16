@@ -18,6 +18,7 @@ from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
 from .monitors import ContractError, compact, digest, raw_content, string, web_url
 from .pipeline import Pipeline, owner_prefix
+from .source_identity import account_identity
 
 CAMPUS_HOSTS = {
     "moodle.must.edu.mo",
@@ -45,13 +46,22 @@ def source_url(value: Any) -> str:
     return url
 
 
-def binding_value(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict) or set(value) != {"kind", "label"}:
+def binding_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) not in (
+        {"kind", "label"},
+        {"kind", "label", "identity"},
+    ):
         raise ContractError("source_label_required")
     kind, label = value["kind"], string(value["label"], 80)
     if kind not in ("public", "labeled") or (kind == "public" and label != "公开网页"):
         raise ContractError("source_label_required")
-    return {"kind": kind, "label": unicodedata.normalize("NFKC", label)}
+    if "identity" in value and kind != "labeled":
+        raise ContractError("invalid_account_proof")
+    return {
+        "kind": kind,
+        "label": unicodedata.normalize("NFKC", label),
+        **({"identity": account_identity(value["identity"])} if "identity" in value else {}),
+    }
 
 
 def normalized_query(value: str) -> str:
@@ -69,8 +79,14 @@ class WebCaptureContract:
     def source_url(self, value: Any) -> str:
         return source_url(value)
 
-    def binding(self, value: Any, url: str) -> dict[str, str]:
-        return binding_value(value)
+    def binding(self, value: Any, url: str) -> dict[str, Any]:
+        binding = binding_value(value)
+        if binding["kind"] == "public" and urlsplit(url).hostname in {
+            "mail.google.com",
+            "wx.mail.qq.com",
+        }:
+            raise ContractError("private_source_required")
+        return binding
 
     def validate(self, body: Any) -> dict[str, Any]:
         allowed = {
@@ -185,7 +201,7 @@ class WebCaptureContract:
             "query": value["query"],
             "match_scope": value["match_scope"],
             "source_binding": value["source_binding"],
-            "account_state": "unverified",
+            "account_state": "bound" if value["source_binding"].get("identity") else "unverified",
             "observed_at": value["observed_at"],
             "scope": "current_rendered_view",
             "completeness": "fragment",
@@ -202,6 +218,7 @@ class WebCaptureService:
         self.contract = contract or WebCaptureContract()
         self.on_capture: Callable[..., Any] | None = None
         self.validate_reading: Callable[..., Any] | None = None
+        self.guard_reading: Callable[..., Any] | None = None
 
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         async def handle(req: Request, user: dict[str, Any]) -> Response:
@@ -285,6 +302,8 @@ class WebCaptureService:
         binding, source = value["source_binding"], value["source"]
         identity = digest(self.contract.identity(value))
         async with self.db.transaction():
+            if "reading" in body and self.guard_reading:
+                await self.guard_reading(uid, body, self.contract.capture_kind)
             previous = await self.db.fetchone(
                 "SELECT * FROM web_capture_requests WHERE owner_id = ? AND request_id = ?", uid, rid
             )

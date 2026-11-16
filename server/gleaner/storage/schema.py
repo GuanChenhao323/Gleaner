@@ -219,6 +219,8 @@ SCHEMA: list[str] = [
 
 # 已有数据库的增量迁移：列已存在时忽略错误
 MIGRATIONS: list[str] = [
+    "ALTER TABLE reading_sources ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE reading_sources ADD COLUMN delete_result TEXT",
     "ALTER TABLE users ADD COLUMN digest_email INTEGER NOT NULL DEFAULT 0",
     # 个人来源的身份键与别名键加所有者前缀（pipeline._scope），已有数据补上；可重复执行
     """UPDATE items SET identity_key = '@' || (SELECT s.owner_id FROM sources s WHERE s.id = items.source_id)

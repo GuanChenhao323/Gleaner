@@ -149,6 +149,33 @@ class Api {
     }
   }
 
+  Future<List<Map<String, dynamic>>> deletedReadingSources() async {
+    final result = await _browser('GET', '/api/v1/reading-sources/deleted');
+    if (result['sources'] is! List) throw ApiException(502, 'invalid_response', '已删除来源列表异常');
+    return (result['sources'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
+  }
+
+  Future<void> restoreReading(int id, int revision) async {
+    final result = await _browser('POST', '/api/v1/reading-sources/$id/restore', data: {'revision':revision});
+    if (result['source_id'] != id || result['restored'] != true || result['paused'] != true || result['revision'] != revision + 1) {
+      throw ApiException(502, 'invalid_response', '来源恢复未获确认');
+    }
+  }
+
+  Future<void> removeReading(int id, int revision, bool trashItems) async {
+    final result = await _browser(
+      'DELETE',
+      '/api/v1/reading-sources/$id',
+      data: {'revision': revision, 'trash_items': trashItems},
+    );
+    if (result['source_id'] != id ||
+        result['deleted'] != true ||
+        result['trash_items'] != trashItems ||
+        result['trashed_item_ids'] is! List) {
+      throw ApiException(502, 'invalid_response', '删除来源未获确认，请刷新核对。');
+    }
+  }
+
   Future<void> checkReading(int id, int revision, String purpose) async {
     final result = await _browser(
       'POST',

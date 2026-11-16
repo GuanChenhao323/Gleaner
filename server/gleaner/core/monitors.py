@@ -125,6 +125,7 @@ class BrowserMonitorService:
         self.db, self.pipeline = db, pipeline
         self.on_capture: Callable[..., Any] | None = None
         self.validate_reading: Callable[..., Any] | None = None
+        self.guard_reading: Callable[..., Any] | None = None
 
     @staticmethod
     def envelope(**value: Any) -> dict[str, Any]:
@@ -271,6 +272,8 @@ class BrowserMonitorService:
             self.validate_reading(body, "native")
         payload_hash = digest(body)
         async with self.db.transaction():
+            if "reading" in body and self.guard_reading:
+                await self.guard_reading(uid, body, "native")
             prev = await self.db.fetchone(
                 "SELECT * FROM browser_requests WHERE owner_id = ? AND request_id = ?", uid, rid
             )
@@ -471,7 +474,7 @@ class BrowserMonitorService:
 
     async def monitors(self, uid: int) -> dict[str, Any]:
         rows = await self.db.fetch(
-            "SELECT m.*, i.title AS title FROM browser_monitors m LEFT JOIN items i ON i.id = m.item_id WHERE m.owner_id = ? AND m.deleted = 0 ORDER BY m.id DESC",
+            "SELECT m.*, i.title AS title FROM browser_monitors m LEFT JOIN items i ON i.id = m.item_id WHERE m.owner_id = ? AND m.deleted = 0 AND NOT EXISTS (SELECT 1 FROM reading_source_items link JOIN reading_sources rs ON rs.id = link.reading_id WHERE rs.owner_id = m.owner_id AND link.item_id = m.item_id AND rs.deleted = 1) ORDER BY m.id DESC",
             uid,
         )
         return self.envelope(

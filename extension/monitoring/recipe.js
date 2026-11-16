@@ -15,6 +15,7 @@ export class ReadingRecipeFactory {
       ...(result.save_mode==='timeline_summary'?{representation:'timeline_summary'}:{}),
       intent,choice:task.choice || '',source:result.source,view,
       source_label:generic?sourceBinding.label:'',
-      binding:generic?{adapter:'generic',origin:new URL(task.url).origin,account_key:sourceBinding.kind==='public'?'public':'unverified'}:result.binding};
+      ...(generic && sourceBinding.identity?{account_probe:{version:1,kind:sourceBinding.identity.probe,display:sourceBinding.identity.display}}:{}),
+      binding:generic?{adapter:'generic',origin:new URL(task.url).origin,account_key:sourceBinding.kind==='public'?'public':sourceBinding.identity?.account_key || 'unverified'}:result.binding};
   }
 }

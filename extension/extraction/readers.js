@@ -1,5 +1,5 @@
 /** Browser port: only rendered DOM in the main frame, never debugger/CDP. */
-export const SCOPED_FILES = ['content/scoped/dom.js', 'content/scoped/moodle-model.js', 'content/scoped/moodle-content.js', 'content/scoped/moodle-regions.js', 'content/scoped/moodle.js', 'content/scoped/student.js', 'content/scoped/people.js', 'content/scoped/generic.js', 'content/scoped/runtime.js'];
+export const SCOPED_FILES = ['content/scoped/dom.js', 'content/scoped/account.js', 'content/scoped/moodle-model.js', 'content/scoped/moodle-content.js', 'content/scoped/moodle-regions.js', 'content/scoped/moodle.js', 'content/scoped/student.js', 'content/scoped/people.js', 'content/scoped/generic.js', 'content/scoped/runtime.js'];
 
 export class DomPageReader {
   constructor(browser, {timeout = 12000, pause = ms => new Promise(r => setTimeout(r, ms))} = {}) { this.browser = browser; this.timeout = timeout; this.pause = pause; }

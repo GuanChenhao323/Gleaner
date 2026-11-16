@@ -2,7 +2,7 @@
 
 **接口 ID：** IC-READING-SOURCE-001
 
-**版本：** v1.1（已实现；实际验收范围见本地报告）
+**版本：** v1.2（已实现；实际验收范围见本地报告）
 
 **负责人：** 插件／Core／Flutter
 
@@ -43,7 +43,8 @@ Chrome 每分钟唤醒、提交心跳、优先清空 outbox 后领取任务；�
 | reading | object | version=1、url、query、match_scope、intent（提取 v2）、choice、source、binding、view；不含 raw DOM／凭据 |
 | source_label | string | 通用来源的原声明标签，参与来源身份；原生来源为空，不是认证凭据 |
 | source | enum | generic/moodle/student/fie；须与实际提交类型、origin 相符 |
-| binding | object | adapter、origin、account_key；generic public/labeled 与 source_binding 一致，labeled 的未知账号为 unverified |
+| binding | object | adapter、origin、account_key；generic 与 source_binding 一致，未知账号为 unverified，已核对账号为本机加盐指纹 |
+| account_probe | optional object | generic 私人已核对来源所需：version=1、kind=account-control-email-v1、脱敏 display；与 source_binding.identity 一致 |
 | view | object | 必要 semester/week/projection/route 等字符串上下文；原生重复读取必须一致 |
 | source identity | derived | owner＋binding＋完整 URL＋规范化 query＋范围＋choice＋view；设备变更需重新验证，不自动继承旧周期配置 |
 | result | object | schema_version、device_id、lease、revision、status；成功还含 account_key、snapshot |
@@ -63,3 +64,7 @@ verify 成功只证明当次按同身份／视图重入，不能证明永久登�
 ## 2026-11-16 Timeline 集合表示
 
 配方可选representation=timeline_summary，仅source=moodle、content范围、Timeline／时间线意图、空choice／view可用；表示参与来源身份。初次保存经Timeline专用契约核对source_binding与recipe.binding相同，并原子关联。重读上传typed fragments，Core沿Timeline契约校验，复用原集合版本而非创建原生作业。比较标题／正文／课程／日期时间原文／详情链接与重复数量，忽略顺序和DOM locator变化。旧未带representation配方及身份不变。[摘要契约](timeline-summary-v1.md)。
+
+## 来源身份与生命周期补充（2026-11-16）
+
+[IC-SOURCE-LIFECYCLE-001](source-identity-and-lifecycle-v1.md) 定义私人通用网页账号控件证明及来源删除／恢复。DELETE `reading-sources/{id}` 默认保留资料；GET `reading-sources/deleted`、POST `.../{id}/restore` 提供显式暂停恢复。个人 hidden 在本轮作为回收站状态，有独立列表／恢复入口；暂停最后一份资料所属来源，撤销旧任务，不重置原成功时间。墓碑及恢复均提升修订号，旧任务、请求重试不得恢复来源；保留底层订阅访问以使资料与版本仍可读。

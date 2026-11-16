@@ -7,6 +7,7 @@ import 'reading_source.dart';
 class ReadingSourceCard extends StatelessWidget {
   final ReadingSource source;
   final VoidCallback onCheck, onSettings, onDetails, onLogs, onPause, onOpen;
+  final VoidCallback? onDelete;
   const ReadingSourceCard({
     super.key,
     required this.source,
@@ -16,6 +17,7 @@ class ReadingSourceCard extends StatelessWidget {
     required this.onLogs,
     required this.onPause,
     required this.onOpen,
+    this.onDelete,
   });
   @override
   Widget build(BuildContext context) {
@@ -23,6 +25,8 @@ class ReadingSourceCard extends StatelessWidget {
     final warning =
         ![
           'not_executed',
+          'restored',
+          'documents_restored',
           'verified',
           'changed',
           'unchanged',
@@ -84,7 +88,7 @@ class ReadingSourceCard extends StatelessWidget {
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            s.isPublic ? '公开' : '私人',
+                            s.isPublic ? '无需登录（声明）' : '需要登录',
                             style: TextStyle(
                               fontSize: 12,
                               color: cs.onSurfaceVariant,
@@ -148,6 +152,7 @@ class ReadingSourceCard extends StatelessWidget {
                   ),
                 ),
                 meta(Icons.person_outline, s.identity),
+                meta(Icons.lock_outline, '资料仅自己可见'),
                 meta(
                   Icons.check_circle_outline,
                   '最后成功：${relative(tsToDate(s.lastSuccess?.toDouble()))}',
@@ -209,6 +214,12 @@ class ReadingSourceCard extends StatelessWidget {
                 ),
                 TextButton(onPressed: onLogs, child: const Text('检查日志')),
                 TextButton(onPressed: onSettings, child: const Text('设置')),
+                if (onDelete != null)
+                  TextButton.icon(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, size: 16),
+                    label: const Text('删除来源'),
+                  ),
                 if (s.mode == 'periodic' && s.verified)
                   TextButton(
                     onPressed: s.active ? null : onPause,

@@ -19,6 +19,7 @@ MESSAGES = {
     "revision_conflict": "来源配置已变化，请刷新后重试。",
     "verification_required": "请先通过后台重读测试。",
     "account_unknown": "来源标签无法核对网站账号，请在原网页手动采集。",
+    "source_deleted": "信息源已删除；资料与历史按删除时的选择保留。",
     "source_missing": "原资料已删除，不会自动重新创建。",
     "stale_lease": "任务已过期或配置已改变，结果没有写入。",
     "not_found": "来源或任务不存在，或不属于当前账号。",
@@ -37,6 +38,7 @@ class ReadingSourceService:
     ) -> None:
         self.db, self.web, self.native, self.timeline = db, web, native, timeline
         self.recipes = ReadingRecipe()
+        self.change_state: Callable[..., Any] | None = None
 
     @staticmethod
     def envelope(**values: Any) -> dict[str, Any]:
@@ -45,7 +47,10 @@ class ReadingSourceService:
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         operations = [
             ("GET", "/api/v1/reading-sources", "list_sources"),
+            ("GET", "/api/v1/reading-sources/deleted", "deleted_sources"),
+            ("POST", "/api/v1/reading-sources/{id}/restore", "restore"),
             ("PUT", "/api/v1/reading-sources/{id}", "configure"),
+            ("DELETE", "/api/v1/reading-sources/{id}", "remove"),
             ("POST", "/api/v1/reading-sources/{id}/check", "enqueue"),
             ("GET", "/api/v1/reading-sources/{id}/checks", "checks"),
             ("POST", "/api/v1/reading-devices/heartbeat", "heartbeat"),
@@ -82,12 +87,14 @@ class ReadingSourceService:
         for method, path, operation in operations:
             router.add(method, path, authed(handler(operation)))
 
-    async def own(self, uid: int, sid: int) -> dict[str, Any]:
+    async def own(self, uid: int, sid: int, *, include_deleted: bool = False) -> dict[str, Any]:
         row = await self.db.fetchone(
             "SELECT * FROM reading_sources WHERE owner_id = ? AND id = ?", uid, sid
         )
         if not row:
             raise ContractError("not_found", 404)
+        if row["deleted"] and not include_deleted:
+            raise ContractError("source_deleted", 409)
         return row
 
     def validate_capture(self, body: dict[str, Any], kind: str) -> dict[str, Any]:
@@ -111,7 +118,22 @@ class ReadingSourceService:
                 return recipe
             if recipe.get("source_label") != body["source_binding"]["label"]:
                 raise ContractError("invalid_binding")
-            expected = "public" if body["source_binding"]["kind"] == "public" else "unverified"
+            identity = body["source_binding"].get("identity")
+            expected = (
+                "public"
+                if body["source_binding"]["kind"] == "public"
+                else identity["account_key"]
+                if identity
+                else "unverified"
+            )
+            if identity and recipe.get("account_probe") != {
+                "version": 1,
+                "kind": identity["probe"],
+                "display": identity["display"],
+            }:
+                raise ContractError("invalid_account_proof")
+            if not identity and "account_probe" in recipe:
+                raise ContractError("invalid_account_proof")
             if recipe["binding"]["account_key"] != expected:
                 raise ContractError("invalid_binding")
         elif recipe["binding"] != body["binding"]:
@@ -129,6 +151,8 @@ class ReadingSourceService:
         row = await self.db.fetchone(
             "SELECT * FROM reading_sources WHERE owner_id = ? AND identity_key = ?", uid, identity
         )
+        if row and row["deleted"]:
+            raise ContractError("source_deleted", 409)
         if row:
             changed_device = row["device_id"] != body["device_id"]
             await self.revoke(row["id"])
@@ -158,6 +182,134 @@ class ReadingSourceService:
         await self.link(sid, receipt["results"])
         return sid
 
+    async def deleted_sources(self, uid: int) -> dict[str, Any]:
+        rows = await self.db.fetch(
+            "SELECT id, revision, recipe FROM reading_sources WHERE owner_id = ? AND deleted = 1 ORDER BY id DESC LIMIT 200",
+            uid,
+        )
+        return self.envelope(sources=[{**row, "recipe": loads(row["recipe"])} for row in rows])
+
+    async def restore(self, uid: int, sid: int, body: Any) -> dict[str, Any]:
+        if (
+            not isinstance(body, dict)
+            or set(body) != {"revision"}
+            or type(body["revision"]) is not int
+        ):
+            raise ContractError("invalid_request")
+        async with self.db.transaction():
+            row = await self.own(uid, sid, include_deleted=True)
+            if not row["deleted"]:
+                if (
+                    row["revision"] == body["revision"] + 1
+                    and row["paused"]
+                    and loads(row["delete_result"], {}).get("restored_from") == body["revision"]
+                ):
+                    return self.envelope(
+                        source_id=sid, restored=True, revision=row["revision"], paused=True
+                    )
+                raise ContractError("revision_conflict", 409)
+            if row["revision"] != body["revision"]:
+                raise ContractError("revision_conflict", 409)
+            await self.revoke(sid)
+            history = {**loads(row["delete_result"], {}), "restored_from": body["revision"]}
+            await self.db.execute(
+                "UPDATE reading_sources SET deleted = 0, delete_result = ?, paused = 1, verified = 0, mode = 'manual', pending = '', next_at = 0, last_result = 'restored', error = '', revision = revision + 1 WHERE id = ?",
+                history,
+                sid,
+            )
+            return self.envelope(
+                source_id=sid, restored=True, revision=row["revision"] + 1, paused=True
+            )
+
+    async def guard_capture(self, uid: int, body: dict[str, Any], kind: str) -> None:
+        recipe = self.validate_capture(body, kind)
+        row = await self.db.fetchone(
+            "SELECT deleted FROM reading_sources WHERE owner_id = ? AND identity_key = ?",
+            uid,
+            digest(self.recipes.identity(recipe)),
+        )
+        if row and row["deleted"]:
+            raise ContractError("source_deleted", 409)
+
+    async def pause_empty(self, uid: int, item_id: int) -> None:
+        rows = await self.db.fetch(
+            "SELECT r.id FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND r.deleted = 0 AND link.item_id = ?",
+            uid,
+            item_id,
+        )
+        for row in rows:
+            if not await self.has_items(row["id"]):
+                await self.revoke(row["id"])
+                await self.db.execute(
+                    "UPDATE reading_sources SET paused = 1, pending = '', revision = revision + 1, last_result = 'documents_trashed' WHERE id = ?",
+                    row["id"],
+                )
+
+    async def mark_documents_visible(self, uid: int, item_id: int) -> None:
+        rows = await self.db.fetch(
+            "SELECT r.id FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND r.deleted = 0 AND r.last_result = 'documents_trashed' AND link.item_id = ?",
+            uid,
+            item_id,
+        )
+        for row in rows:
+            if await self.has_items(row["id"]):
+                await self.db.execute(
+                    "UPDATE reading_sources SET last_result = 'documents_restored', paused = 1 WHERE id = ?",
+                    row["id"],
+                )
+
+    async def remove(self, uid: int, sid: int, body: Any) -> dict[str, Any]:
+        if (
+            not isinstance(body, dict)
+            or set(body) != {"revision", "trash_items"}
+            or type(body["revision"]) is not int
+            or type(body["trash_items"]) is not bool
+        ):
+            raise ContractError("invalid_request")
+        async with self.db.transaction():
+            row = await self.own(uid, sid, include_deleted=True)
+            if row["deleted"]:
+                previous = loads(row["delete_result"])
+                if previous["trash_items"] != body["trash_items"]:
+                    raise ContractError("idempotency_conflict", 409)
+                return previous
+            if row["revision"] != body["revision"]:
+                raise ContractError("revision_conflict", 409)
+            await self.revoke(sid)
+            ids = await self.db.fetch(
+                "SELECT item_id FROM reading_source_items WHERE reading_id = ?", sid
+            )
+            trashed = []
+            if body["trash_items"]:
+                if self.change_state is None:
+                    raise ContractError("lifecycle_unavailable", 503)
+                for item in ids:
+                    status, _ = await self.change_state(
+                        uid, item["item_id"], {"hidden": True}, None
+                    )
+                    if status != 200:
+                        raise ContractError("lifecycle_failed", 409)
+                    trashed.append(item["item_id"])
+            response = self.envelope(
+                source_id=sid,
+                deleted=True,
+                trash_items=body["trash_items"],
+                trashed_item_ids=trashed,
+            )
+            await self.db.execute(
+                "UPDATE reading_sources SET deleted = 1, paused = 1, verified = 0, pending = '', revision = revision + 1, delete_result = ? WHERE id = ?",
+                response,
+                sid,
+            )
+            # Retain subscriptions, documents and versions. Only this owner's browser tasks stop.
+            for item in ids:
+                await self.db.execute(
+                    "UPDATE browser_monitors SET enabled = 0, revision = revision + 1 WHERE owner_id = ? AND item_id = ?",
+                    uid,
+                    item["item_id"],
+                )
+            return response
+
     async def link(self, sid: int, results: list[dict[str, Any]]) -> None:
         await self.db.execute("DELETE FROM reading_source_items WHERE reading_id = ?", sid)
         for iid in {r["item_id"] for r in results if r["status"] != "failed"}:
@@ -175,14 +327,15 @@ class ReadingSourceService:
     async def has_items(self, sid: int) -> bool:
         return bool(
             await self.db.fetchval(
-                "SELECT COUNT(*) FROM reading_source_items r JOIN items i ON i.id = r.item_id WHERE r.reading_id = ? AND i.deleted = 0",
+                "SELECT COUNT(*) FROM reading_source_items r JOIN reading_sources s ON s.id = r.reading_id JOIN items i ON i.id = r.item_id LEFT JOIN user_item_state st ON st.item_id = i.id AND st.user_id = s.owner_id WHERE r.reading_id = ? AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0",
                 sid,
             )
         )
 
     async def list_sources(self, uid: int) -> dict[str, Any]:
         rows = await self.db.fetch(
-            "SELECT * FROM reading_sources WHERE owner_id = ? ORDER BY id DESC LIMIT 200", uid
+            "SELECT * FROM reading_sources WHERE owner_id = ? AND deleted = 0 ORDER BY id DESC LIMIT 200",
+            uid,
         )
         values = []
         now = time.time()
@@ -323,7 +476,7 @@ class ReadingSourceService:
         now = time.time()
         async with self.db.transaction():
             active = await self.db.fetchone(
-                "SELECT j.id FROM reading_jobs j JOIN reading_sources s ON s.id = j.reading_id WHERE j.owner_id = ? AND j.device_id = ? AND j.finished_at IS NULL AND j.expires_at > ? AND j.revision = s.revision",
+                "SELECT j.id FROM reading_jobs j JOIN reading_sources s ON s.id = j.reading_id WHERE j.owner_id = ? AND j.device_id = ? AND j.finished_at IS NULL AND j.expires_at > ? AND j.revision = s.revision AND s.deleted = 0",
                 uid,
                 device,
                 now,
@@ -331,15 +484,21 @@ class ReadingSourceService:
             if active:
                 return self.envelope(job=None)
             rows = await self.db.fetch(
-                "SELECT * FROM reading_sources WHERE owner_id = ? AND device_id = ? ORDER BY CASE WHEN pending != '' THEN 0 ELSE 1 END, next_at, id",
+                "SELECT * FROM reading_sources WHERE owner_id = ? AND device_id = ? AND deleted = 0 ORDER BY CASE WHEN pending != '' THEN 0 ELSE 1 END, next_at, id",
                 uid,
                 device,
             )
             for row in rows:
                 if not await self.has_items(row["id"]):
                     await self.revoke(row["id"])
+                    available = await self.db.fetchval(
+                        "SELECT COUNT(*) FROM reading_source_items link JOIN items i ON i.id = link.item_id WHERE link.reading_id = ? AND i.deleted = 0",
+                        row["id"],
+                    )
                     await self.db.execute(
-                        "UPDATE reading_sources SET verified = 0, paused = 1, pending = '', last_result = 'source_missing' WHERE id = ?",
+                        "UPDATE reading_sources SET verified = ?, paused = 1, pending = '', last_result = ? WHERE id = ?",
+                        row["verified"] if available else 0,
+                        "documents_trashed" if available else "source_missing",
                         row["id"],
                     )
                     continue
@@ -467,6 +626,7 @@ class ReadingSourceService:
             "route_mismatch",
             "view_mismatch",
             "permission_denied",
+            "private_source_required",
             "unsupported",
         }
         await self.db.execute(

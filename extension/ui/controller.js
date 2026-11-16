@@ -16,6 +16,7 @@ export class CaptureController {
       try { await action(); }
       catch (e) {
         if (this.disposed) return;
+        this.actionError = e.message;
         this.view.status(errorText(e.message), true);
         if (['backend_login_required', 'unauthorized'].includes(e.message)) this.openSettings();
       }
@@ -78,6 +79,15 @@ export class CaptureController {
       try { await this.client.send({type: 'retry', request_id: this.task.submission.request_id}); if (generation === this.generation) await this.refresh(true); }
       finally {this.saving = false;if (generation === this.generation) this.render();}
     });
+    $('verify-account').onclick = this.guard(async () => {
+      if(this.busy() || !this.task || this.task.submission)throw Error('preview_required');
+      const generation=this.generation;
+      const {identity}=await this.client.send({type:'extract.verifyAccount',id:this.task.id});
+      if(generation!==this.generation)return;
+      if(!this.view.document.defaultView.confirm(`将当前来源绑定到 ${identity.display}？以后重读必须核对同一账号。别名只是备注。`))return;
+      this.actionError = null;this.view.source.setIdentity(identity);this.bindingChanged();
+      this.view.status('来源账号已核对。保存后请在工作台测试后台重读。');
+    });
     $('source-kind').onchange = () => {this.view.source.choose();this.bindingChanged();};
     $('source-label').oninput = () => this.bindingChanged();
     $('source-label').onkeydown = e => {if (e.key === 'Enter') {e.preventDefault();this.guard(() => this.confirmBinding())();}};
@@ -113,6 +123,7 @@ export class CaptureController {
   busy() { return this.saving || Boolean(this.receiptPending && !this.entry?.error); }
   edit() {
     if (!this.form || this.busy() || this.historical) return;
+    this.actionError = null;
     this.generation++; this.task = null; this.entry = null; this.receiptPending = false;
     this.form = {...this.form, query: this.view.$('query').value, match_scope: this.view.$('match-scope').value || 'content', taskId: null, phase: 'editing', pending_save: false, read_error: null};this.uncertainSave = false;
     void this.persist().catch(() => {}); this.view.clear(); this.render();
@@ -182,6 +193,7 @@ export class CaptureController {
     if (query.length > 200) throw Error('query_too_long');
     if (!this.cfg.uid || this.view.authBlocked) throw Error('backend_login_required');
     if (!/^https?:/.test(this.form.url)) throw Error('unsupported');
+    this.actionError = null;
     this.generation++;this.task = null;this.entry = null;this.receiptPending = false;this.uncertainSave = false;this.view.clear();
     this.form = {...this.form, query, match_scope: this.view.$('match-scope').value || 'content', choice, taskId: crypto.randomUUID(), phase: 'prepared', pending_save: false, read_error: null};
     const generation = this.generation, form = {...this.form}, persisted = this.persist();
@@ -254,7 +266,7 @@ export class CaptureController {
       this.renderTask(task);
       if (['failed','interrupted'].includes(task.state)) this.view.status(errorText(task.error || 'page_read_failed'), true);
       else if (task.state === 'needs_choice') this.view.status('请确认课程范围，再继续提取。');
-      else this.view.status('');
+      else this.view.status(this.actionError ? errorText(this.actionError) : '', Boolean(this.actionError));
     } finally {this.refreshing = false;}
   }
   async history() {
@@ -304,7 +316,7 @@ export class CaptureController {
     if (this.view.authBlocked) throw Error('backend_login_required');
     const binding = task.result?.source === 'generic' ? this.view.binding() : null;
     // Reserve the operation before the first await: rapid clicks must not enqueue twice.
-    this.saving = true;this.render();
+    this.actionError = null;this.saving = true;this.render();
     try {
       try {const tab = await this.browser.tabs.get(this.form.tabId);if (tab.url && tab.url !== this.form.url) throw Error('route_mismatch');}
       catch (e) {if (e.message === 'route_mismatch') throw e;}

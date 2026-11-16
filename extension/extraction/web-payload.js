@@ -1,9 +1,11 @@
+import {accountIdentity} from '../identity/account-binding.js';
 /** A source label is a user declaration, never an authenticated website account. */
 export function sourceBinding(value) {
   if(!value || !['public','labeled'].includes(value.kind) || typeof value.label!=='string')throw Error('source_label_required');
   const label=value.label.normalize('NFKC').trim();
   if(!label || label.length>80 || value.kind==='public' && label!=='公开网页')throw Error('source_label_required');
-  return {kind:value.kind,label};
+  if(value.identity && value.kind!=='labeled')throw Error('invalid_account_proof');
+  return {kind:value.kind,label,...(value.identity?{identity:accountIdentity(value.identity)}:{})};
 }
 
 export class WebCapturePayload {

@@ -34,7 +34,7 @@ void main() {
       );
       expect(find.text('活动摘要资料 · 1 条活动'), findsOneWidget);
       expect(find.textContaining('不代表完整作业'), findsOneWidget);
-      expect(find.textContaining('网站账号未经自动确认'), findsNothing);
+      expect(find.textContaining('来源别名由用户声明'), findsNothing);
       await tester.tap(find.text('活动 1：合成活动'));
       await tester.pumpAndSettle();
       expect(find.textContaining('时间原文：00:00'), findsOneWidget);
@@ -64,8 +64,10 @@ void main() {
         ),
       );
       expect(find.text('网页资料快照 · 1 个片段'), findsOneWidget);
-      expect(find.textContaining('来源标签：学校邮箱'), findsOneWidget);
-      expect(find.textContaining('网站账号未经自动确认'), findsOneWidget);
+      expect(find.textContaining('来源别名：学校邮箱'), findsOneWidget);
+      expect(find.textContaining('来源别名由用户声明'), findsOneWidget);
+      expect(find.textContaining('原站登录要求：需要登录'), findsOneWidget);
+      expect(find.textContaining('资料可见：仅自己'), findsOneWidget);
       await tester.tap(find.text('片段 1：会议安排'));
       await tester.pumpAndSettle();
       expect(find.textContaining('合成列表摘要。'), findsOneWidget);

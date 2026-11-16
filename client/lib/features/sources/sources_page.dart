@@ -31,8 +31,57 @@ class SourcesPage extends ConsumerWidget {
     }
   }
 
+  Future<void> _remove(
+    BuildContext context,
+    WidgetRef ref,
+    ReadingSource source,
+  ) async {
+    bool trashItems = false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, update) => AlertDialog(
+          title: const Text('删除信息源？'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('停止此来源的手动和定期检查。默认保留已保存资料、备注及历史版本。可从“已删除来源”手动恢复；旧任务不会自动恢复。'),
+              CheckboxListTile(
+                value: trashItems,
+                onChanged: (v) => update(() => trashItems = v ?? false),
+                title: const Text('同时将关联资料移入个人回收站'),
+                subtitle: const Text('也会在引用这些资料的其他来源中隐藏；可从收件箱回收站恢复。'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('删除来源'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await _act(context, () async {
+      await ref
+          .read(readingSourcesProvider.notifier)
+          .remove(source, trashItems);
+      await ref.read(feedProvider.notifier).refreshAll();
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+      ref.invalidate(deletedReadingSourcesProvider);
+    }, trashItems ? '来源已删除，关联资料已移入回收站。' : '来源已删除，资料与历史保留。');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final deleted = ref.watch(deletedReadingSourcesProvider);
     final data = ref.watch(readingSourcesProvider),
         legacy = ref.watch(sourcesProvider),
         captures = ref.watch(legacyCapturesProvider);
@@ -184,12 +233,27 @@ class SourcesPage extends ConsumerWidget {
                     s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
                   ),
                   onOpen: () => launchUrl(Uri.parse(s.url)),
+                  onDelete: () => _remove(context, ref, s),
                 ),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text(
                   '关闭原网页不影响已授权检查。请保持 Chrome、扩展和本地后端运行；检查可能延后。',
                   style: TextStyle(fontSize: 12),
+                ),
+              ),
+              deleted.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('已删除来源暂不可用：$e'),
+                data: (values) => ExpansionTile(
+                  title: Text('已删除来源（${values.length}）'),
+                  subtitle: const Text('手动恢复后保持暂停；回收站资料需单独恢复。'),
+                  children: [for (final value in values) ListTile(
+                    title: Text('${(value['recipe'] as Map)['query']}'),
+                    subtitle: const Text('检查已停止 · 资料与历史按原选择保留'),
+                    trailing: TextButton.icon(icon: const Icon(Icons.restore), label: const Text('恢复来源'), onPressed: () => _act(context,
+                      () => controller.restore(value['id'] as int, value['revision'] as int), '来源已恢复并暂停；请重新测试重读。')),
+                  )],
                 ),
               ),
               if (oldCaptures.isNotEmpty ||

@@ -33,8 +33,10 @@
 </div>
 <footer class="panel-footer">
   <div id="source-binding" hidden>
-    <div class="binding-row"><label for="source-kind">保存来源</label><select id="source-kind"><option value="">请选择来源身份</option><option value="labeled">私人来源 · 自定义标签</option><option value="public">公开网页</option></select><span id="binding-value" hidden></span><button id="change-binding" class="text-button" type="button" hidden>更换</button></div>
-    <div id="source-label-field" hidden><label for="source-label" class="sr-only">私人来源标签</label><div class="binding-input-row"><input id="source-label" maxlength="80" placeholder="例如：学校邮箱、个人邮箱" autocomplete="off"><button id="confirm-binding" class="secondary" type="button">确定</button></div><p class="muted">标签用于隔离资料，切换网站账号时请更换。</p></div>
+    <div class="binding-row"><label for="source-kind">原站登录要求</label><select id="source-kind"><option value="">请选择登录要求</option><option value="labeled">需要登录 · 设置来源别名</option><option value="public">无需登录 · 公开网页</option></select><span id="binding-value" hidden></span><button id="change-binding" class="text-button" type="button" hidden>更换</button></div>
+    <div id="source-label-field" hidden><label for="source-label" class="sr-only">私人来源标签</label><div class="binding-input-row"><input id="source-label" maxlength="80" placeholder="例如：学校邮箱、个人邮箱" autocomplete="off"><button id="confirm-binding" class="secondary" type="button">确定</button></div><p class="muted">别名用于区分来源，不代表已核对登录账号。</p></div>
+    <div id="account-verification" hidden><p id="account-status" class="muted">来源账号未核对；可保存资料，暂不能后台检查。</p><button id="verify-account" class="secondary" type="button">核对当前网页账号</button></div>
+    <p class="muted">资料仅自己可见；登录会话留在 Chrome。</p>
   </div>
   <section id="results" aria-label="保存结果" aria-live="polite" hidden></section>
   <button id="save" class="primary full" type="button" disabled hidden>保存匹配结果</button>

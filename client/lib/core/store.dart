@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'api.dart';
 import 'db.dart';
+import 'document_lifecycle.dart';
 import 'models.dart';
 import 'session.dart';
 
@@ -59,6 +60,7 @@ class FeedState {
       );
 
   List<Item> get visible => items.values.where((i) => !i.deleted && !i.state.hidden).toList()..sort((a, b) => b.sortTime.compareTo(a.sortTime));
+  List<Item> get trashed => items.values.where((i) => !i.deleted && i.state.hidden).toList()..sort((a, b) => b.sortTime.compareTo(a.sortTime));
   int get unread => items.values.where((i) => !i.deleted && !i.state.hidden && !i.state.read).length;
 }
 
@@ -129,15 +131,18 @@ class FeedStore extends Notifier<FeedState> {
       final all = <int, Item>{};
       String? cursor;
       int syncCursor = state.cursor;
-      for (var page = 0; page < 6; page++) {
-        final f = await _api.feed(cursor: cursor, limit: 100);
-        for (final j in (f['items'] as List)) {
-          final it = Item.fromJson(Map<String, dynamic>.from(j as Map));
-          all[it.id] = it;
+      for (final filter in [null, 'trash']) {
+        cursor = null;
+        for (var page = 0; page < 6; page++) {
+          final f = await _api.feed(cursor: cursor, limit: 100, filter: filter);
+          for (final j in (f['items'] as List)) {
+            final it = Item.fromJson(Map<String, dynamic>.from(j as Map));
+            all[it.id] = it;
+          }
+          syncCursor = max(syncCursor, (f['sync_cursor'] ?? 0) as int);
+          cursor = f['next_cursor'] as String?;
+          if (cursor == null) break;
         }
-        syncCursor = max(syncCursor, (f['sync_cursor'] ?? 0) as int);
-        cursor = f['next_cursor'] as String?;
-        if (cursor == null) break;
       }
       final merged = {...state.items}..removeWhere((k, v) => !all.containsKey(k) && !v.deleted);
       merged.addAll(all);
@@ -361,6 +366,17 @@ class FeedStore extends Notifier<FeedState> {
       }
       await _refreshPendingCount();
     }
+  }
+
+  Future<void> setTrashed(Item item, bool trashed) async {
+    final api = _api;
+    final repository = ref.read(documentLifecycleRepositoryProvider);
+    final next = await repository.setTrashed(item.id, trashed);
+    if (_disposed || !identical(api, _api)) throw StateError('工作台账号已变化，请重新确认。');
+    final current = state.items[item.id] ?? item;
+    final value = current.withState(ItemState.fromJson(next));
+    state = state.copyWith(items: {...state.items, item.id: value});
+    await _cache(() => _db.saveItems([value.toJson()]));
   }
 
   Future<void> markAllRead(Iterable<Item> items) async {

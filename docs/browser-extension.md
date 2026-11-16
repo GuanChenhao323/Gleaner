@@ -1,6 +1,14 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-16，扩展 **0.10.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-16，扩展 **0.11.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+
+## 来源账号核对（0.11.0）
+
+普通网页完成条件提取后：选择“需要登录”→ 确认来源别名 → 核对当前网页账号 → 明确确认脱敏账号 → 保存 → 工作台测试后台重读。可见账号控件缺失时，提示先显示账号控件并重新提取；仍可不绑定账号保存手动快照。源站登录由用户完成，原学校适配器继续使用原生账号标识。
+
+`AccountControlProbe` 独立读取可见 header／banner 的显式账号属性及明确标注当前账号的按钮／链接 aria-label；只接受唯一邮箱，不扫描正文猜测登录者，不自动点击菜单。`AccountBindingService` 核对提取时与保存时的账号指纹，`SourceSessionVerifier` 在后台正文读取前后复核。多账号、身份消失、登录失效等不更新旧资料。Chrome storage 对象键序不作为身份比较依据。运行错误不会被预览轮询立即清除。
+
+`LoginRequirementPolicy` 与内容适配器分离，已知 Gmail／QQ 邮箱拒绝无需登录声明；未知私人站点能否后台读取，取决于页面明确账号控件及重读测试。标签、提取关键词和 Chrome 个人资料都不是网站账号证据。旧未核对私人资料需重新提取并显式绑定，不自动升级。全部字段与兼容规则见 [IC-SOURCE-LIFECYCLE-001](architecture/source-identity-and-lifecycle-v1.md)。本轮真实 Chrome 证据来自本地合成页面，不能视为 QQ／Gmail 生产验收。
 
 ## Timeline 活动摘要保存（0.10.0）
 
@@ -16,7 +24,7 @@
 
 关闭原标签／popup 后，由 `PageReentry` 创建非激活自有标签，使用 Chrome 最新原会话、等待 DOM 后调用同一提取器。`SourceSessionVerifier` 核对原学校账号，`ConditionalPageReader` 投影已匹配内容，`ReadingJobExecutor` 持久租约／outbox 和回执；Core 是唯一计划者。扩展每分钟心跳与领任务，手动“立即”表示排队而非同步网页请求。
 
-会话不离开 Chrome，不新增 cookies/debugger 权限，最低 Chrome110不变。仅声明公开的泛站与具备可靠原生账号的校园来源可测试后台读取；私人泛站标签不足以确认身份，会明确保留当前页手动采集。权限撤销后需在原网页打开插件重新授权，未知路由／视图不自动重放交互操作。
+会话不离开 Chrome，不新增 cookies/debugger 权限，最低 Chrome110不变。声明无需登录的普通页面、具备已核对账号控件的私人普通页面和原生账号明确的校园来源可测试后台读取；私人标签本身仍不足以确认身份。权限撤销后需在原网页打开插件重新授权，未知路由／视图不自动重放交互操作。
 
 契约：[IC-READING-SOURCE-001](architecture/condition-monitoring-v1.md)。原生 snapshot recipe v2 自身仍不调度，旧 v1 兼容执行器不同时拥有新条件来源的计划。失败、零匹配、需登录、未执行、无变化分开；验证不改基线，检查变化更新原资料。自动测试只使用本地／脱敏结构；真实平台授权与兼容性单独验收。
 

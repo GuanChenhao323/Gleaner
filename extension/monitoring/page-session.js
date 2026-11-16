@@ -1,3 +1,4 @@
+import {LoginRequirementPolicy} from '../identity/login-requirement.js';
 import {ExtractionPipeline} from '../extraction/pipeline.js';
 import {WebCapturePayload} from '../extraction/web-payload.js';
 import {TimelineCapturePayload} from '../extraction/timeline-summary.js';
@@ -9,8 +10,14 @@ export class SourceSessionVerifier {
     if(recipe.binding.account_key==='unverified')throw Error('account_unknown');
     if(result.source!==recipe.source)throw Error('route_mismatch');
     if(recipe.source==='generic') {
-      if(recipe.binding.account_key!=='public')throw Error('account_unknown');
-      return 'public';
+      if(recipe.binding.account_key==='public') {
+        if(new LoginRequirementPolicy().requiresLogin(recipe.url,result.account))throw Error('private_source_required');
+        return 'public';
+      }
+      if(recipe.account_probe?.kind!=='account-control-email-v1' || result.account?.state!=='known' || result.account.probe!==recipe.account_probe.kind)throw Error('account_unknown');
+      const key=await this.accountKey('generic',result.account.native);
+      if(key!==recipe.binding.account_key)throw Error('account_mismatch');
+      return key;
     }
     if(result.account.state==='unknown')throw Error('account_unknown');
     const key=await this.accountKey(result.source,result.account.native);
@@ -21,8 +28,8 @@ export class SourceSessionVerifier {
 
 /** Own only temporary tabs created by this executor; preserve tabs the user adopts. */
 export class PageReentry {
-  constructor(browser,storage,reader,{pause=ms=>new Promise(r=>setTimeout(r,ms))}={}) {
-    Object.assign(this,{browser,storage,reader,pause});
+  constructor(browser,storage,reader,{pause=ms=>new Promise(r=>setTimeout(r,ms)),clock=Date.now,timeout=18000}={}) {
+    Object.assign(this,{browser,storage,reader,pause,clock,timeout});
   }
   canClose(tab,url) {
     if(tab.active)return false;
@@ -48,19 +55,23 @@ export class PageReentry {
     await this.storage.set({readingTabs:{[tab.id]:recipe.url}});
     try {
       await this.browser.tabs.update(tab.id,{url:recipe.url});
-      const deadline=Date.now()+18000;
-      while(Date.now()<deadline) {
+      const deadline=this.clock()+this.timeout;let accountPending=false;
+      while(this.clock()<deadline) {
         const current=await this.browser.tabs.get(tab.id);
         if(current.status==='complete') {
-          const meta=await this.reader.metadata(tab.id);
+          const meta=await this.reader.metadata(tab.id,Math.max(1,deadline-this.clock()));
           if(meta.login)throw Error('need_login');
           if(meta.url!==recipe.url)throw Error('route_mismatch');
-          await beforeRead?.(meta);
+          try {await beforeRead?.(meta);}
+          catch(e) {
+            if(e.message!=='account_unknown')throw e;
+            accountPending=true;await this.pause(250);continue;
+          }
           return await this.reader.read(tab.id,recipe.intent,recipe.choice || undefined);
         }
         await this.pause(250);
       }
-      throw Error('render_timeout');
+      throw Error(accountPending?'account_unknown':'render_timeout');
     } finally {
       try {if(this.canClose(await this.browser.tabs.get(tab.id),recipe.url))await this.browser.tabs.remove(tab.id);}catch{/* closed */}
       await this.storage.set({readingTabs:{}});
@@ -89,7 +100,7 @@ export class ConditionalPageReader {
     }
     if(result.save_mode==='timeline_summary')throw Error('view_mismatch');
     if(recipe.source==='generic') {
-      const binding={kind:'public',label:recipe.source_label};
+      const binding=recipe.binding.account_key==='public'?{kind:'public',label:recipe.source_label}:{kind:'labeled',label:recipe.source_label,identity:{version:1,probe:recipe.account_probe.kind,display:recipe.account_probe.display,account_key}};
       const payload=new WebCapturePayload().create({id:crypto.randomUUID(),query:recipe.query,result},binding);
       // The backend retains the initial title and source identity. Only content changes.
       return {account_key,snapshot:payload};

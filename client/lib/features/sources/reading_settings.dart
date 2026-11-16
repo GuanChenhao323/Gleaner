@@ -78,6 +78,8 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
               heading('01 · 检查内容'),
               fact('来源网页', s.url),
               fact('原关键词', s.query),
+              fact('原站登录要求', s.isPublic ? '无需登录（用户声明）' : '需要登录'),
+              fact('资料可见范围', '仅自己可见'),
               fact('匹配范围', s.scope),
               fact('关联资料', '${s.matchCount} 条匹配 · ${s.items.length} 份资料'),
               heading('02 · 来源会话与后台重读'),
@@ -103,7 +105,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
-                            '来源标签不能证明网站账号一致，暂不提供后台重读。请在原页面使用插件重新提取并保存。',
+                            '来源标签不能证明网站账号一致，暂不提供后台重读。请在原网页让账号控件可见，重新提取后，用插件的“核对当前网页账号”绑定并保存。只有正文中的邮箱不能作为证明。',
                           ),
                         ),
                       const SizedBox(height: 12),

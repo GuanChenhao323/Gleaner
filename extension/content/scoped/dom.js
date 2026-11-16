@@ -76,7 +76,7 @@
       const accountNode = document.querySelector('body[data-account-id],body[data-userid],.usermenu[data-userid],.usermenu [data-userid]');
       const account = accountNode?.getAttribute('data-account-id') || accountNode?.getAttribute('data-userid') || (() => { const a = document.querySelector('.usermenu a[href*="/user/profile.php"]'); return a ? new URL(a.getAttribute('href'),location.href).searchParams.get('id') || '' : ''; })();
       const login = (source!=='generic' && /\/(login|sso|auth)(\/|\.|$)/i.test(location.pathname)) || [...document.querySelectorAll('input[type="password"]')].some(n=>this.visible(n,true));
-      return {url:location.href,title:document.title,source,fixture,account:{state:source==='fie'?'public':source!=='generic' && account?'known':'unknown',native:source==='fie'?'public':source==='generic'?'':account},login,frames:document.querySelectorAll('iframe').length,ready:document.readyState};
+      return {url:location.href,title:document.title,source,fixture,account:{...(source==='generic' && R.AccountControlProbe?new R.AccountControlProbe().read():{state:source==='fie'?'public':source!=='generic' && account?'known':'unknown',native:source==='fie'?'public':account})},login,frames:document.querySelectorAll('iframe').length,ready:document.readyState};
     }
     labels(root, mapping) {
       const out = {};

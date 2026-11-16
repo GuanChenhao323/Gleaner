@@ -1,3 +1,4 @@
+import 'document_trash_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -210,6 +211,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         automaticallyImplyLeading: !widget.embedded,
         title: Text(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind)),
         actions: [
+          DocumentTrashButton(item: item),
           IconButton(
             tooltip: item.state.starred ? '取消收藏' : '收藏',
             icon: Icon(item.state.starred ? Icons.star_rounded : Icons.star_outline_rounded, color: item.state.starred ? Brand.wheat : null),

@@ -6,6 +6,10 @@ import '../../core/api.dart';
 import '../../core/session.dart';
 
 String readingResultLabel(String value) => switch (value) {
+  'restored' => '来源已恢复 · 检查暂停，须重新测试',
+  'documents_restored' => '资料已恢复 · 来源检查保持暂停',
+  'documents_trashed' => '关联资料已移入回收站 · 检查已暂停',
+  'private_source_required' => '检测到登录账号 · 请按需要登录的来源重新采集',
   'not_executed' => '待首次检查',
   'verified' => '重读验证通过 · 待检查',
   'changed' => '发现来源变化',
@@ -61,9 +65,9 @@ class ReadingSource {
   bool get isTimeline => recipe['representation'] == 'timeline_summary';
   bool get isPublic => (recipe['binding'] as Map)['account_key'] == 'public';
   String get identity => isPublic
-      ? '公开网页'
+      ? '无需登录（用户声明）'
       : platform == 'generic'
-      ? '${recipe['source_label']} · 账号未核对'
+      ? '${recipe['source_label']} · ${recipe['account_probe'] is Map ? (recipe['account_probe'] as Map)['display'] : '账号未核对'}'
       : '原学校账号 · 本机 Chrome';
   String get title =>
       '${isTimeline ? 'Moodle 活动摘要' : const {'moodle': 'Moodle', 'student': 'WeMust', 'fie': '教师资料', 'generic': '网页资料'}[platform] ?? platform} · $query';
@@ -96,6 +100,9 @@ abstract interface class ReadingSourceRepository {
   Future<List<ReadingSource>> list();
   Future<void> configure(ReadingSource source, Map<String, dynamic> settings);
   Future<void> check(ReadingSource source, String purpose);
+  Future<void> remove(ReadingSource source, bool trashItems);
+  Future<List<Map<String, dynamic>>> deleted();
+  Future<void> restore(int id, int revision);
   Future<List<Map<String, dynamic>>> checks(int id);
 }
 
@@ -111,6 +118,14 @@ class ApiReadingSourceRepository implements ReadingSourceRepository {
   @override
   Future<void> check(ReadingSource source, String purpose) =>
       api.checkReading(source.id, source.revision, purpose);
+  @override
+  Future<List<Map<String, dynamic>>> deleted() => api.deletedReadingSources();
+  @override
+  Future<void> restore(int id, int revision) =>
+      api.restoreReading(id, revision);
+  @override
+  Future<void> remove(ReadingSource source, bool trashItems) =>
+      api.removeReading(source.id, source.revision, trashItems);
   @override
   Future<List<Map<String, dynamic>>> checks(int id) => api.readingChecks(id);
 }
@@ -138,6 +153,22 @@ class ReadingSourcesController extends AsyncNotifier<List<ReadingSource>> {
     }
   }
 
+  Future<void> remove(ReadingSource source, bool trashItems) async {
+    await ref.read(readingRepositoryProvider).remove(source, trashItems);
+    if (ref.mounted) {
+      ref.invalidate(deletedReadingSourcesProvider);
+      await refresh();
+    }
+  }
+
+  Future<void> restore(int id, int revision) async {
+    await ref.read(readingRepositoryProvider).restore(id, revision);
+    if (ref.mounted) {
+      ref.invalidate(deletedReadingSourcesProvider);
+      await refresh();
+    }
+  }
+
   Future<void> check(ReadingSource source, String purpose) async {
     await ref.read(readingRepositoryProvider).check(source, purpose);
     if (ref.mounted) await refresh();
@@ -157,3 +188,8 @@ final readingSourcesProvider =
       ReadingSourcesController,
       List<ReadingSource>
     >(ReadingSourcesController.new);
+
+final deletedReadingSourcesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>(
+      (ref) => ref.watch(readingRepositoryProvider).deleted(),
+    );

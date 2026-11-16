@@ -22,7 +22,7 @@ run('private source requires explicit confirmation; full preview stays local unt
   h.view.select('source-kind','labeled');h.view.$('source-kind').onchange();
   h.view.$('source-label').value='学';h.view.$('source-label').oninput();assert.equal(h.view.$('source-label-field').hidden,false);assert.equal(h.view.$('save').disabled,true);
   h.view.$('source-label').value='学校邮箱';h.view.$('source-label').oninput();await h.controller.confirmBinding();
-  assert.equal(h.view.$('source-label-field').hidden,true);assert.equal(h.view.$('binding-value').textContent,'学校邮箱');
+  assert.equal(h.view.$('source-label-field').hidden,true);assert.equal(h.view.$('binding-value').textContent,'需要登录 · 学校邮箱');
   const full=h.document.querySelector('.full-fragment');full.open=true;full.dispatchEvent(new h.document.defaultView.Event('toggle'));
   assert.equal(full.querySelector('summary').textContent,'收起');
   assert.equal(full.querySelector('pre').textContent,h.controller.task.result.candidates[0].raw.text);
@@ -112,4 +112,15 @@ test('empty/malformed and partial receipts cannot produce whole-batch success',(
   assert.equal(p.present({state:'confirmed',response:{results:[{status:'new',item_id:0}]}}).state,'unconfirmed');
   const partial=p.present({state:'confirmed',response:{results:[{status:'new',item_id:1},{status:'failed',candidate_id:'b',error:'invalid_snapshot'}]}});
   assert.equal(partial.state,'partial');assert.match(partial.title,/成功 1，失败 1/);
+});
+run('account verification is separate from login declaration and requires explicit user confirmation',async h=>{
+  await capture(h);await declareSource(h,'labeled');
+  h.view.select('source-kind','labeled');h.view.source.choose();h.view.$('source-label').value='学校邮箱';await h.controller.confirmBinding();
+  assert.equal(h.view.$('account-verification').hidden,false);assert.match(h.view.$('account-status').textContent,/未核对/);
+  const identity={version:1,probe:'account-control-email-v1',account_key:'a'.repeat(64),display:'s***@example.test'};
+  h.ctx.onMessage=m=>m.type==='extract.verifyAccount'?{identity}:undefined;
+  h.document.defaultView.confirm=()=>false;await h.view.$('verify-account').onclick();assert.equal(h.view.binding().identity,undefined);
+  h.document.defaultView.confirm=()=>true;await h.view.$('verify-account').onclick();assert.deepEqual(h.view.binding().identity,identity);
+  assert.match(h.view.$('account-status').textContent,/已核对/);
+  assert.equal(h.messages.filter(m=>m.type==='extract.save').length,0);
 });

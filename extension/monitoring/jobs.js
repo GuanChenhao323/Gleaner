@@ -1,4 +1,4 @@
-const failures=new Set(['need_login','account_unknown','account_mismatch','route_mismatch','view_mismatch','permission_denied','render_timeout','selection_missing','no_match','unsupported','preview_only','worker_interrupted']);
+const failures=new Set(['need_login','account_unknown','account_mismatch','route_mismatch','view_mismatch','permission_denied','render_timeout','selection_missing','no_match','unsupported','preview_only','worker_interrupted','private_source_required']);
 const owner=cfg=>`${cfg.server}|${cfg.uid}`;
 
 /** Owns one persisted intent/receipt, never an independent periodic schedule. */

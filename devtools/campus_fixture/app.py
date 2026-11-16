@@ -62,6 +62,11 @@ class Handler(BaseHTTPRequestHandler):
             if "fixture_account=student-a" in cookie
             else ""
         )
+        if path == "/generic-account":
+            if not account:
+                return self.send(page("generic", '<main><h1>模拟来源登录已失效</h1><input type="password"><a href="/login">登录模拟账号</a></main>'))
+            email = account + "@example.test"
+            return self.send(page("generic", f'<header><button aria-label="Current account: {email}">当前模拟账号 {email}</button></header><main><article><h2>账号核对演示</h2><p>账号核对演示：合成项目资料，版本 {STATE["revision"]}。</p></article><p>正文联系人 third-party@example.test，不是当前账号。</p></main>'))
         if path == "/":
             return self.send(
                 page(

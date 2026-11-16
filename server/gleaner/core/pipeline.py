@@ -566,7 +566,13 @@ class Pipeline:
             quiet = in_quiet_hours(profile, now)
             mqtt = "urgent" if sc.priority == "urgent" else None
             # 低优先级照常实时推送但静默（不提醒、不发 MQTT）；免打扰时段内普通级同样静默
-            payload["silent"] = sc.priority == "low" or (quiet and sc.priority != "urgent")
+            payload["silent"] = (
+                bool(state and state.get("hidden"))
+                or sc.priority == "low"
+                or (quiet and sc.priority != "urgent")
+            )
+            if state and state.get("hidden"):
+                mqtt = None
             await self._deliver(
                 user["id"],
                 item["id"],

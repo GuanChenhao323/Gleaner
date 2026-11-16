@@ -10,7 +10,7 @@ import 'item_card.dart';
 import 'item_detail.dart';
 
 /// `null` = 全部（默认，不占筛选项）。收藏合并了原「重要」：星标或系统判重要/重要变更。
-enum InboxFilter { unread, starred, todo, assignment, notice }
+enum InboxFilter { unread, starred, todo, assignment, notice, trash }
 
 const _labels = {
   InboxFilter.unread: '未读',
@@ -18,10 +18,12 @@ const _labels = {
   InboxFilter.todo: '待办',
   InboxFilter.assignment: '作业',
   InboxFilter.notice: '通知',
+  InboxFilter.trash: '回收站',
 };
 
 Color? _filterAccent(InboxFilter f) => switch (f) {
       InboxFilter.unread => null,
+      InboxFilter.trash => null,
       InboxFilter.starred => Brand.wheat,
       InboxFilter.todo => const Color(0xFF5C6BC0),
       InboxFilter.assignment => const Color(0xFFD9534F),
@@ -32,6 +34,7 @@ bool _match(Item i, InboxFilter? f, String q) {
   final ok = switch (f) {
     null => true,
     InboxFilter.unread => !i.state.read,
+    InboxFilter.trash => i.state.hidden,
     InboxFilter.starred => i.state.starred || i.priority != 'low' || i.importantChange,
     InboxFilter.todo => i.state.todo == 'todo' || i.state.todo == 'doing',
     InboxFilter.assignment => i.kind == 'assignment',
@@ -71,7 +74,7 @@ class _InboxPageState extends ConsumerState<InboxPage> {
   @override
   Widget build(BuildContext context) {
     final st = ref.watch(feedProvider);
-    final items = st.visible.where((i) => _match(i, filter, q)).toList();
+    final items = (filter == InboxFilter.trash ? st.trashed : st.visible).where((i) => _match(i, filter, q)).toList();
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final cs = Theme.of(context).colorScheme;
     // 宽屏默认选中当前列表第一条，右侧始终是详情（Gmail 式），不再留空。
@@ -97,9 +100,9 @@ class _InboxPageState extends ConsumerState<InboxPage> {
                   onChanged: (v) => setState(() => q = v.trim()),
                 )
               : Row(children: [
-                  const Text('收件箱'),
+                  Text(filter == InboxFilter.trash ? '回收站' : '收件箱'),
                   const SizedBox(width: 10),
-                  if (st.unread > 0) Pill('${st.unread} 未读', color: cs.primary),
+                  if (filter != InboxFilter.trash && st.unread > 0) Pill('${st.unread} 未读', color: cs.primary),
                 ]),
           actions: [
             IconButton(
@@ -154,10 +157,10 @@ class _InboxPageState extends ConsumerState<InboxPage> {
               icon: q.isNotEmpty ? Icons.search_off : Icons.inbox_outlined,
               title: q.isNotEmpty
                   ? '没有找到“$q”'
-                  : (filter == null ? '收件箱还是空的' : '这里没有${_labels[filter]}的事项'),
+                  : (filter == null ? '收件箱还是空的' : filter == InboxFilter.trash ? '回收站是空的' : '这里没有${_labels[filter]}的事项'),
               message: filter == null && q.isEmpty
                   ? '去「信息源」用校园模板添加 Moodle、学院通知或学校邮箱，新的作业与通知会自动出现在这里。'
-                  : null,
+                  : filter == InboxFilter.trash ? '恢复后保留备注、收藏与历史；来源检查不会自动恢复。' : null,
               action: filter == null && q.isEmpty
                   ? FilledButton.icon(onPressed: () => context.go('/sources'), icon: const Icon(Icons.add), label: const Text('添加信息源'))
                   : null,

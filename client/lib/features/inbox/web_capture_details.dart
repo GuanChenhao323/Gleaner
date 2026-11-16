@@ -32,14 +32,14 @@ class WebCaptureDetails extends StatelessWidget {
             SelectableText(
               timeline
                   ? '条件：${capture['query']}\n来源身份：原学校账号 · 本机 Chrome\n范围：当前已加载 Timeline 活动'
-                  : '条件：${capture['query']}\n匹配位置：${capture['match_scope'] == 'title' ? '标题与链接标题' : '正文与列表'}\n来源标签：${binding['label'] ?? '未提供'}',
+                  : '条件：${capture['query']}\n匹配位置：${capture['match_scope'] == 'title' ? '标题与链接标题' : '正文与列表'}\n来源别名：${binding['label'] ?? '未提供'}\n原站登录要求：${binding['kind'] == 'public' ? '无需登录（用户声明）' : '需要登录'}\n来源账号：${binding['identity'] is Map ? (binding['identity'] as Map)['display'] : '未核对'}\n资料可见：仅自己',
             ),
             Text(
               timeline
                   ? '这是活动提醒摘要，未读取详情正文，不代表完整作业或已确认的日历事件。日期和时间均保留原文，缺失时不推测。'
                   : hasReadingSource
                   ? '仅约定视图中的匹配片段，不代表完整文章或邮件。原条件已关联信息源，检查方式与状态请在来源中查看。'
-                  : '仅当前已加载内容，不代表完整文章或邮件。网站账号未经自动确认，来源标签由用户声明；未启用后台监测。',
+                  : '仅当前已加载内容，不代表完整文章或邮件。来源别名由用户声明；来源检查未启用，账号证明与后台能力须分别核对。',
             ),
             Text(
               hasReadingSource

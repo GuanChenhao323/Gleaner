@@ -95,6 +95,7 @@ class API:
         self.publish = publish
         self.fetcher = fetcher or Fetcher(min_interval=0.2)
         self.agent_hub: Any = None
+        self.reading: ReadingSourceService | None = None
 
     # ---- 鉴权 ------------------------------------------------------------------
 
@@ -132,6 +133,9 @@ class API:
         web = WebCaptureService(self.db, self.pipeline)
         timeline = WebCaptureService(self.db, self.pipeline, TimelineCaptureContract())
         reading = ReadingSourceService(self.db, web, native, timeline)
+        self.reading = reading
+        reading.change_state = self.apply_state
+        native.guard_reading = web.guard_reading = timeline.guard_reading = reading.guard_capture
         native.on_capture = web.on_capture = timeline.on_capture = reading.attach
         native.validate_reading = web.validate_reading = timeline.validate_reading = (
             reading.validate_capture
@@ -403,7 +407,9 @@ class API:
     async def feed(self, req: Request, user: dict[str, Any]) -> Response:
         """分页收件箱。cursor = ``排序时间:id``（键集分页，翻页期间有新数据也不会重复或遗漏）。"""
         q = req.query
-        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0"
+        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = " + (
+            "1" if q.get("filter") == "trash" else "0"
+        )
         params: list[Any] = []
         if q.get("kind"):
             where += " AND i.kind = ?"
@@ -487,7 +493,7 @@ class API:
             for flag in ("enabled", "supported"):
                 it["browser_monitor"][flag] = bool(it["browser_monitor"][flag])
         it["reading_source"] = await self.db.fetchone(
-            "SELECT r.id, r.last_result, r.last_success_at FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND link.item_id = ? ORDER BY r.id DESC LIMIT 1",
+            "SELECT r.id, r.last_result, r.last_success_at FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND r.deleted = 0 AND link.item_id = ? ORDER BY r.id DESC LIMIT 1",
             user["id"],
             it["id"],
         )
@@ -517,7 +523,15 @@ class API:
     async def apply_state(
         self, uid: int, item_id: int, b: dict[str, Any], op_id: str | None
     ) -> tuple[int, dict[str, Any]]:
+        async with self.db.transaction():
+            return await self._apply_state(uid, item_id, b, op_id)
+
+    async def _apply_state(
+        self, uid: int, item_id: int, b: dict[str, Any], op_id: str | None
+    ) -> tuple[int, dict[str, Any]]:
         """修改个人状态；op_id 作为幂等键，重复提交直接返回第一次的结果（离线回放）。"""
+        if "hidden" in b and type(b["hidden"]) is not bool:
+            return 422, {"error": "invalid_state"}
         if op_id:
             prev = await self.db.fetchone(
                 "SELECT result FROM op_log WHERE user_id = ? AND op_id = ?", uid, op_id
@@ -588,6 +602,11 @@ class API:
                     "note": st["note"],
                 },
             }
+            if "hidden" in vals and self.reading is not None:
+                if vals["hidden"]:
+                    await self.reading.pause_empty(uid, item_id)
+                else:
+                    await self.reading.mark_documents_visible(uid, item_id)
             # 多设备同步：把状态变化推给该用户的其他在线设备
             await self.publish(
                 f"u.{uid}",
@@ -653,7 +672,7 @@ class API:
         to = float(req.query.get("to", now + 60 * 86400))
         items = await self._items_for(
             user["id"],
-            " AND i.deleted = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
             (frm, to),
             "ORDER BY COALESCE(st.deadline_override, i.deadline_at)",
             500,
@@ -663,7 +682,11 @@ class API:
     async def courses(self, req: Request, user: dict[str, Any]) -> Response:
         """课程主页：未完成作业、近期通知、来自官网的教师信息（场景 6）。"""
         items = await self._items_for(
-            user["id"], " AND i.deleted = 0 AND i.course != ''", (), "ORDER BY i.deadline_at", 500
+            user["id"],
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND i.course != ''",
+            (),
+            "ORDER BY i.deadline_at",
+            500,
         )
         teachers = await self.db.fetch(
             "SELECT title, url, attrs FROM items WHERE kind = 'teacher' AND deleted = 0"

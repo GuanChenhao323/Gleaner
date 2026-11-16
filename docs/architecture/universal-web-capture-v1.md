@@ -1,9 +1,9 @@
 # Interface Contract — 通用网页片段 → Core → 工作台
 
 **接口 ID：** IC-WEB-CAPTURE-001
-**版本：** v1.0（已实现；实机范围见验证报告）
+**版本：** v1.1（已实现；实机范围见验证报告）
 **负责人：** 插件／Core／Flutter
-**最后更新：** 2026-11-14
+**最后更新：** 2026-11-16
 
 ## 1. 接口概述
 
@@ -64,3 +64,9 @@ DOM 只处理主 frame 和开放 Shadow DOM（已由合成结构验证）；ifra
 ## 2026-11-16 集合事务复用
 
 WebCaptureContract的来源／绑定／片段／正文／元信息策略可替换，由TimelineCaptureContract复用集合事务及幂等存储。通用端点字段、身份和校园域名拒绝规则保持；Timeline使用独立端点与账号绑定，不能用公共标签绕过校园限制。回执按类型隔离，generic集合列表不混入Timeline。见 [IC-TIMELINE-SUMMARY-001](timeline-summary-v1.md)。
+
+## 2026-11-16 私人账号证明兼容扩展
+
+`source_binding` 保留 kind／label，私人 labeled 可选 `identity={version:1,probe:account-control-email-v1,account_key,display}`；identity 参与集合身份，使同来源别名的不同已核对账号保持独立。无 identity 的旧私人资料仍可手动保存，不得后台重读。公开声明不等于共享权限，Gmail／QQ 邮箱不能声明为公开。metadata.account_state 对有证明的资料为 bound，只有完成重读测试才代表当前后台能力可用。
+
+可选 reading.account_probe 与该证明完全一致，不得单独伪造 generic 非 public/unverified key；删除后的来源由异步事务前置 guard 拒绝旧提交，显式恢复单独处理。详见 [身份与生命周期契约](source-identity-and-lifecycle-v1.md)。

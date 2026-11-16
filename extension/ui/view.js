@@ -1,3 +1,4 @@
+import {LoginRequirementPolicy} from '../identity/login-requirement.js';
 import {DomView} from './dom.js';
 import {PanelPolicy} from './panel-policy.js';
 import {PreviewView} from './preview-view.js';
@@ -83,6 +84,7 @@ export class CaptureView extends DomView {
   task(task, options = {}) {
     this.preview.render(task, options);
     if (task?.save_binding) this.source.restore(task.save_binding);
+    this.source.requiresLogin = Boolean(task?.url && new LoginRequirementPolicy().requiresLogin(task.url, task.result?.account));
     const p = this.policy.evaluate(task, {...options, bindingReady: this.source.ready()});
     const reading = ['queued','running'].includes(task?.state), submitted = Boolean(task?.submission);
     this.source.render({visible: p.bindingVisible && !submitted, locked: Boolean(task?.save_binding) || options.saving});
@@ -93,7 +95,7 @@ export class CaptureView extends DomView {
     if(p.timeline && task.result.candidates.some(c=>c.save_reason==='account_unknown'))this.$('save').textContent='请登录原学校账号后重新提取';
     this.$('save-hint').textContent = p.oversize ? '匹配内容超过保存范围，请缩小条件；不会截断保存。'
       : submitted ? '已提交原预览，正在核对保存结果。'
-      : p.count ? p.timeline ? '仅保存当前已加载的活动摘要及详情链接，不含作业完整正文；来源检查在工作台设置。' : p.generic ? `${p.count} 个网页片段合为一份资料，非完整文章或邮件；不启用监测。` : '仅保存完整且身份明确的匹配事项；不启用监测。'
+      : p.count ? p.timeline ? '仅保存当前已加载的活动摘要及详情链接，不含作业完整正文；来源检查在工作台设置。' : p.generic ? `${p.count} 个网页片段合为一份资料，非完整文章或邮件；来源检查在工作台设置。` : '仅保存完整且身份明确的匹配事项；不启用监测。'
       : '预览确认后再保存，不会自动采集整页。';
     this.controls({saving: Boolean(options.saving), reading});
     return p;

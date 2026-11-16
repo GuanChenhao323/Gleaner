@@ -1,3 +1,5 @@
+import {LoginRequirementPolicy} from '../identity/login-requirement.js';
+import {AccountBindingService,accountIdentity} from '../identity/account-binding.js';
 import {ExtractionPipeline} from './pipeline.js';
 import {safeUrl, SiteRegistry} from './sites.js';
 import {IntentParser,LiteralIntentParser} from './intent.js';
@@ -49,7 +51,7 @@ export class PageExtractionService {
       const key=result.account.state==='unknown'?'':await this.accountKey(result.source,result.account.native);
       result.binding=key?{adapter:result.source,origin:new URL(result.url).origin,account_key:key}:null;
       result.account={state:result.account.state};
-      await this.repository.update(owner,task.id,{state:result.state,result});
+      await this.repository.update(owner,task.id,{state:result.state,result,...(result.source==='generic' && key?{observed_account_key:key}:{})});
     } catch(error) { try { await this.repository.update(owner,task.id,{state:'failed',error:error.message}); } catch { /* deleted / expired */ } }
   }
   async handle(cfg,input) {
@@ -59,6 +61,13 @@ export class PageExtractionService {
     if(input.type==='extract.list') return {tasks:await this.repository.list(owner)};
     if(input.type==='extract.get') { const {owner:_,signature,fresh,...task}=await this.repository.get(owner,input.id); return task; }
     if(input.type==='extract.delete') return this.repository.remove(owner,input.id);
+    if(input.type==='extract.verifyAccount') {
+      const task=await this.repository.get(owner,input.id);
+      if(task.result?.source!=='generic' || task.state!=='succeeded' || task.submission)throw Error('preview_required');
+      const identity=await new AccountBindingService(this.reader,this.accountKey).verify(task);
+      await this.repository.update(owner,task.id,{verified_identity:identity});
+      return {identity};
+    }
     if(input.type==='extract.save') {
       if(Object.keys(input).some(key=>!['type','id','query','source_binding'].includes(key))) throw Error('invalid_request');
       const task=await this.repository.get(owner,input.id);
@@ -76,7 +85,12 @@ export class PageExtractionService {
       }
       if(task.result?.source==='generic') {
         const binding=sourceBinding(input.source_binding);
-        if(task.save_binding && JSON.stringify(binding)!==JSON.stringify(task.save_binding))throw Error('idempotency_conflict');
+        if(binding.identity) {
+          if(JSON.stringify(binding.identity)!==JSON.stringify(accountIdentity(task.verified_identity)))throw Error('invalid_account_proof');
+          const identity=await new AccountBindingService(this.reader,this.accountKey).verify(task);
+          if(identity.account_key!==binding.identity.account_key)throw Error('account_mismatch');
+        } else if(binding.kind==='public' && (task.observed_account_key || new LoginRequirementPolicy().requiresLogin(task.url)))throw Error('private_source_required');
+        if(task.save_binding && JSON.stringify(binding)!==JSON.stringify(sourceBinding(task.save_binding)))throw Error('idempotency_conflict');
         if(task.submission)return task.submission;
         const payload=new WebCapturePayload().create(task,binding);
         const reading=new ReadingRecipeFactory().create(task,binding);

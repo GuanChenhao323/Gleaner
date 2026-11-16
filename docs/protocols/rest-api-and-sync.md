@@ -86,3 +86,9 @@ Chrome 通过 `POST /api/v1/monitor-jobs/claim` 领取后端计划中的一项�
 ### Timeline 活动摘要集合（2026-11-16）
 
 POST `/api/v1/timeline-captures`，GET同路径列表及 `/{request_id}` 回执。Bearer与schema_version=1／ok信封沿用集合保存；专用来源账号和summary字段严格校验，强制原条件关联，返回capture_type=timeline_summary及一个collection结果。与captures原生事项、web-captures通用快照分开。后台沿reading-sources租约及representation重读，失败保护不变。完整字段、身份和兼容见 [Timeline 摘要契约](../architecture/timeline-summary-v1.md)。
+
+### 来源删除、恢复与个人回收站（2026-11-16）
+
+DELETE `/api/v1/reading-sources/{id}` 输入 `{revision,trash_items}`，严格确认来源墓碑，默认保留资料和历史，逐项个人回收站在同事务执行。GET `/api/v1/reading-sources/deleted` 列出本用户墓碑；POST `.../{id}/restore` 输入 `{revision}`，显式恢复到暂停／未验证，旧租约仍无效。不存在／跨用户404，修订不符或墓碑拒绝409。既有私有资料的订阅访问保留，不使用会级联删除 items 的旧接口。
+
+GET `/api/feed?filter=trash` 使用既有分页语义返回当前用户 hidden=1 的资料；PUT `/api/items/{id}/state` 的布尔 hidden=true／false 对应移入回收站／恢复，沿用 op_id 幂等。本轮按钮在线严格确认，不以200空对象当成功。回收站不修改来源内容版本、不影响其他用户，日历／课程／摘要／提醒排除；最后一份资料移入时暂停相关来源。恢复任一对象均不自动启用周期。私人 generic source_binding.identity 与 reading.account_probe 的字段、错误及兼容详见 [完整契约](../architecture/source-identity-and-lifecycle-v1.md)。

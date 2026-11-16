@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from .monitors import ContractError, compact, string, web_url
+from .source_identity import account_probe
 from .web_captures import normalized_query
 
 FAILURES = {
@@ -23,6 +24,7 @@ FAILURES = {
     "failed",
     "worker_interrupted",
     "preview_only",
+    "private_source_required",
 }
 INTERVALS = {1800, 3600, 7200}
 
@@ -44,7 +46,7 @@ class ReadingRecipe:
         }
         if (
             not isinstance(value, dict)
-            or set(value) - (keys | {"source_label", "representation"})
+            or set(value) - (keys | {"source_label", "representation", "account_probe"})
             or not keys <= set(value)
             or type(value["version"]) is not int
             or value["version"] != 1
@@ -110,6 +112,15 @@ class ReadingRecipe:
         ):
             raise ContractError("cross_origin_target")
         string(binding["account_key"], 200)
+        if "account_probe" in value:
+            if value["source"] != "generic" or binding["account_key"] in ("public", "unverified"):
+                raise ContractError("invalid_account_proof")
+            account_probe(value["account_probe"], binding["account_key"])
+        elif value["source"] == "generic" and binding["account_key"] not in (
+            "public",
+            "unverified",
+        ):
+            raise ContractError("invalid_account_proof")
         if value["source"] in ("moodle", "student") and binding["account_key"] in (
             "public",
             "unverified",
