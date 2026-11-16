@@ -74,4 +74,4 @@ F14 按用户最新要求进入当前阶段：普通 HTTP(S) 站点不再因未�
 
 已核对学校账号且明确查询Timeline／时间线时，当前活动整组保存为一份摘要资料；保留时间原文与详情链接，不生成原生事件ID／完整作业。TimelineCaptureContract独立策略复用集合事务，专用端点隔离generic与原生保存；来源representation=timeline_summary复用后台条件重读、失败保护和原版本。旧冻结预览须重新提取，UI明确引导；课程入口／Support仍仅预览。见 [摘要契约](architecture/timeline-summary-v1.md)。
 
-本轮后端90、Node128、Flutter15项通过，ruff／analyze／Web构建和54个JS语法通过；本地HTTP＋模拟DOM/浏览器端口使资料50更新至v2，独立IAB核验摘要、原始时间、活动URL跳转与版本差异。真实Chrome0.10.0在本地夹具读取2条并保存，关闭popup／原页后资料51和来源6已关联；后续Mac锁定，原生Chrome的新UI／后台重读补验未完成。IAB和HTTP证据不替代该项，不新增真实Moodle生产验收声明。个人报告、截图及运行交接位于忽略目录。
+本轮后端90、Node128、Flutter15项通过，ruff／analyze／Web构建和54个JS语法通过；本地HTTP＋模拟DOM/浏览器端口使资料50更新至v2，独立IAB核验摘要、原始时间、活动URL跳转与版本差异。真实Chrome0.10.0在本地夹具读取2条并保存，关闭popup／原页后资料51和来源6已关联；解锁补验已确认摘要UI／活动详情链接、关页重读验证、首次无变化保持v1、来源变化更新原51至v2，并展开前后原文和检查日志。IAB与HTTP证据仍独立记录，不新增真实Moodle生产验收声明。个人报告、截图及运行交接位于忽略目录。
