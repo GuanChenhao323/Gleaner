@@ -47,7 +47,9 @@
   - 状态流转（US05）：`PUT /api/items/7/state {"done":true}` → `state.todo="done"`、`status="done"`。
   - 字段编辑（US04）：`PATCH /api/items/7/fields {"set":{"title":…}}` → `fields.title.value` 为用户值、`fields.title.source` 为来源原值、`edited=true`、`conflict=false`。
   - 事项级去重（US06）：`POST /api/captures` 同一 `page.url`＋`locator` 连发两次 → 第一次 `status="new"`（item 17），第二次 `status="unchanged"`（仍 item 17，不重复）；换 `locator` → `status="new"`（item 18），同 URL 多条可区分。
-- 未验证（R2 仍为「待核验」）：冲突场景（用户改字段后来源再变 → `resolve` 保留我的／采用来源）未手工触发；改完状态/字段后未真正重启后端验证持久化；场景 C 的 Flutter 工作台端到端未跑（本机未装 Flutter）。
+  - 冲突场景（US04，item 19）：用户把标题改为「我自己的标题」→ `edited=true, conflict=false`；来源重新采集改标题为 v2 → `conflict=true`（`value` 保留用户值、`source` 为新来源值）→ `POST /api/items/19/fields/resolve {"field":"title","keep":"mine"}` → 保留用户值、基准 rebase、`conflict=false`；来源再改 v3 重新触发冲突 → `keep="source"` → 采用来源值、删除用户修改、`edited=false`。
+  - 重启持久化（item 19）：改状态 `done=true`、标题「重启后应保留的标题」→ kill 后重启 `dev_all.py --seed` → 重新登录查询：`state.todo="done"`、`fields.title.value` 仍为用户值、`edited=true`，数据落 SQLite `data/dev.db`。
+- 未验证（R2 仍为「待核验」）：场景 C 的 Flutter 工作台端到端未跑（本机未装 Flutter）。
 
 P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
 
