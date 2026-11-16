@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import secrets
 import time
 import uuid
@@ -12,6 +11,7 @@ from typing import Any
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
 from .capture_context import CaptureFence
+from .capture_snapshot import CaptureSnapshotProjector
 from .monitors import BrowserMonitorService, ContractError, digest, string
 from .reading_contract import FAILURES, INTERVALS, ReadingRecipe, semantic_snapshot
 from .reading_schedule import ReadingSchedule
@@ -26,6 +26,7 @@ MESSAGES = {
     "source_deleted": "信息源已删除；资料与历史按删除时的选择保留。",
     "source_missing": "原资料已删除，不会自动重新创建。",
     "recapture_required": "关联资料已彻底删除，请在原网页重新提取并保存。",
+    "result_rejected": "资料已保存；检查结果校验失败，监测已暂停。",
     "delete_first": "请先将来源移入已删除来源，再彻底删除。",
     "shared_document": "资料仍被其他账号或公共来源使用，不能物理删除。",
     "invalid_purge_plan": "删除确认无效，请重新查看删除范围。",
@@ -50,6 +51,7 @@ class ReadingSourceService:
     ) -> None:
         self.db, self.web, self.native, self.timeline = db, web, native, timeline
         self.recipes = ReadingRecipe()
+        self.snapshots = CaptureSnapshotProjector()
         self.fence = CaptureFence(db)
         self.purging = SourcePurgeService(db, self)
         self.notify_purge: Callable[..., Any] | None = None
@@ -175,7 +177,7 @@ class ReadingSourceService:
         recipe = self.validate_capture(body, kind)
         if any(r["status"] == "failed" for r in receipt["results"]):
             return None
-        baseline = {k: copy.deepcopy(v) for k, v in body.items() if k != "reading"}
+        baseline = self.snapshots.project(body)
         identity = digest(self.recipes.identity(recipe))
         row = await self.db.fetchone(
             "SELECT * FROM reading_sources WHERE owner_id = ? AND identity_key = ?", uid, identity
@@ -515,6 +517,7 @@ class ReadingSourceService:
                 row["id"],
                 row["revision"],
             )
+            expired = bool(job and job["expires_at"] <= now)
             capability = (
                 "account_unknown"
                 if recipe["binding"]["account_key"] == "unverified" and "resident" not in recipe
@@ -548,7 +551,14 @@ class ReadingSourceService:
                     "items": items,
                     "device_online": bool(device and device["last_seen_at"] > now - 150),
                     "effective_interval_s": self.schedule.interval(row),
-                    "active_job": job,
+                    "active_job": None if expired else job,
+                    "execution_state": "expired"
+                    if expired
+                    else "running"
+                    if job
+                    else "queued"
+                    if row["pending"]
+                    else "idle",
                 }
             )
         return self.envelope(sources=values)
@@ -779,7 +789,9 @@ class ReadingSourceService:
             return self.envelope(job=jobs[0])
 
     def snapshot(self, row: dict[str, Any], snapshot: Any) -> dict[str, Any]:
-        recipe, base = loads(row["recipe"]), loads(row["last_snapshot"])
+        recipe = loads(row["recipe"])
+        # Existing 0.13 baselines may contain request-control metadata.
+        base = self.snapshots.project(loads(row["last_snapshot"]))
         if not isinstance(snapshot, dict):
             raise ContractError("invalid_snapshot")
         generic = recipe["source"] == "generic"
@@ -848,6 +860,7 @@ class ReadingSourceService:
             "tab_rebind_required",
             "tab_ambiguous",
             "single_account_conflict",
+            "result_rejected",
         }
         resident = "resident" in loads(row["recipe"]) or job["purpose"] == "activate"
         success = result in {"verified", "changed", "unchanged"}
@@ -903,6 +916,51 @@ class ReadingSourceService:
         return ack
 
     async def result(self, uid: int, jid: int, body: Any) -> dict[str, Any]:
+        try:
+            return await self.apply_result(uid, jid, body)
+        except ContractError as error:
+            if error.status == 422:
+                await self.record_rejection(uid, jid, body, error.code)
+            raise
+        except (TypeError, ValueError, KeyError) as error:
+            await self.record_rejection(uid, jid, body, "invalid_request")
+            raise ContractError("invalid_request") from error
+
+    async def record_rejection(self, uid: int, jid: int, body: Any, code: str) -> None:
+        """A bad payload can finish only its own current lease, after content rollback."""
+        if not isinstance(body, dict) or type(body.get("revision")) is not int:
+            return
+        async with self.db.transaction():
+            await self.fence.lock(uid)
+            job = await self.db.fetchone(
+                "SELECT * FROM reading_jobs WHERE owner_id = ? AND id = ?", uid, jid
+            )
+            now = time.time()
+            if (
+                not job
+                or job["finished_at"] is not None
+                or job["expires_at"] <= now
+                or body.get("device_id") != job["device_id"]
+                or body.get("lease") != job["lease"]
+                or body["revision"] != job["revision"]
+            ):
+                return
+            row = await self.db.fetchone(
+                "SELECT * FROM reading_sources WHERE owner_id = ? AND id = ? AND deleted = 0",
+                uid,
+                job["reading_id"],
+            )
+            if not row or row["revision"] != job["revision"] or not await self.has_items(row["id"]):
+                return
+            ack = await self.finish(row, job, "result_rejected", {"error": code}, now)
+            await self.db.execute(
+                "UPDATE reading_jobs SET digest = ?, response = ? WHERE id = ?",
+                digest(body),
+                {**ack, "error": code},
+                jid,
+            )
+
+    async def apply_result(self, uid: int, jid: int, body: Any) -> dict[str, Any]:
         if (
             not isinstance(body, dict)
             or type(body.get("schema_version")) is not int
@@ -929,7 +987,10 @@ class ReadingSourceService:
             if job["response"]:
                 if job["digest"] != signature:
                     raise ContractError("idempotency_conflict", 409)
-                return loads(job["response"])
+                previous = loads(job["response"])
+                if previous.get("result") == "result_rejected":
+                    raise ContractError(previous["error"], 422)
+                return previous
             row = await self.own(uid, job["reading_id"])
             if not await self.has_items(row["id"]):
                 raise ContractError("stale_lease", 409)

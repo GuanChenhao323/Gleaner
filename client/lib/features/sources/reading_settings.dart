@@ -315,7 +315,8 @@ class ReadingChecksBody extends ConsumerWidget {
                         ? '重读验证'
                         : r['purpose'] == 'activate'
                         ? '首次刷新／绑定'
-                        : '来源检查'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()))}',
+                        : '来源检查'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()))}'
+                    '${r['result'] == 'result_rejected' ? '\n拒绝原因：${(r['detail'] as Map?)?['error'] ?? '未知'}；已有资料保留，请重新启动监测。' : ''}',
                   ),
                 ),
               ),

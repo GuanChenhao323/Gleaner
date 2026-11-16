@@ -7,6 +7,7 @@ import '../../core/session.dart';
 import 'source_purge.dart';
 
 String readingResultLabel(String value) => switch (value) {
+  'result_rejected' => '检查结果校验失败 · 资料保留，监测已暂停',
   'documents_purged' => '关联资料已彻底删除 · 请在原网页重新提取',
   'starting' => '自动监测启动中 · 等待首次刷新',
   'user_busy' => '监测页正在编辑 · 延后刷新',
@@ -39,7 +40,7 @@ String readingResultLabel(String value) => switch (value) {
 
 class ReadingSource {
   final int id, revision, interval, effectiveInterval, matchCount;
-  final String mode, result, capability, pending;
+  final String mode, result, capability, pending, executionState;
   final bool paused, verified, deviceOnline;
   final num? lastSuccess, lastAttempt, nextAt;
   final Map<String, dynamic> recipe;
@@ -56,6 +57,7 @@ class ReadingSource {
       result = data['last_result'] as String,
       capability = data['capability'] as String,
       pending = data['pending'] as String,
+      executionState = (data['execution_state'] ?? 'idle') as String,
       paused = data['paused'] as bool,
       verified = data['verified'] as bool,
       deviceOnline = data['device_online'] as bool,
@@ -101,9 +103,11 @@ class ReadingSource {
       : platform == 'generic'
       ? '正文与列表 · 整组匹配'
       : '原条件与约定视图';
-  bool get active => pending.isNotEmpty || activeJob != null;
+  bool get active => executionState != 'expired' && (pending.isNotEmpty || activeJob != null);
   bool get periodic => mode == 'periodic' && !paused && verified;
-  String get status => active
+  String get status => executionState == 'expired'
+      ? '检查已超时 · 等待浏览器重试'
+      : active
       ? deviceOnline
             ? (activeJob == null ? '已排队 · 等待执行' : '浏览器检查中')
             : '等待本机 Chrome'

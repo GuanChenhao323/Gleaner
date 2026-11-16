@@ -18,6 +18,18 @@ globalThis.crypto??=webcrypto;
 const cfg={server:'http://localhost:8080',uid:7,token:'test'};
 const url='https://mail.example.test/home?sid=browser-local-secret#/inbox';
 const memory=()=>{const values={};return {values,get:async k=>({[k]:structuredClone(values[k])}),set:async p=>Object.assign(values,structuredClone(p)),remove:async k=>{delete values[k];}};};
+test('invalid result is terminal, releases raw content and is not retried by login recovery',async()=>{
+  const storage=memory();
+  const api=async()=>{throw Object.assign(Error('invalid_request'),{status:422});};
+  const box=new Outbox(storage,api);
+  await box.add(cfg,'/api/v1/reading-jobs/107/result',{status:'success',snapshot:{text:'private test content'}},{reading_source_id:18});
+  await box.flush(cfg);
+  const [row]=await box.all();
+  assert.equal(row.state,'failed');assert.equal(row.error,'invalid_request');assert.equal(row.body,undefined);
+  await box.retry(cfg);
+  assert.equal((await box.all())[0].state,'failed');
+  assert.ok(!JSON.stringify(storage.values).includes('private test content'));
+});
 function harness() {
   const storage=memory(),session=memory(),tabs=new Map([[7,{id:7,url,status:'complete'}]]);
   let documentId=1,busy=false,view='[]',account={state:'unknown'},login=false,reloads=0,bodyReads=0;

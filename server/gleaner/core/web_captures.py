@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlsplit
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
 from .capture_context import CaptureFence
+from .capture_snapshot import CaptureSnapshotProjector
 from .monitors import ContractError, compact, digest, raw_content, string, web_url
 from .pipeline import Pipeline, owner_prefix
 from .source_identity import account_identity
@@ -221,6 +222,7 @@ class WebCaptureService:
         self.validate_reading: Callable[..., Any] | None = None
         self.guard_reading: Callable[..., Any] | None = None
         self.fence = CaptureFence(db)
+        self.snapshots = CaptureSnapshotProjector()
 
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         async def handle(req: Request, user: dict[str, Any]) -> Response:
@@ -288,9 +290,7 @@ class WebCaptureService:
         self, uid: int, body: Any, *, from_reading_job: bool = False
     ) -> dict[str, Any]:
         value = self.contract.validate(
-            {k: v for k, v in body.items() if k not in {"reading", "capture_generation"}}
-            if isinstance(body, dict)
-            else body
+            self.snapshots.project(body) if isinstance(body, dict) else body
         )
         if isinstance(body, dict) and "reading" in body:
             if not self.validate_reading:

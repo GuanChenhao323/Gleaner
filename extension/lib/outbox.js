@@ -33,7 +33,7 @@ export class Outbox {
         if (e.status === 401) row.state = 'auth_required';
         else if (e.status === 409) row.state = 'rejected';
         else if (row.attempts >= 3 || (e.status >= 400 && e.status < 500)) row.state = 'failed';
-        if (row.path.endsWith('/result') && [404,409].includes(e.status))delete row.body;
+        if (row.path.endsWith('/result') && [404,409,422].includes(e.status))delete row.body;
         row.next = Date.now() + 1000 * 2 ** row.attempts;
       }
       await this.storage.set({ outbox: rows });
@@ -41,7 +41,7 @@ export class Outbox {
   }
   async retry(cfg, requestId) {
     const rows = await this.all();
-    for (const row of rows) if (row.scope === scope(cfg) && (!requestId || row.request_id === requestId) && (['failed', 'auth_required'].includes(row.state) || requestId && row.state === 'pending' && row.error)) Object.assign(row, { state: 'pending', attempts: 0, next: 0 });
+    for (const row of rows) if (row.body && row.scope === scope(cfg) && (!requestId || row.request_id === requestId) && (['failed', 'auth_required'].includes(row.state) || requestId && row.state === 'pending' && row.error)) Object.assign(row, { state: 'pending', attempts: 0, next: 0 });
     await this.storage.set({ outbox: rows });
   }
 }

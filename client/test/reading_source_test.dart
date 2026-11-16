@@ -10,6 +10,7 @@ ReadingSource fixture({
   bool verified = false,
   bool paused = false,
   String mode = 'periodic',
+  String execution = 'idle',
 }) => ReadingSource.fromJson({
   'id': 1,
   'revision': 1,
@@ -19,6 +20,7 @@ ReadingSource fixture({
   'last_result': result,
   'capability': verified ? 'ready' : 'unverified',
   'pending': '',
+  'execution_state': execution,
   'paused': paused,
   'verified': verified,
   'device_online': online,
@@ -35,6 +37,39 @@ ReadingSource fixture({
   'items': <Map<String, dynamic>>[],
 });
 void main() {
+  test('expired execution is never shown as an active browser check', () {
+    final s = fixture(result: 'starting', execution: 'expired');
+    expect(s.active, isFalse);
+    expect(s.status, contains('超时'));
+    expect(s.status, isNot(contains('检查中')));
+  });
+  testWidgets(
+    'saved document and rejected monitoring are independent visible states',
+    (tester) async {
+      final s = fixture(result: 'result_rejected', paused: true);
+      s.items.add({'id': 63});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReadingSourceCard(
+              source: s,
+              onCheck: () {},
+              onSettings: () {},
+              onDetails: () {},
+              onLogs: () {},
+              onPause: () {},
+              onOpen: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('资料已保存'), findsOneWidget);
+      expect(find.textContaining('检查结果校验失败'), findsOneWidget);
+      expect(find.text('浏览器检查中'), findsNothing);
+      expect(find.text('启用自动监测'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   test(
     'save, verification, no-match and login have distinct honest states',
     () {

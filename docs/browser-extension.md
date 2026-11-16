@@ -1,6 +1,10 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-16，扩展 **0.13.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-16，扩展 **0.13.1**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+
+## 保存与检查状态修复（0.13.1）
+
+采集代次只属于保存请求上下文，不进入内容快照。后端兼容已保存的0.13基线，原资料、来源身份与版本不必删除重建。有效租约的结果若被422拒绝，回滚内容写入并记录一次“检查结果校验失败”、暂停规则，工作台日志显示拒绝原因；旧成功内容及时间保留。插件不再重放已终止的无效结果，释放队列原文。资料已保存与定期检查状态分别展示，过期租约显示等待重试。已验证规则遇到页面绑定失效时按原约定显式重新绑定；尚在首次启动的activate任务可沿原流程在唯一匹配原页恢复；不自动清理学校Cookie或切换账号。见[监测契约v1.1](architecture/resident-monitoring-v1.md)。
 
 ## 已删除来源与重新采集（0.13.0）
 

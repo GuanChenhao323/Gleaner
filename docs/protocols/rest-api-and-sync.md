@@ -104,3 +104,8 @@ GET `/api/feed?filter=trash` 使用既有分页语义返回当前用户 hidden=1
 GET `/api/v1/reading-sources/{id}/purge-preview` 返回5分钟有效的签名影响计划；POST `.../{id}/purge` 输入 `{plan,token,confirm:true}`，事务校验所有权、软删除状态、修订与影响，清理本人独有的来源／资料／版本／任务／回执后增加账号采集代次。响应含 `purged:true,item_ids,generation`；同有效计划重试可确认已不存在，不持久保留清理回执或来源墓碑。
 
 GET `/api/v1/capture-context` 提供代次、当前可访问资料ID、来源／监测修订及保留页面引用；不含 Cookie。三种 typed capture 端点新增外层 `capture_generation`，缺省0兼容从未清理的旧账号；旧代次409 `capture_context_changed`。后台租约结果不受无关代次变更影响。完整输入、错误及联动规则见[IC-SOURCE-PURGE-001](../architecture/source-permanent-delete-v1.md)。
+
+
+## 检查结果的内容投影与拒绝终态（0.13.1）
+
+capture_generation、reading是传输控制字段，统一投影后才作为内容基线；0.13已存基线重读时采用相同投影，未知内容字段仍严格拒绝。POST `/api/v1/reading-jobs/{id}/result` 的422保留原错误码；仅对当前owner/device/revision/lease且未完成、未过期的任务，在内容事务回滚后独立记录一次result_rejected及detail.error，终止任务并暂停规则。相同无效结果重试仍422且不重复写检查记录；错误／过期租约不能触发状态写入。GET来源列表新增execution_state:queued|running|expired|idle，过期任务不作为active_job。已有资料、版本和成功时间不变。

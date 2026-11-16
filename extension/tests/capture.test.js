@@ -105,7 +105,7 @@ test('401 waits for backend re-login; transient failures stop after three attemp
 test('targeted retry preserves other accounts, other requests and rejected/confirmed results', async()=>{
   const own='http://localhost|1';
   const rows=[
-    {scope:own,request_id:'retry-me',state:'failed',attempts:3,next:999,error:'backend_timeout'},
+    {scope:own,request_id:'retry-me',body:{request_id:'retry-me'},state:'failed',attempts:3,next:999,error:'backend_timeout'},
     {scope:own,request_id:'other',state:'failed',attempts:3,next:999},
     {scope:'http://localhost|2',request_id:'retry-me',state:'auth_required',attempts:1,next:999},
     {scope:own,request_id:'retry-me',state:'rejected',attempts:1,next:999},

@@ -35,7 +35,7 @@ class ResidentSourceGroup extends StatelessWidget {
             'changed',
             'verified',
             'starting',
-          ].contains(s.result),
+          ].contains(s.result) || s.executionState == 'expired',
         )
         .firstOrNull;
     final status = !online
@@ -95,6 +95,8 @@ class ResidentSourceGroup extends StatelessWidget {
                     color: issue != null ? cs.error : cs.primary,
                   ),
                 ),
+                if (rules.any((s) => s.items.isNotEmpty))
+                  const Text('资料已保存'),
                 Text(
                   '${rules.length} 条规则 · ${rules.every((s) => s.mode == 'manual') ? '仅手动检查' : '每${first.interval ~/ 60}分钟刷新一次'}',
                 ),

@@ -1,9 +1,9 @@
 # Interface Contract — 专用标签页 → 来源周期监测
 
 **接口 ID：** IC-RESIDENT-001
-**版本：** v1.0（已实现；验收范围见本地报告）
+**版本：** v1.1（已实现；结果校验兼容与失败收尾）
 **负责人：** 插件／Core／Flutter
-**最后更新：** 2026-11-16
+**最后更新：** 2026-11-17
 
 ## 1. 接口概述
 Chrome原标签提供会话及DOM，Core唯一调度、存储和版本比较；Flutter呈现实际状态。标签管理、刷新策略、内容读取与调度分开，通过端口组合。
@@ -22,6 +22,10 @@ Chrome原标签提供会话及DOM，Core唯一调度、存储和版本比较；F
 - 前端同page_id聚合规则，检查／配置同页作用于整组；逐规则删除保留其他规则。定期执行仍是至少一次＋幂等，错过周期不逐次补跑。
 
 ## 4. 输出
+
+0.13.1兼容修订：capture_generation属于采集请求防重放上下文，不进入内容基线；旧基线在重读时投影同一内容契约，不改变来源身份或放宽未知内容字段。有效且未过期租约收到422无效结果时，内容事务回滚，另行核验租约并记录result_rejected、detail.error、终止该任务并暂停规则；HTTP仍返回原422。相同拒绝请求重试保持相同错误，不重复写日志；错误租约、跨用户或过期请求不能借此修改状态。已有资料、成功快照和成功时间保留。
+
+来源列表新增可选execution_state:queued|running|expired|idle；过期任务不作为active_job返回。Flutter将资料已保存与检查状态分开，expired显示等待重试，result_rejected显示结果校验失败及重试入口。旧客户端可忽略新增字段，仍受原租约和修订约束。
 保存回执另返回monitoring:{state:starting,mode:resident,interval_s}；“已保存，监测启动中”不当作监测已运行。activate实际成功后记录last_success_at／next_at及verified=true；内容变化更新原版本，首次无变化不造版本。
 
 状态包括starting、changed、unchanged、user_busy、tab_missing、tab_rebind_required、need_login、account_mismatch、view_mismatch、render_timeout等。浏览器／本地服务离线由心跳和连接状态呈现，不显示监测中。配置、墓碑和恢复均保持原修订保护。原JSON字段键序不作为身份依据。
@@ -38,7 +42,7 @@ Chrome原标签提供会话及DOM，Core唯一调度、存储和版本比较；F
 
 首个保存回执不是监测成功；首次activate会真实调用tabs.reload，并用注入守卫的文档代次确认确实发生导航，再执行同一提取器。刷新前后检查账号／URL／视图；零匹配及失败均保留成功快照与成功时间。只处理当前已加载范围，不恢复任意UI交互，不读取其他详情页。
 
-旧接口缺少monitoring或resident时保留旧快照／手动行为；旧来源启用必须有唯一已授权原页。历史含临时凭据URL不猜测迁移，可能需重新采集。关闭原监测页后不偷偷开新页，完整浏览器重启或扩展重载要求用户显式重绑；普通worker回收保留storage.session代次和local绑定。
+旧接口缺少monitoring或resident时保留旧快照／手动行为；旧来源启用必须有唯一已授权原页。历史含临时凭据URL不猜测迁移，可能需重新采集。关闭原监测页后不偷偷开新页，已验证规则遇到完整浏览器重启或扩展重载导致的页面代次失效时，要求用户显式重绑；尚待首次激活的activate任务沿原绑定流程，在唯一匹配原页上继续首次启动；普通worker回收保留storage.session代次和local绑定。
 
 ## 7. 浏览器与测试边界
 

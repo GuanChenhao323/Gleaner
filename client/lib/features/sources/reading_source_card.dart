@@ -33,7 +33,7 @@ class ReadingSourceCard extends StatelessWidget {
           'changed',
           'unchanged',
         ].contains(s.result) ||
-        s.capability == 'account_unknown';
+        s.capability == 'account_unknown' || s.executionState == 'expired';
     Widget meta(IconData icon, String text) => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -153,6 +153,8 @@ class ReadingSourceCard extends StatelessWidget {
                     color: warning ? cs.error : cs.primary,
                   ),
                 ),
+                if (s.items.isNotEmpty)
+                  meta(Icons.task_alt, '资料已保存'),
                 meta(Icons.person_outline, s.identity),
                 meta(Icons.lock_outline, '资料仅自己可见'),
                 meta(
