@@ -38,6 +38,17 @@
 - 验证（Windows 11，Python 3.14）：`pytest -q` 202 passed、3 skipped（另加网关实测用例后 `tests/test_fetch_compliance.py` 11 passed）；ruff 通过；PostgreSQL 16 数据库相关测试 68 passed。本机已有另一套环境占用 1883／8080，`dev_all.py` 没有完整重启验证，Host 校验以测试中的真实网关验证。
 - 未完成：IC-003 的监测模块（A）本身、Cookie 导入的站点白名单；`architecture.md` 与 `CLAUDE.md` 的库使用冲突待确认（Q09）。
 
+### 2026-11-16 · R2 信息管理验收核对（邓燊）
+
+- 范围：R2 管理、身份与来源追溯（F04–F06、US04–US06）中「事项状态、字段编辑、事项级去重」的后端行为核对。本次无代码改动，仅按新基线验证现有实现。
+- 环境：macOS（darwin 22.6.0），Python 3.12（miniconda base），SQLite；`python devtools/dev_all.py --seed` 本地启动，网关 8080。
+- 验证结果：
+  - 全量测试 `pytest -q` 208 passed、3 skipped（约 116 秒）；`ruff check .`、`ruff format --check .` 通过。
+  - 状态流转（US05）：`PUT /api/items/7/state {"done":true}` → `state.todo="done"`、`status="done"`。
+  - 字段编辑（US04）：`PATCH /api/items/7/fields {"set":{"title":…}}` → `fields.title.value` 为用户值、`fields.title.source` 为来源原值、`edited=true`、`conflict=false`。
+  - 事项级去重（US06）：`POST /api/captures` 同一 `page.url`＋`locator` 连发两次 → 第一次 `status="new"`（item 17），第二次 `status="unchanged"`（仍 item 17，不重复）；换 `locator` → `status="new"`（item 18），同 URL 多条可区分。
+- 未验证（R2 仍为「待核验」）：冲突场景（用户改字段后来源再变 → `resolve` 保留我的／采用来源）未手工触发；改完状态/字段后未真正重启后端验证持久化；场景 C 的 Flutter 工作台端到端未跑（本机未装 Flutter）。
+
 P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
 
 ## 课程技术交付状态
