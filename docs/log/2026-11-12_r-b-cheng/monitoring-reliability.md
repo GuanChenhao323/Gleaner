@@ -1,0 +1,49 @@
+# DNS 与 YouTube 会话排查
+
+## 最终结果（2026-11-13）
+
+**Moodle 两小时通过；YouTube 登录失效尚未解决；Bilibili 登录态仍未验证。** 结果、原始脱敏数据与独立重算见[证据索引](evidence/README.md)、[Terra 监管报告](terra-supervision.md)、[主代理核验](evidence/verification.json)。
+
+Moodle 单一 run_id 完成 13 轮，首末真实请求跨度为单调时钟 **7,242.744530 秒**、UTC **7,242.752715 秒**，相邻请求间隔 **602.668932–607.694847 秒**。13 次 DNS 解析成功，无 DNS 回退或失败；3 次 robots 回退均为既有的单一 MUST 授权目标特例。没有拼接运行。
+
+最终保留 DNS 完整尝试预算/错误分类、Cookie 历史日期删除修复、实际请求计时与源码证据、脱敏诊断和旧报告器兼容性修复。`eaa8c8d` 的 3P-only 默认限制未解决实测失效，已由 `d7a4ad8` 撤回。Moodle 验证构建为 `eaa8c8d`；撤回仅涉及 YouTube Cookie 配置及相应测试，Moodle 分支 AST 与核心传输、会话、调度代码未变更。收尾完整检查为 **377 passed、3 skipped，112.35 秒**；Ruff 与本轮 11 个保留的 Python 修改文件格式检查通过。
+
+后续候选 `71091fa` / `bddfb2b` 未并入 `codex/monitoring-v1-validation`。其真实导入被 Mac 锁屏阻断。候选检出保留在 `/Users/george/.codex/worktrees/youtube-session-state/Gleaner`：应用归档工具以 **“The task's primary checkout cannot be removed.”** 拒绝归档，切回原目录的工具又提示原目录不是 managed worktree，未强制删除或修改应用内部状态。继续验证应使用候选完整检出（基于 `eaa8c8d`），并以原工作目录中的本日志为最新结果依据。
+
+所有页面验证进程均已退出并清空进程内会话。最后一次成功导入后已覆盖临时剪贴板；之后的锁屏尝试没有导入凭证。Chrome 未登出，原 YouTube 用户标签页已在 long-02 前恢复 active；锁屏后没有绕过门禁执行额外浏览器清理。
+
+## 修改前假设与证据
+
+本轮从 `c2bd2e3` 继续，保留既有实验文件。遵守根目录 `AGENTS.md`，只在本日志目录记录结果，不修改架构 README 或既有实施文档。时间以 America/New_York 表示；原始机器证据使用 UTC 与单调时钟。
+
+1. **DNS 网络路径间歇不可用**：旧运行记录两台 Cloudflare 引导地址超时。2026-11-12 本轮对 `1.1.1.1`、`1.0.0.1` 和官方客户端文档示例的 `104.16.111.25`、`104.16.112.25` 各两次无凭证 DoH 探测全部成功（0.678–2.547 秒），不能据此归因于固定地址永久不可用，也不据此新增地址。系统解析仍为 Fake-IP。
+2. **超时预算与观测有缺口**：当前 DoH 外层 9 秒，三次尝试每次连接 3 秒、读取 5 秒；TCP 和 TLS 也可能各自占用连接超时。最后一次可能被外层取消，已有报告缺少终止阶段。先用真实事件循环的合成慢连接复现，再调整整个尝试的预算、记录脱敏失败阶段；保留总预算、同供应商、TLS 和 Retry-After。
+3. **YouTube 浏览器与独立会话发生轮换竞争**：旧运行首两轮 `LOGGED_IN=true`，第三轮 false 且 Cookie 数量发生变化。目前 Chrome 留有旧 YouTube 标签页。[yt-dlp 维护文档](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)记载打开标签页会轮换账号 Cookie。它支持这一假设，尚不足以证明本次根因。先增加内存中 Cookie 变更的脱敏诊断，不记录 Cookie 值、密码或 HTML。
+4. **Cookie 作用域/覆盖缺陷或登录证据误判**：已有域名规范化和轮换测试，未发现前导点导致重复 Cookie 的缺陷。继续验证真实响应的变更种类和登录标记；不把 HTTP 200 或 Cookie 存在改成认证通过。
+
+DNS 参考：[Cloudflare 加密解析端点](https://developers.cloudflare.com/1.1.1.1/infrastructure/network-operators/)、[官方客户端示例](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/dns-over-https-client/)。未关闭 TLS、robots，也未访问 Bilibili 被禁止的会话接口或 UP 投稿列表。
+
+## 进展
+
+- 已确认 Chrome 的 YouTube 访问权限正常，页面显示账号菜单。
+- 先诊断再修改；外部网络故障和站点撤销授权不能作永久不再发生的保证。
+- 修复完成后，以固定源码和独立 run_id 启动新长测，由 Terra（max、无历史上下文）监管脱敏证据；验收仍为真实请求首末至少 7200 秒、相邻轮次至少 600 秒。失败不拼接。
+- `c3502e7`：增加只记录 Cookie 名称与变更类型的调试诊断，相关测试 18 项通过。原生扩展剪贴板与浏览器工具剪贴板不互通；通过 Chrome 原生右键“粘贴”导入隐藏字段解决，临时 UI 试验已撤销。
+- DNS 修改：每个完整尝试（TCP、TLS、响应头和响应体）最多 3 秒，总预算仍为 9 秒；仅既有两台同供应商地址，最多三次。后续新查询优先上次成功地址，TTL 到期仍重新解析。超时记录实际阶段，整体截止也必有终止事件。证书验证失败单独记为不可重试的 `dns_tls`，不切换地址掩盖证书错误。新增真实事件循环慢响应、耗尽、截止和证书失败测试；监测 DNS/传输/配置/页面定向检查共 **94 passed**，Ruff 通过。
+- YouTube 诊断运行 04 首轮：HTTP 200、`LOGGED_IN=true`、1,350,602 字节、模拟接收成功。服务器更新了两项已允许的 SIDCC Cookie，原 Cookie 数量保持 11。此时尚不能确定后续失效原因。
+- 长测验收修正：传输层在发送 HTTP 请求头时同步记录单调时钟与 UTC；调试入口关联真实内容请求序号，按请求开始时间检查跨度和轮次间隔。延迟交付不能补足两小时，缺失计时、过短/过长间隔、失败轮次和运行中源码变化均不能通过。每次运行记录 Git 提交及实际 Python 源码 SHA-256。定向检查 **65 passed**，Ruff 与格式检查通过。
+- YouTube 诊断运行 04 在第二轮（距首个内容请求约 602 秒）明确 `LOGGED_IN=false`，并收到多项账号 Cookie 重置，未交付匿名页。此运行使用启动时的旧 DNS 与诊断源码，不作为修复后长测。Moodle 单轮回归复用目标摘要与上轮完全相同的作业页，HTTP 200、`logout_and_main`、171,442 字节，实际请求时间和回执关联成功。
+- **已复现的 Cookie 缺陷**：`Expires=Thu, 01-Jan-1970 00:00:01 GMT` 无法被严格 HTTP-date 解析器识别，撤销 Cookie 被保留为空值的会话 Cookie。新增测试在改动前出现两项失败。现按 [RFC 6265 §5.1.1](https://www.rfc-editor.org/rfc/rfc6265.html#section-5.1.1) 对 Cookie 日期单独分词，兼容历史日期并校验真实 UTC 日期；保留 Max-Age 优先级和作用域限制。相关检查 **72 passed**，Ruff 与格式检查通过。真实重置响应的原始头未保留，因此不能将这个已证实的本地缺陷直接宣称为远端登录标记失效的根因。
+- 完整测试第一次为 375 passed、3 skipped、1 failed。失败已定位：旧 Moodle 调试报告器的严格白名单拒绝新传输诊断字段。已补齐请求计时及 DNS 的脱敏字段，保留对凭证字段的拒绝；旧路径集成与报告检查 **10 passed**。将重新运行完整套件，不将失败忽略为偶发。
+- 修复后长测已启动：`youtube-long-01.jsonl`（run_id `21050e58-6595-47c2-afdf-49fa9ac60a40`）与 `moodle-long-01.jsonl`（run_id `d918be6f-922a-42a7-bfe9-acda37f3226d`）。源码提交 `7fa0fcd`，另有源码摘要；首轮均已认证并收到模拟接收回执后，交给 Terra-max（fork_turns=none）只读监管。YouTube 运行条件为原有唯一 YouTube 用户标签页临时 frozen，导出后验证标签停留在本机 UI。该条件用于隔离浏览器轮换竞争，不能等同于任意活跃浏览器会话下的保证。
+- 完整复验：**377 passed、3 skipped，110.46 秒**。`ruff check server devtools/monitoring` 与本轮 11 个修改 Python 文件的格式检查通过。旧路径报告兼容性修复为 `4941e97`，仅影响旧调试报告器，不改变已运行的参数化入口源码摘要。
+- Bilibili 本轮 `bilibili-check-01.jsonl`：视频详情 HTTP 200、276,464 字节，仍无 `loginInfo` / `isLogin` / 登出链接等正面证据，`auth_unverified`，未交付。正常 Chrome 与无凭证 HTTPX 再核查会话接口主机 robots，仍为禁止路径；HTTPX 证据见 `bilibili-api-robots.json`，HTTP 200、30 字节、`session_check_allowed=false`、`api_endpoint_requested=false`。没有关闭 robots/TLS，没有测试或声称支持 UP 投稿列表。
+- YouTube long-01 第三轮 HTTP 200 但明确 `LOGGED_IN=false`，连续验收失败。成功请求跨度 603.874 秒，前两轮交付；失败时六项第一方 Cookie 被正确移除（11 → 5），说明历史日期删除缺陷已在真实重置响应中得到修正。冻结用户标签页仍不能避免问题，否定了“仅页面脚本轮换竞争即可解释”的假设。
+- 新假设来自同一失败证据：服务端撤销第一方系列时仍保留 3P 系列。`youtube-3p-probe.jsonl` 只在初始输入选择四项 `__Secure-3P*`，沿用既有核心与响应策略，单轮 HTTP 200、`LOGGED_IN=true`、1,351,305 字节、模拟接收成功；该报告 `duration=0`，不计为两小时通过。临时探针入口的摘要写在 experiment 记录内，凭证仅驻内存。
+- 基于以上探针，将 YouTube profile 的导入与响应 Cookie 白名单统一收窄为 `__Secure-3PSID`、`__Secure-3PAPISID`、`__Secure-3PSIDTS`、`__Secure-3PSIDCC`。不混入 SID/SAPISID/1P/LOGIN_INFO；这限定了该 profile 可接受的已授权浏览器会话类型，HTML 正面认证检查继续逐轮执行。相关 32 项测试通过，覆盖第一方 Cookie 不能经导入或 Set-Cookie 重新进入请求。
+- Moodle long-01 为固定新源码重新验收而由主代理主动结束：4 轮成功、0 轮失败、请求跨度 1,814.860 秒，`passed=false`、`source_unchanged=true`。不得与下一运行拼接。原有 YouTube 用户标签页已恢复 active；下一轮 long-02 使用正常浏览器后台状态，无人工刷新目标页、无会话追加导入。
+- `eaa8c8d` 新配置完整复验：**378 passed、3 skipped，112.88 秒**。新运行 `youtube-long-02.jsonl`（`9ed061fb-5e69-4a83-81e5-de60d0a70214`）与 `moodle-long-02.jsonl`（`178c6a91-1b69-4299-b745-eb44edbc662e`）均在满足上轮 600 秒间隔后导入；首轮分别获取 1,350,808 与 171,442 字节、认证及模拟接收成功。两站运行源码 SHA-256 均为 `6c7609ef5489045a8276fd60474505a756f79a04358dfc7fff930500af74845a`，由原 Terra 子代理继续独立监管新 run_id。
+- YouTube long-02 第三轮再次明确未登录，2 次成功 / 1 次失败，成功请求跨度 601.901 秒。注册 Cookie 数量和修订均未改变，说明“仅切换 3P 系列即可解决”也未获验证。Moodle long-02 继续运行。
+- 为避免再次中断 Moodle，后续候选使用由应用创建的隔离工作树 `youtube-session-state`，基于 `eaa8c8d`。候选 `71091fa` 将 Cookie 导入白名单与响应维护白名单分开：初始只导入四项 3P 凭证，随后保留本 HTTP 客户端收到的 `LOGIN_INFO`；不导入浏览器的 `LOGIN_INFO`。其跟踪文件完整套件 **364 passed、3 skipped，112.00 秒**（此隔离检出不包含主工作区未跟踪的历史实验测试），相关定向检查 52 项通过。
+- 同时排查网络路径差异：`network-routing-metadata.json` 确认系统 HTTP/HTTPS 代理已启用且地址为回环，当前 HTTPX 不读取该配置。系统设置未修改。这仅支持“出口可能不同”的待验证假设。候选调试入口只在内存中比较页面给出的网络标识，输出观察到/是否变化/是否匹配浏览器的布尔值；不输出地址或地址摘要。`bddfb2b` 对此补充了可选的隐藏参考输入，24 项相关检查通过。
+- 新候选 `youtube-long-03.jsonl` 在尚未导入凭证时结束用于更新诊断入口；没有内容请求。随后 `youtube-session-network-check.jsonl` 的导入被正常浏览器工具阻断，准确原因是 **“The Mac is locked and automatic unlock could not unlock it.”** 用户要求不再询问，因此没有请求解锁，没有改用浏览器凭证文件、其他浏览器或其他通道绕过门禁。候选尚无真实验证结果，不能称为修复成功；Moodle 原长测继续等待完成。

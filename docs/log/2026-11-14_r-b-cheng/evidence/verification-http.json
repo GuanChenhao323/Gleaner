@@ -1,0 +1,70 @@
+{
+  "audited_runs": [
+    {
+      "file": "http-01.jsonl",
+      "run_id": "15c98850-9626-494a-9aec-24dbfab03874",
+      "code_commit": "5b63c038b3ee96c4f7c2dea4a8e58373886a08c9",
+      "source_sha256": "7325577532c260e1b19170fd20d2e3a01da74a65e7accb58a15f2dcbe96a6730",
+      "source_matches_git": true,
+      "redacted_file_sha256": "26c13eb7364578ad63cbbdf846cd72bceb957420cbe525e23e4b5d736d27314f",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "span_mono_s": 0,
+      "span_utc_s": 0,
+      "min_gap_s": null,
+      "max_gap_s": null,
+      "first_request_local": null,
+      "last_request_local": null,
+      "html_bytes": [],
+      "errors": [
+        "blocked"
+      ],
+      "dns_resolved": 0,
+      "dns_fallback": 0,
+      "dns_failure": 0,
+      "problems": [
+        "failed_or_empty_run",
+        "summary_not_passed",
+        "under_two_hours"
+      ],
+      "two_hours_passed_independently": false
+    },
+    {
+      "file": "http-02.jsonl",
+      "run_id": "2cac3f5e-e6dc-4033-8ba3-f9529a0501b7",
+      "code_commit": "98963f85a582f6bc51b26be872db99e67cb6b298",
+      "source_sha256": "ee58d472481417c340f7c08ceac8d54eb39c3ab446ea2357db272ead4c716e58",
+      "source_matches_git": true,
+      "redacted_file_sha256": "151a738dee058819bb2ed2b701fae4af5e518c4426d6d7a59009cd12a76c4a5b",
+      "successful_rounds": 13,
+      "failed_rounds": 0,
+      "span_mono_s": 7234.717894291971,
+      "span_utc_s": 7234.7371571063995,
+      "min_gap_s": 602.284218082903,
+      "max_gap_s": 605.0231739999726,
+      "first_request_local": "2026-11-14T09:47:22.455999-05:00",
+      "last_request_local": "2026-11-14T11:47:57.193156-05:00",
+      "html_bytes": [
+        1351017,
+        1352463,
+        1351704,
+        1351520,
+        1351823,
+        1351675,
+        1353166,
+        1352128,
+        1353076,
+        1353542,
+        1351768,
+        1351821,
+        1352188
+      ],
+      "errors": [],
+      "dns_resolved": 13,
+      "dns_fallback": 0,
+      "dns_failure": 0,
+      "problems": [],
+      "two_hours_passed_independently": true
+    }
+  ]
+}

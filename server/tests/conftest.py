@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 # 测试替身（fake_moodle、fake_mail）位于 devtools/
 sys.path.insert(0, str(ROOT / "devtools"))
+# The monitoring harness is also imported as a package when CI runs from server/.
+sys.path.insert(0, str(ROOT))
 
 import pytest  # noqa: E402
 

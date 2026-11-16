@@ -1,0 +1,14 @@
+{
+  "credentials_sent": false,
+  "system_answer_classes": ["public_ipv4", "private_ipv6"],
+  "system_answers_accepted": false,
+  "explicit_resolver": "existing_CloudflareDNS",
+  "all_doh_answers_public": true,
+  "robots_status": 200,
+  "robots_bytes": 792,
+  "target_allowed": true,
+  "youtubei_allowed": false,
+  "dns_elapsed_s": 0.7544060000218451,
+  "observed_utc": 1794667504.089825,
+  "system_settings_modified": false
+}

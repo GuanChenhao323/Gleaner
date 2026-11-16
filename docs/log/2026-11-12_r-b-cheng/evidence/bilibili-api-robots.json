@@ -1,0 +1,31 @@
+{
+  "site": "bilibili",
+  "scope": "api.bilibili.com session-check robots only",
+  "utc": 1794540105.7223868,
+  "credentials_sent": false,
+  "api_endpoint_requested": false,
+  "http_status": 200,
+  "bytes": 30,
+  "content_type": "text/plain; charset=utf-8",
+  "session_check_allowed": false,
+  "events": [
+    {
+      "kind": "dns_resolved",
+      "endpoint": "primary",
+      "attempt": 1,
+      "elapsed_s": 0.5846253749914467,
+      "utc": 1794540106.319333
+    },
+    {
+      "kind": "robots",
+      "status": 200,
+      "wire_bytes": 30,
+      "decoded_bytes": 30,
+      "started_mono": 702099.689677666,
+      "started_utc": 1794540106.6436942,
+      "request_start_observed": true,
+      "finished_mono": 702100.168925083,
+      "utc": 1794540107.122942
+    }
+  ]
+}

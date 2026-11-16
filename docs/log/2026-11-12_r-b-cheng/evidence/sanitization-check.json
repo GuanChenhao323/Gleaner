@@ -1,0 +1,10 @@
+{
+  "json_files_scanned": 17,
+  "records_scanned": 187,
+  "findings": [],
+  "retained_code_test_result": "377 passed, 3 skipped",
+  "moodle_validation_commit": "eaa8c8d40d2b622b89ee2d4233a7fd60bc346ffd",
+  "ineffective_profile_reverted_by": "d7a4ad8",
+  "cookie_values_or_authenticated_html_written": false,
+  "youtube_candidate_promoted": false
+}

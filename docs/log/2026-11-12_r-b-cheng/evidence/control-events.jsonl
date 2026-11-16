@@ -1,0 +1,3 @@
+{"record": "control", "run_id": "d918be6f-922a-42a7-bfe9-acda37f3226d", "action": "main_stopped_for_profile_revision", "final_summary_utc": 1794541686.639832}
+{"record": "browser_condition", "action": "existing_youtube_tab_restored_active", "acknowledged": true, "applies_to": "youtube-long-02", "recorded_utc": 1794541827.5324988}
+{"record": "browser_block", "recorded_utc": 1794544990.674752, "operation": "cookie_editor_session_import", "reason": "The Mac is locked and automatic unlock could not unlock it.", "candidate_report": "youtube-session-network-check.jsonl", "credentials_imported": false, "bypass_attempted": false}

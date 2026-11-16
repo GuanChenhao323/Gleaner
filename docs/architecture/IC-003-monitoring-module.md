@@ -1,250 +1,312 @@
-# IC-003｜本地监测模块接口契约
+# IC-003｜监测模块输入与输出契约
 
-版本：0.1.0 · 2026-11-07 · 状态：提议，尚未实现。  
-适用：Chrome 会话桥接、后端监测执行器、现有 Capture / Extractor / Item Service。  
-机器可读 HTTP 定义：[`../protocols/monitoring-v1.openapi.yaml`](../protocols/monitoring-v1.openapi.yaml)。本文定义跨字段约束、内部交接与迁移；字段类型以 OpenAPI 为准，任何冲突均阻止实现验收。
+版本：0.2.0 · 2026-11-15。
 
-## 1. 边界与前提
+适用范围：参数化页面监测单元与调用方、会话桥接方、HTML 接收方之间的进程内协作。
 
-- V1 使用 Chrome 正常登录后的授权 Moodle 会话；Python 后端执行只读 HTTPS GET。没有 CAS 自动登录、密码保存、中央认证 Cookie 导出或云端转存。
-- V1 只重新检查已保存的事项。新增条目发现、YouTube / RSS / OAuth 接入为扩展方向，不因接口存在而默认启用。`watch_mode` 当前只接受 `selected_items`。
-- 认证、传输和站点解析独立。`browser_cookie` 是当前认证实现；公开网页可用 `none`。其他模式需新增契约版本及测试。
-- 尊重 `CLAUDE.md` 的自研网络约束：生产流量使用 `server/gleaner/net/http/`；不引入 requests/httpx/FastAPI。复用必须先通过第 10 节安全验收。
-- 用户提供的 2026-11-07 实测材料支持 MUST Moodle `sessiontimeout=7200`，指定课程 GET 更新服务端最后访问时间。材料中的匿名 MoodleSession 无 Expires/Max-Age；不能把 7200 写成 Cookie TTL，也不能推定所有路径、304 或无限持续续期都成立。跨 2 小时端到端验证仍为发布门槛。
-- 本契约补充 IC-001 / IC-002。现有接口继续工作；新监测执行方式通过特性开关逐项迁移。本次文档提交不宣称端点已经上线，不更改产品需求基线。
+实施状态：页面获取、会话管理、HTML 交付和部分控制方法已实现；统一模块入口及正式系统联调待实现。
 
-## 2. 模块与交付责任
+本文以“调用方交给模块什么、模块返回什么、失败后各方做什么”为主线。**已实现**指当前可调用的 Python 组件；**待实现**指尚不能依赖的接口或保证。HTTP 客户端、浏览器驱动与 DNS 实现属于模块内部选择。
 
-| 参与者 | 输入与输出 | 明确不负责 |
+现有 [monitoring-v1.openapi.yaml](../protocols/monitoring-v1.openapi.yaml) 仍是 0.1.0 事项监测 HTTP 提案，未定义本文的页面任务接口，不能用于生成页面调用客户端。本文不宣称生产 HTTP 端点已经上线。
+
+## 1. 模块职责与交付边界
+
+监测模块接收精确目标、检查间隔和已授权会话，执行受控页面获取与认证检查，向接收方交付完整主文档 HTML，并报告获取、交付和失败状态。
+
+| 参与方 | 提供或负责的内容 |
+|---|---|
+| 任务调用方 | 选择目标 URL、间隔和站点配置，引用会话，关联自身业务；自行保存任务与业务对象的映射 |
+| 会话桥接方 | 经用户授权取得指定范围的 Cookie，提供在线信号，发起重新授权或撤销 |
+| 监测模块 | 验证参数和绑定、维护会话、决定检查时机、获取 HTML、识别认证状态、重试与交付 |
+| HTML 接收方 | 接收快照、按快照 ID 去重并确认接收；后续提取、变化判断和业务入库由下游负责 |
+| 宿主集成层 | 注入可信调用身份、装配组件和接收端、驱动生命周期；当前由本地集成代码承担 |
+
+主契约不依赖 `item_id`、locator、事项类型、Deadline、Inbox 或业务版本。模块不判断页面是否产生了新的事项，也不以业务入库完成作为 HTML 交付成功条件。原有事项观察路径保留，兼容边界见第 6 节。
+
+当前交付范围为**授权会话下的页面主文档 HTML**。它不包含分页结果、附件、视频、字幕或完整资源包，也不保证包含 JavaScript 执行后新增的 DOM。当前页面路径要求认证上下文，匿名页面、RSS、OAuth 尚无对应输入契约。
+
+## 2. 输入契约
+
+### 2.1 页面任务参数
+
+调用已实现的 `PageMonitor.register(params, *, owner_id, bridge_id)`。四项业务参数全部必填，不提供隐式默认值；缺字段、多字段和类型不符均拒绝。
+
+| 字段 | 类型 | 含义与约束 |
 |---|---|---|
-| B：Chrome 插件 | 用户同意后读取指定站点 Cookie；发送本地在线心跳；继续按 IC-001 采集 | 长时间任务调度、业务版本判断、导出密码或无关 Cookie |
-| A：监测模块（本契约） | 来源登记、会话管理、调度、HTTP 获取、认证识别、故障分类；输出观察批次 | 自动修改用户字段、创建 deadline 提醒、全站爬取 |
-| C：本地后端 | 本地鉴权、HTTP 路由、存储事务；保存事项后登记监测目标；连接既有提取流水线 | 把任意 URL 当作已获授权来源 |
-| D：Extractor / Item Service | 字段抽取、事项身份匹配、业务差异、版本、用户覆盖和幂等应用 | 直接拿 Cookie 或自行重试网络 |
-| E：Flutter 工作台 | 沿用 IC-002，显示最后成功检查时间、错误与暂停原因 | 读取网站 Cookie、把检查失败显示成无变化 |
+| `target_url` | `str` | 一个精确的 HTTPS 页面 URL；须符合所选 profile 的域名、路径和查询参数规则。当前拒绝账号密码、片段、控制字符和显式端口 |
+| `interval_s` | `int / float` | 获取间隔，单位秒；必须有限，布尔值不接受；不得低于 profile 的最低间隔，当前真实站点均为 600 秒。当前页面实现未设置统一上限 |
+| `auth_context_id` | `str` | 已由本模块创建的会话引用；必须存在，且与当前调用身份、bridge 和装配策略一致；不接受 `null` |
+| `site_profile` | `str` | 已登记配置的名称，见下表；调用方不能传入任意解析代码、Cookie 规则或请求头 |
 
-这里是逻辑边界；A/C/D 可运行在同一个本地进程中，不要求新增网络服务。
+示例：
 
-## 3. 通信与安全约束
-
-### 3.1 本地控制接口
-
-前缀：`http://127.0.0.1:8080/api/monitor/v1`。仅监听回环；服务器地址只允许预先配置的本机地址，不能把凭证接口代理到远程主机。
-
-全部接口复用已有 `Authorization: Bearer <local-backend-token>`；该令牌来自已有本地后端登录流程，与 Moodle Cookie 完全分离。所有资源从令牌推导 owner，禁止接受客户端自报 owner。
-
-Cookie 写入和撤销仅允许已登记扩展的精确 `Origin: chrome-extension://<id>`，且上下文绑定该扩展安装实例和 Cookie Store。浏览器 Origin 缺失、null 或不在白名单时拒绝这些敏感操作。Origin 是额外校验，不能替代令牌鉴权。Flutter 原生调用其他控制端点可无 Origin，但必须有令牌。
-
-必须校验 Host、来源 Origin、Content-Type、资源所有权、扩展实例绑定和请求体大小；CORS 不使用 `*`。OPTIONS 只响应允许的来源与头，不能泄露数据。Cookie 导入请求体最多 256 KiB，其他 JSON 请求最多 2 MiB。所有响应 `Cache-Control: no-store`。错误日志不包含 Authorization、Cookie、Set-Cookie、密码、CAS ticket 或完整 HTML。
-
-扩展使用 service worker 发起本地请求；content script 不能读取凭证或调用任意 URL 代理。新增 `cookies` 和站点 host 权限需在明确同意后申请；原 IC-001 “不读 Cookie”约束只对这一经授权的桥接操作作受控扩展，普通采集路径保持不读 Cookie。不得申请整个学校域或 Google 全域 Cookie 权限。
-
-### 3.2 幂等、时间和并发
-
-时间统一为 UTC Unix 秒，null 表示未知；本地计时与租约有效性使用 monotonic clock，持久化截止时间使用 UTC，恢复时重新计算。
-
-创建资源、导入 Cookie、手动检查必须带 `Idempotency-Key`（UUID）。作用域为 owner + method + path + key；同一键不同请求返回 `409 idempotency_conflict`。普通控制操作保留去重记录 24 小时；凭证导入的去重记录仅驻内存，绑定 `backend_epoch`，只保存 HMAC 摘要及脱敏响应，不保存请求体。
-
-`expected_revision` 用于乐观并发控制，冲突返回 `409 revision_conflict`，不覆盖新状态。Cookie 撤销使用查询参数 `expected_revision`，避免 DELETE 请求体互通问题。撤销后执行中的旧请求不得恢复凭证或提交旧观察。
-
-所有创建、回报和应用都以“至少一次 + 幂等”处理；不得宣称 exactly-once 网络投递。
-
-## 4. HTTP 接口清单与语义
-
-| 方法 / 路径（相对前缀） | 调用者 | 成功 | 行为 |
-|---|---|---|---|
-| GET `/capabilities` | B/C/E | 200 | 返回协议版本、后端启动 epoch、已安装适配器与真实能力 |
-| PUT `/bridges/{bridge_id}/presence` | B | 200 | 注册/续期在线租约；不触发网站保活 |
-| POST `/auth-contexts` | B | 201 | 创建指定 site/profile/store 的空认证上下文 |
-| GET `/auth-contexts/{auth_id}` | B/E | 200 | 只返回状态与版本，永不返回 Cookie 值 |
-| PUT `/auth-contexts/{auth_id}/cookies` | B | 202 | 原子接收候选 Cookie 快照；等待调度器验证，不等于登录有效 |
-| DELETE `/auth-contexts/{auth_id}/cookies` | B | 204 | 本地撤销凭证并阻止后续执行，不退出用户 Chrome 的学校账号 |
-| POST `/sources` | C/B | 201/200 | 将已保存 item_ids 登记为监测目标；重复来源追加目标，不产生副本 |
-| GET `/sources` | B/E | 200 | 分页列出当前 owner 的监测来源 |
-| GET `/sources/{source_id}` | B/E | 200 | 返回配置、运行状态与最近检查摘要 |
-| PATCH `/sources/{source_id}` | B/E | 200 | 修改 enabled 或 interval_s；源 URL、身份和认证绑定不能原地替换 |
-| POST `/sources/{source_id}/checks` | B/E | 202 | 合并重复手动检查，排队到下一个允许窗口；不绕过限流 |
-| GET `/checks/{check_id}` | B/E | 200 | 查询执行/应用结果；网站认证失败在正文表达，不冒充本地 API 401 |
-
-### 4.1 Capabilities 与站点白名单
-
-适配器注册表由后端部署配置维护，不能由网页或 API 调用者随意扩展。每项提供 `site_key`、`adapter_id`、`origin`、`auth_mode`、`allowed_cookie_names`、`watch_modes`、`min_interval_s`、`monitoring_supported`。初期只有经验证的 MUST 页面和单独登记的校园网页。
-
-`must_moodle` 建议配置：origin 为 `https://moodle.must.edu.mo`，auth_mode 为 `browser_cookie`，Cookie 名称以实际已验证结果为准，当前预期 `MoodleSession`。路径严格引用接入登记，只读 GET；禁止任意重定向进入 CAS。必须经过页面适配测试才能把 `monitoring_supported` 设为 true。
-
-### 4.2 在线租约
-
-扩展为安装实例保存随机 UUID `bridge_id`，并持久化递增 `sequence`，每 60 秒用 `chrome.alarms` 发送心跳。后端按收到请求的时刻发放 180 秒租约；重复 sequence 返回原租约而不延长，倒退返回 409。`monitoring_enabled=false` 立即停发新任务。
-
-service worker 重启时重建必要 alarm；设备休眠和 alarm 延迟属于正常情况。租约到期暂停新远端请求，保留配置和已有结果；恢复只合并成一次最新检查。180 秒是容错门限，不代表准确探测 Chrome 关闭时刻。
-
-### 4.3 认证上下文与 Cookie 导入
-
-认证上下文身份为 owner + bridge_id + site_key + cookie_store_id + 逻辑账号。V1 每个绑定只支持一个学校账号；隐身和分区 Cookie 不在支持范围。切换账号必须创建新上下文和来源，不自动把旧事项移到新账号。
-
-Cookie 快照完整保留 name/value/domain/path/host_only/secure/http_only/same_site/session/expires_at；session=true 时 expires_at 必须为 null。禁止使用 name→value 字典丢掉 Domain/Path 信息。重复 (domain,path,name) 拒绝。MUST 首版只接受精确主机、host_only=true、secure=true、已批准 Cookie 名称；不接收 login.must.edu.mo 的 SESSION 或其他中央认证凭证。
-
-导入必须带当前 `backend_epoch`、`expected_revision`、`reason`。初次/重启/失效导入进入 unverified；有效会话只允许用户明确发起 `manual_reauthorize` 才能替换，后台 cookie change 事件不能覆盖它。替换时使旧执行代际失效，保留旧业务数据，候选会话验证通过前暂停该上下文。响应 202 只表示快照已接收。
-
-`confirmed_same_account=true` 必须源自用户明确确认；初次导入可为 false。重新绑定时，适配器若能提取稳定用户标识，使用本地带密钥摘要比对；不一致返回 account_mismatch，要求新建上下文。无法可靠提取身份时，不得自动替换，必须用户确认同一账号。
-
-后端只在内存中保存 Cookie Jar。进程重启生成新 backend_epoch，已有上下文改为 needs_credentials，由插件在仍有授权的前提下重新提供凭证。磁盘只存非秘密元数据。后续凭证持久化需独立安全设计。
-
-每个认证上下文串行处理网络请求与 Cookie 更新。revision 用于凭证写入 CAS；generation 仅在导入替换、撤销或后端重启时推进，用于执行结果隔离。合法 Set-Cookie 更新 Jar 并增加 revision，但不改变 generation；同一账号的正常轮换不会丢弃已获取的有效观察。写回须校验请求持有的 generation。后台与 Chrome 共享服务端会话关系，无法保证彼此完全独立；浏览器注销、会话轮换或服务端失效时必须暂停并恢复认证。
-
-Chrome cookies.onChanged 的 overwrite 删除与随后的写入是一次更新过程：去抖后重读，不能立即视为注销。确认必要 Cookie 缺失或撤销权限时清除本地授权；禁止通过后台请求继续维持用户已经撤销的会话。
-
-### 4.4 来源登记与身份
-
-`source_id` 是新监测命名空间 UUID，与旧 `/api/sources` 的数字 ID 分开。`item_ids` 是 IC-001 已保存事项的数字 ID；后端加载它们的 URL 和 locator，校验同一 owner、同一规范化页面及适配器支持情况。
-
-同一 owner + adapter_id + canonical_url + auth_id（公开源为 null）只建一个来源；一页多事项共用一次抓取。监测目标是独立 item_id/locator 绑定。抓取不能自动新增未选事项，也不能按易变标题哈希推断稳定身份；只有标题回退定位的事项在验证前保持 unsupported。
-
-登记新来源返回 201，合并目标返回 200。修改目标集合增加 source revision；已有检查持有旧 revision 时被标为 superseded，不能写回业务结果。C 应在保存事项后的同一事务中写登记 outbox，避免“保存成功但忘记登记”；HTTP 接口作为同一内部注册操作的封装和人工重试入口。
-
-公开源 auth_id=null，但 V1 同样绑定 bridge_id，受本地运行门控。认证源要求 auth_id 与 bridge_id/site_key 一致。用户输入的 platform 或 monitor.supported 不具备授权效力。
-
-### 4.5 检查结果
-
-check.state：queued / running / processing / succeeded / failed / cancelled / superseded。outcome：changed / unchanged / partial / failed / null。
-
-`202` 表示已经排队；HTTP 200、收到 HTML、拿到 304、提交到队列，都不能单独产生业务 succeeded。Extractor 和 Item Service 应用完成后才更新目标 last_success_at。部分目标失败时 outcome=partial，逐目标返回结果；整页 last_success_at 只有本次全部启用目标成功时才推进。
-
-认证上下文状态：needs_credentials / unverified / valid / auth_required / revoked。source.runtime_status：ready / waiting_browser / waiting_auth / paused / backoff / unsupported。运行状态与最近一次业务检查结果分开。source revision 只随配置和目标集合改变，不随检查时间更新而改变。
-
-## 5. 内部接口：供 A / C / D 并行开发
-
-这些是进程内端口，V1 不增加内部 HTTP 或消息中间件。类型定义如下，所有结构禁止包含密码、Cookie 或完整认证 URL。
-
-```python
-from typing import Protocol
-
-class MonitoringRegistry(Protocol):
-    async def register_saved_items(self, command: "RegisterSavedItems") -> "MonitorSource": ...
-    async def request_check(self, source_id: str, request_id: str) -> "Check": ...
-
-class SiteAdapter(Protocol):
-    def plan(self, source: "MonitorSource", targets: list["MonitorTarget"]) -> "FetchPlan": ...
-    def inspect(self, response: "SafeResponse") -> "AccessVerdict": ...
-    def select(self, response: "SafeResponse", targets: list["MonitorTarget"]) -> "ObservationBatch": ...
-
-class AuthProvider(Protocol):
-    async def acquire(self, auth_id: str) -> "AuthLease": ...
-    async def revoke(self, auth_id: str, expected_revision: int) -> None: ...
-
-class RemoteTransport(Protocol):
-    async def fetch(self, plan: "FetchPlan", auth: "AuthLease | None") -> "SafeResponse": ...
-
-class ObservationSink(Protocol):
-    async def apply(self, batch: "ObservationBatch") -> "ApplyReceipt": ...
+```json
+{
+  "target_url": "https://www.youtube.com/@3blue1brown/videos",
+  "interval_s": 600,
+  "auth_context_id": "<本模块创建的会话 ID>",
+  "site_profile": "youtube_http_v2"
+}
 ```
 
-| 结构 | 必需字段与约束 |
+登记成功返回 `PageTask`，字段为 `task_id`、`owner_id`、`bridge_id`、上述四项参数，以及 `revision=1`、`enabled=true`。模块生成 UUID 字符串形式的 `task_id`；调用方保存它与自身业务对象的关联。
+
+**登记只建立任务，不启动后台循环，也不表示会话已验证。** 每个 `PageMonitor` 实例当前只保存一个任务；再次成功登记会生成新 ID、替换原任务、清除待交付 HTML 和最近获取/交付时间。当前没有任务登记幂等键，重复调用不能用于查询或恢复原任务。运行期间应通过宿主串行协调登记和控制操作，禁止直接修改返回对象的字段。
+
+### 2.2 调用上下文与装配依赖
+
+以下内容由受信任宿主提供，不混入四项任务参数。
+
+| 输入 | 当前要求 |
 |---|---|
-| RegisterSavedItems | owner_id（调用上下文注入）, item_ids: list[int], site_key, adapter_id, bridge_id, auth_id: str/null, interval_s |
-| MonitorTarget | item_id: int, locator: str, enabled: bool；locator 来自已保存事项，插件与后端适配器必须共用同一定位约定 |
-| FetchPlan | source_id, source_revision, auth_generation: int/null, check_id, method='GET', canonical_url, target_ids, validators；不得由适配器自行取 Cookie |
-| AuthLease | auth_id, generation, approved_origin, opaque_handle；仅受信传输层可用的内存句柄，不序列化、不含可导出的 Cookie 值 |
-| SafeResponse | status: int, final_url（已清除秘密参数）, content_type, body: bytes（仅内存）, etag/last_modified；Set-Cookie 在认证层处理，不提供给业务层 |
-| AccessVerdict | state: authenticated/public/auth_required/forbidden/unknown；evidence_code: str；principal_key: str/null（本地摘要，不出接口） |
-| ObservationBatch | schema_version='1', observation_id: UUID, check_id, source_id, source_revision, auth_generation, observed_at, adapter_version, representation_hash, entries: list[TargetObservation] |
-| TargetObservation | item_id, locator, outcome: content/not_modified/missing/error, canonical_url, title: str/null, text: str/null, metadata: object, error: Error/null |
-| ApplyReceipt | observation_id, source_id, source_revision, applied: bool, results: list[{item_id,status: changed/unchanged/failed/superseded,last_success_at,error}] |
+| `owner_id: int` | 从宿主已验证的调用身份取得；必须与会话所属 owner 一致 |
+| `bridge_id: str` | 与会话绑定的桥接实例一致；用于在线租约，不代表业务事项身份 |
+| 站点策略与会话管理器 | 使用同一配置装配；当前策略包含目标 URL，不能推定同站任意目标都能复用一个会话引用 |
+| `HTMLSink` 接收端 | 宿主在装配时注入，满足第 3.2 节；任务参数中不接受回调 URL |
+| 执行驱动 | 宿主周期调用 `tick()` 并提供真实在线信号；模块内部判断是否到期 |
 
-`content` 必须有 title 和相关正文/元数据；`not_modified` 必须指向同一账号、来源 revision、适配器版本、Vary 条件下已验证且已应用的基线。`missing` 只报告目标缺失，不删除事项。metadata 限于内容元数据，不允许 cookies、headers 或未经清洗的脚本。
+这些方法是受信任进程内方法，未自带独立的网络鉴权层。`AuthContext` 内部对象持有凭证，不能直接序列化给其他模块或客户端；对外只使用会话 ID 与 `AuthManager.metadata()` 的非秘密元数据。
 
-A 负责选择目标内容和传输级去重；D 的 Extractor 负责 type/deadline/requirements 等语义字段，Item Service 负责内容哈希、业务版本和用户覆盖。重复 observation_id 原样返回已存 ApplyReceipt；不同 observation_id 但业务内容相同不新增版本。
+### 2.3 会话创建、导入与在线信号
 
-观察批次和待处理 outbox 在同一 SQLite 事务持久化；D 的应用、去重记录、回执及既有 item_updated/change 事件同事务提交。消费失败重试本地 outbox，不重复抓学校网页。提交时重新校验 source/auth 代际；过时结果拒绝。传输快照保留已选相关内容，完整认证页及无关个人数据不得持久化。
+**创建会话：已实现。** `AuthManager.create(owner_id, bridge_id, cookie_store_id="0")` 创建空上下文，初始状态为 `needs_credentials`。返回对象的 `auth_id` 用作任务参数中的 `auth_context_id`；这两个名称指向同一个 ID。
 
-## 6. 调度、网络和失败策略
+**导入凭证：已实现。** `AuthManager.import_cookies()` 接受以下输入：
 
-默认每 600 秒一轮，同账号轮次不更密；同轮合并到期来源和目标。同一主机所有请求（含 robots、重定向、重试）起始间隔至少 2 秒、并发 1；全局最多 4；同 source 和 auth_context 不重叠。手动触发合并到下个允许窗口。规则为本方案默认值，真实访问继续受登记限制和更严格的 Retry-After 约束。
+| 参数 | 类型与默认值 | 约束 |
+|---|---|---|
+| `auth_id` | `str`，必填 | 已创建的会话 ID；宿主先校验调用者有权操作该会话 |
+| `cookies` | `list[dict]`，必填 | 非空、保留属性的 Cookie 快照，格式见下文 |
+| `backend_epoch` | `str`，必填 | 当前 `AuthManager.backend_epoch`；管理器重建后旧值失效 |
+| `expected_revision` | `int`，必填 | 当前会话修订号；不一致返回冲突 |
+| `request_id` | `str`，必填 | 非空去重键，调用方应生成 UUID；当前组件不强制校验 UUID 格式 |
+| `reason` | `str`，默认 `initial` | `initial / backend_restart / auth_recovery / manual_reauthorize` |
+| `confirmed_same_account` | `bool`，默认 `false` | 同账号确认；只有用户明确确认后才可为 true |
 
-DNS/TCP/TLS 连接阶段预算 10 秒，完整请求含重定向总预算 30 秒，最多 3 跳。网络响应线上正文上限 4 MiB，解压后上限 8 MiB，HTTP 头上限沿用协议栈限制。未实现限额时不得启用真实监测。
+从 `backend_epoch` 起的参数须按关键字传入。宿主通过 `page_policy()` 获得注册策略，用其 `import_cookie_names` 提供允许导入的名称；桥接方按该 profile 的主机/路径范围取得凭证，模块再次校验作用域。
 
-| 情况 | 动作 |
+每条 Cookie 提供 `name/value/domain/path` 字符串，`host_only/secure/http_only/session` 布尔属性，`same_site` 与 `expires_at`。`same_site` 接受 `strict/lax/none/unspecified/no_restriction`；`session=true` 时 `expires_at=null`，否则必须是晚于当前时间的有限 UTC Unix 秒。浏览器导出的其他字段命名须由桥接方先规范化。
+
+导入仅接受 profile 批准的名称和作用域，拒绝重复的规范化 `(domain, path, name)`、分区 Cookie 和非法字符。导入序列化大小上限为 256 KiB。Moodle 保留精确主机、`host_only=true`、`secure=true`、路径 `/` 的约束；其他 profile 按各自注册规则检查 Domain Cookie。
+
+导入成功返回与 `metadata()` 相同的字段：`auth_id`、`owner_id`、`bridge_id`、`cookie_store_id`、`state`、`revision`、`generation`、`was_verified`。其中 revision 用于凭证写入并发检查，generation 用于隔离旧执行，was_verified 表示该上下文曾通过认证。Cookie 值不会出现在该响应中。状态进入 `unverified`，首次内容获取通过认证检查后才成为 `valid`。
+
+导入去重记录只驻当前管理器内存，键为 `(auth_id, request_id)`；相同键及相同导入内容返回原响应，不同内容返回 `idempotency_conflict`。原响应不代表最新会话状态，需要时重新读取 `metadata()`。有效会话只有显式 `manual_reauthorize` 才能替换；无法可靠确认原账号的再次授权要求用户确认，检测到账号不一致时不能沿用原任务绑定。
+
+**在线信号：已实现组件，正式插件桥接待接入。** `presence(bridge_id, sequence, enabled=True)` 接受非负整数序号，按当前单调时钟授予 180 秒租约；桥接方正常每 60 秒续期。重复序号返回原期限、不延长租约，倒退返回 `revision_conflict`。切换 `enabled` 也需要新序号；`enabled=false` 阻止新远端获取。返回期限仅能在同一进程的单调时钟下解释。
+
+在线信号只访问本地模块。调试程序生成的模拟信号仅用于验证，生产集成必须由真实桥接状态驱动；租约恢复后按当前到期状态执行，不补发休眠期间的每一轮。
+
+### 2.4 已登记站点配置
+
+| `site_profile` | 可登记的页面范围 | 当前能力边界 |
+|---|---|---|
+| `moodle` | `https://moodle.must.edu.mo/mod/assign/view.php?id=<活动 ID>`，ID 为规范化十进制数字 | 作业详情主文档；页面路径输出完整 HTML |
+| `youtube` | `www.youtube.com` 下 `/@<handle>/` 或 `/channel/UC…/` 的 `videos/shorts/streams` 页面，或 `/watch?v=<11 位视频 ID>` | 保留的 HTTP 配置 |
+| `youtube_http_v2` | 同上述 YouTube URL 类型 | 显式会话配置；初始导入范围与后续轮换范围分别限制 |
+| `youtube_browser_v1` | 同上述 YouTube URL 类型 | 可选浏览器后端；交付原始主文档响应体，完整应用渲染未获证明 |
+| `bilibili` | `www.bilibili.com/video/BV…/`、`space.bilibili.com/<uid>/` 或其 `upload/video` 路径，以及获准的 `/en/` 变体；不接受查询参数 | 配置及本地测试已有；真实登录态尚未验证，受 robots 阻断的路径不交付 |
+
+登记后的请求仍受精确目标、认证、robots、重定向和地址范围检查。注册某种 URL 类型不保证该类型下所有页面均可访问。后端由 profile 显式选择，访问失败不会自动切换后端或扩大允许范围。配置注册查询的统一接口尚未实现。
+
+## 3. 输出与接收契约
+
+### 3.1 HTMLSnapshot：交给下游的数据
+
+获取与认证检查均成功后，模块调用接收端的 `accept(snapshot)`。当前结构如下：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `snapshot_id` | `str`，UUID | 一次获取结果的交付身份；重试交付时保持不变 |
+| `task_id` | `str`，UUID | 产生结果的任务 ID |
+| `task_revision` | `int` | 获取时的任务修订号，用于识别过期配置 |
+| `auth_generation` | `int` | 获取时的认证代际，用于隔离撤销、重新授权前的结果 |
+| `requested_url` | `str` | 任务要求获取的精确 URL |
+| `final_url` | `str` | 通过范围校验后实际取得内容的 URL |
+| `fetched_at` | `float` | 获取及认证检查完成时的 UTC Unix 秒；不等同于请求开始时间 |
+| `status` | `int` | 主文档 HTTP 状态；当前 profile 的成功交付要求 200 |
+| `content_type` | `str` | 主文档响应的 Content-Type，供下游解释内容与编码 |
+| `body` | `bytes` | 完整主文档响应体，已处理传输压缩；保留内嵌 JSON 与脚本内容，不做业务抽取 |
+
+`body` 为原始响应 HTML，当前浏览器后端也不输出渲染后的 DOM。它可能包含页面中的个人数据或页面令牌，未经过业务脱敏；仅交给受信任的本地接收端在内存中处理，不能直接写日志或作为调试输出。请求 Cookie、Authorization、Set-Cookie 和 Cookie Jar 不加入快照元数据。下游需要保存业务内容时，应自行提取所需字段，不持久化完整认证页面。
+
+每次新的有效获取都会生成新 `snapshot_id`，即使内容与上次相同。模块不在这条路径输出标题、事项列表、`changed/unchanged`、业务版本或业务成功时间。
+
+### 3.2 HTMLReceipt：下游确认接收
+
+已实现的接收端口：
+
+```python
+class HTMLSink(Protocol):
+    async def accept(self, snapshot: HTMLSnapshot) -> HTMLReceipt: ...
+```
+
+`HTMLReceipt` 仅含两个字段：
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `snapshot_id` | `str` | 必须与此次调用收到的快照 ID 完全相同 |
+| `accepted` | `bool` | 只有值为 `True` 时确认接收；接收方已承担该快照的后续处理责任 |
+
+只有 ID 匹配、`accepted is True` 且任务/会话仍有效，模块才返回 `delivered` 并更新 `last_delivery_at`。`accepted=false`、错误 ID、无效回执或接收端抛出普通异常，均进入交付重试。下游按 `snapshot_id` 幂等接收；已经接收的重复快照可以再次返回相同成功回执。
+
+接收确认不包含内容提取或业务入库结论。接收方确认后发生的业务失败由下游处理，监测模块不会因此重新获取页面。
+
+### 3.3 执行结果：交给宿主的状态
+
+`await PageMonitor.tick()` 返回本次状态事件字典，或 `None`。所有事件具有：
+
+| 字段 | 类型与语义 |
 |---|---|
-| 认证页、CAS 跳转、明确未登录证据 | auth_required；暂停该上下文；不自动重放密码或 ticket |
-| 403，且无认证失效证据 | forbidden；只影响相应来源，不注销整个账号 |
-| 404 / locator 缺失 | missing；保留原事项与 last_success_at |
-| DNS / TCP / 超时 / 5xx | 最多 2 次后续调度重试；不叠加底层多层重试；不提前突破账号间隔 |
-| 429 / 503 + Retry-After | 同时解析整数秒和 HTTP-date；设置 not_before，绝不把等待截短为 30 秒 |
-| TLS 证书失败 / 禁止域 / 非法重定向 | 终止并报告；不关闭证书校验，不自动降级 HTTP |
-| 结构不匹配 / 解析失败 | parse_failed；不当作空结果或删除 |
-| Chrome 租约过期 / 休眠 | waiting_browser；恢复最多补一次，不重放所有错过周期 |
-| 本地处理队列拥塞 | 停止新抓取；优先完成已保存观察批次 |
+| `state` | 下表所列状态字符串 |
+| `utc` | 事件发生的 UTC Unix 秒 |
+| `mono` | 当前进程的单调时钟值，仅用于本进程时序诊断 |
+| `last_fetch_at` | 最近一次通过获取和认证检查的时间；未知为 `None` |
+| `last_delivery_at` | 最近一次接收确认成功的时间；未知为 `None` |
 
-网络类连续三次检查失败后冷却至少 1800 秒，再允许一次试探；成功清零失败计数。认证失效不走此自动重试。AccessVerdict=unknown 不能进入已认证成功分支，返回 parse_failed 并保留上次数据。
+| `state` | 本次含义 | 附加字段 |
+|---|---|---|
+| `delivered` | 快照已被接收端确认 | `snapshot_id`、`bytes`、`sha256`、`authentication="authenticated"`、`evidence_code`、`http_status` |
+| `delivery_pending` | HTML 已取得，接收未确认，保留待重试快照 | `snapshot_id`、`error="delivery_failed"` |
+| `waiting_browser` | 在线条件不满足，未发起新获取 | 无 |
+| `waiting_auth` | 会话尚缺凭证、要求重新授权或已撤销，未发起新获取 | 无 |
+| `failed` | 本次获取、认证或策略检查失败 | `error`、`retryable` |
+| `superseded` | 结果已过期，模块丢弃待处理结果 | 无 |
 
-V1 MUST Moodle 默认不启用条件 GET；待实测证明认证判定和会话活动更新语义后再启用。公开网页可按适配器使用 ETag/Last-Modified。缓存键包含 owner/auth_context、URL、适配器版本、表示相关请求头；切换账号、认证 generation 或目标集合时失效。304 无有效基线时不能当作成功，下一允许窗口执行完整 GET。
+`None` 表示本次没有新事件，可能是未登记、已暂停、未到期、重复等待状态或已有一次 `tick()` 在执行；不能据此推导成功或失败。`waiting_browser / waiting_auth` 连续未变化时不重复发出。
 
-HTTP keep-alive 仅复用 TCP 连接；应用会话由服务器和 Cookie 共同维持。正常内容检查可能刷新服务端活动时间；不增加独立的“永不过期”保活线程，不承诺绝对超时可续期。
+状态事件仅描述本次执行：当前不自带 `task_id`，宿主按所属 `PageMonitor` 实例关联；`sha256` 和 `bytes` 属于成功事件的附加摘要，独立于 `HTMLSnapshot` 结构。`failed` 当前不包含 `retry_after_s`，宿主可读取 `next_due_at` 了解下一允许时刻。统一查询与事件封装见第 6 节。
 
-## 7. 既有接口迁移
+会话状态单独通过 `metadata()` 读取：`needs_credentials / unverified / valid / auth_required / revoked`。任务暂停由 `PageTask.enabled=false` 表达，不会凭空生成一次抓取失败。
 
-1. IC-001 `/api/captures` 请求格式不变。C 保存成功后调用 MonitoringRegistry。IC-002 的事项查询、用户字段和状态语义不变。
-2. 新增 target 的 `monitor_executor=legacy_extension|backend_http` 与执行代际。切换时等待旧 300 秒租约结束或明确撤销，原子转移所有权；旧 `/monitor/due` 排除 backend_http 目标，旧 `/monitor/results` 拒绝这些目标的迟到回报。
-3. 新监测模块直接调用 ObservationSink，不伪装为旧插件调用 `/monitor/results`。生产特性开关默认关闭，完成安全门槛和端到端用例后按来源启用。
-4. IC-002 `monitor.status` 保留既有枚举；可增补 runtime_status/pause_reason 供新 UI 使用。未执行的检查不写 failed，不把旧 last_success_at 刷新。新错误映射：auth_required→auth_expired，target_missing→not_found，其余按最接近旧错误映射并保留具体诊断字段。
-5. 不新增 MQTT/WS 通道；D 已有 item_updated/change 负责用户通知。deadline 提醒与内容 Inbox 策略继续由业务层负责。
+## 4. 调用接口与流程
 
-## 8. 错误协议
+### 4.1 当前可调用接口
 
-统一形状：`{error, message, retryable, retry_after_s, request_id}`。扩展字段不破坏已有 error/message 消费者。
+下表均为已实现的进程内组件接口；正式网络 API 和统一模块入口仍待实现。
 
-- 401 unauthorized：本地后端令牌无效；与学校网站登录状态无关。
-- 403 origin_denied / binding_denied：扩展来源、绑定或调用权限不允许。
-- 404 not_found：不存在或不属于当前 owner，避免泄露其他用户资源。
-- 409 revision_conflict / idempotency_conflict / stale_backend / account_mismatch / active_session / unsupported：状态冲突或尚不可监测。
-- 413 too_large；422 invalid / cookie_scope_denied / partitioned_cookie_unsupported；429 rate_limited；503 unavailable。
+| 接口 | 输入 → 返回 | 调用效果 |
+|---|---|---|
+| `AuthManager.create(...)` | owner、bridge、Cookie Store → 内部 `AuthContext` | 建立空会话；对外使用其 ID 和非秘密元数据 |
+| `AuthManager.import_cookies(...)` | 第 2.3 节导入参数 → 元数据字典 | 接收候选凭证，状态进入 `unverified` |
+| `AuthManager.presence(...)` / `online(bridge_id)` | 在线信号 → 租约期限 / bridge → `bool` | 更新或检查本地运行条件 |
+| `AuthManager.metadata(auth_id)` | 会话 ID → 元数据字典 | 读取状态、revision 和 generation；不返回凭证 |
+| `PageMonitor.register(...)` | 第 2.1 节参数及调用上下文 → `PageTask` | 登记或替换当前实例的任务 |
+| `await PageMonitor.tick()` | 无额外业务参数 → 事件字典或 `None` | 尝试交付待处理快照，或执行一次到期检查 |
+| `PageMonitor.pause()` | 无 → `None` | 禁用任务、增加 revision、丢弃待交付快照；保留会话 |
+| `await AuthManager.revoke(auth_id, expected_revision)` | 会话 ID、修订号 → `None` | 撤销凭证，使旧执行失效，并等待已绑定运行时清理 |
+| `HTMLSink.accept(snapshot)` | 快照 → `HTMLReceipt` | 模块调用的下游端口；接收实现由宿主注入 |
+| `AuthManager.close()` 与 `await transport.close()` | 无 → `None` | 清空会话并关闭相关资源；宿主退出时须完成两部分清理 |
 
-上游认证失败、网络错误和解析失败放在 Check/TargetResult 的 error 中，GET 查询仍返回 200。JSON Schema 之外的 Cookie、资源绑定和状态转换约束也必须服务端校验。
+`pause()` 不保证已发送的远端请求立即中断；迟到响应在交付前按修订号和代际丢弃。浏览器运行时也持有凭证，撤销会同步阻止旧运行时继续使用凭证，再等待清理；宿主不能只丢弃 Python 引用就宣称清理完成。
 
-## 9. 最小联调顺序
+### 4.2 首次接入与周期运行
 
-1. B 用现有本地登录获得令牌 → capabilities → presence，用户授权指定学校站点。
-2. B 创建 auth_context → 按精确作用域读取 Cookie → PUT cookies，得到 unverified；不宣称有效。
-3. 用户按 IC-001 保存事项；C 由保存事务 outbox 登记 source/targets。首轮普通内容 GET 同时验证认证，避免另发保活探测。
-4. A 交付 ObservationBatch，C/D 完成抽取和 ApplyReceipt；E 通过 IC-002 查看数据与状态。
-5. fake_moodle 模拟变更、失效、重试、浏览器离线；所有 CI 只连接本地替身。
+1. **宿主完成装配。** 根据 profile 与目标调用 `page_policy(profile, target_url)`，建立同策略的 `AuthManager`、`SessionInspector(profile)` 和 `create_page_transport(policy, auth)`，将这些组件及下游 sink 注入 `PageMonitor`。这层装配当前需要宿主集成代码承担，统一入口尚未封装。
+2. **创建会话并授权。** 创建上下文，向获准桥接方提供 `auth_id`、当前 epoch 与 revision。桥接方提交规范化 Cookie，成功后仅显示“凭证已接收、待验证”。
+3. **登记任务。** 提交四项参数，接收并保存 `task_id`。不需要先创建事项或写入业务数据库。
+4. **建立在线条件并启动宿主循环。** 桥接方按序号续期；宿主周期调用 `tick()`。首次有效任务的到期时间为立即，但实际获取仍受在线、认证和传输限流约束。
+5. **获取并交付。** 模块获取内容、检查认证、维护会话轮换，生成快照并调用 sink。下游返回回执后，宿主取得 `delivered` 或交付失败事件。
+6. **继续下一轮。** 正常下一次获取时间从本轮获取及认证处理结束起，等待至少 `interval_s`；等待接收确认期间不抓新页面。交付恢复后若已到期，下一次 `tick()` 可以检查，不重放全部错过周期。
 
-## 10. 验收与当前代码差距
+`tick()` 内部串行保护当前实例，并使用认证上下文锁防止同一上下文并发获取。当前单实例行为不能作为跨多个实例、多个任务的统一账号间隔或全局限流保证。
 
-| 验收 | 必须观察到的结果 |
+### 4.3 暂停、恢复、撤销与退出
+
+- **暂时失去在线条件：** 停止新获取；新的有效 presence 到达后继续按到期时间检查。已经取得的快照优先尝试本地交付，该步骤不要求在线租约仍有效。
+- **认证失效：** 会话进入 `auth_required`，任务等待重新授权。有效重新导入后，在下一允许时刻重新验证；重新授权不自动清除原到期等待。
+- **显式暂停：** 调用 `pause()`。当前没有保留原 `task_id` 的恢复方法；需要再次监测时，重新登记会产生新任务。原任务就地恢复属于待实现接口。
+- **撤销：** 读取最新会话 revision 后调用 `revoke()`；凭证立即失效，旧代际的执行和结果被拒绝，任务等待有效重新授权。撤销已撤销的上下文可重复调用，清理仍须完成。
+- **退出：** 停止宿主派发，暂停任务，清理会话，并等待传输/浏览器资源关闭；失败时仍须执行其余清理步骤。退出不负责登出用户的 Chrome 账号。
+
+## 5. 失败处理与交付保证
+
+### 5.1 同步拒绝：参数、绑定与凭证错误
+
+登记、配置装配和会话操作中的受控拒绝通过 `MonitorError` 抛出；其字段为 `code: str`、`retryable: bool`、`retry_after_s: float`。这是 Python 错误契约，不对应既有 HTTP 状态码。未覆盖异常的宿主处理要求见第 5.2 节。
+
+| 典型错误码 | 调用方处理 |
 |---|---|
-| Cookie 作用域、hostOnly、Secure、Path、过期与删除 | 无跨域/跨账号泄露；Domain 必须属于响应来源且满足站点白名单；拒绝控制字符和分区 Cookie |
-| 200 登录页 / CAS 重定向 / 403 | 分别识别未登录与禁止访问；无错误版本入库 |
-| 304 + 缺失基线 / 身份变化 | 不误报无变化、不跨身份复用缓存 |
-| Set-Cookie 轮换、浏览器覆盖事件、显式撤销 | 不复活旧凭证；注销后停止；旧执行结果被栅栏拒绝 |
-| 抓取完成后进程崩溃 / 重复投递 / 乱序 | 本地重试，无重复业务版本；旧代际不覆盖新结果 |
-| 同页 10 个目标、连续手动点击 | 同轮仅一次 GET；请求仍满足限流 |
-| 429 + HTTP-date / 600 秒 Retry-After | 下一次请求不早于服务端要求 |
-| 浏览器关闭、休眠、后台重启 | 有明确暂停/需凭证状态；恢复合并检查；最后成功时间不虚增 |
-| 私网 URL、DNS rebinding、重定向到内网、恶意 Set-Cookie Domain | 请求被阻断；测试替身仅显式开发配置放行 |
-| Chrome 平台兼容 | 验证目标 Chrome 的扩展权限、本地网络访问策略、Origin 行为、alarm 重建；拒绝时给出可操作错误 |
-| MUST 手动验收 | 仅已授权账号、允许页面及限速；超过 2 小时，记录版本、运行条件、逐次成功与失败，不提交实际内容或凭证 |
+| `invalid / unsupported / unsupported_profile / blocked` | 修正参数或选用已登记范围；不要反复提交同一非法输入 |
+| `not_found / binding_denied` | 检查会话是否存在、owner/bridge/profile/目标是否匹配；禁止自动改绑其他账号 |
+| `revision_conflict / stale_backend` | 重新读取当前上下文或重建会话，基于最新版本发起明确操作 |
+| `idempotency_conflict / active_session` | 检查请求 ID 是否误用；有效会话替换必须是明确重新授权 |
+| `cookie_scope_denied / partitioned_cookie_unsupported / too_large` | 桥接方修正导入范围或格式；不扩大权限来重试 |
+| `account_confirmation_required / account_mismatch` | 请求同账号确认；账号已改变时创建新的上下文及任务 |
+| `browser_unavailable / unsupported_browser_scope / unsafe_browser_debug` 等装配错误 | 由宿主修正部署或注册配置；任务参数不能绕过限制 |
+| `session_cleanup_failed / browser_cleanup_failed` | 宿主停止该实例，继续完成资源关闭；不恢复旧凭证，也不宣称清理成功 |
 
-代码审阅发现的复用门槛（本次不修改实现）：
-- `net/http/cookies.py:set_from_header` 直接接收 Domain 属性；使用新契约前需补来源 domain-match 与站点白名单验证。
-- `collector/fetcher.py` 将 Retry-After 截为 30 秒，且只识别纯数字；需要改为持久 not_before，支持 HTTP-date。
-- 当前 robots 获取及 HTTP 客户端内部重定向不由同一个 Fetcher 外层限速循环逐跳管理；新执行器必须统一约束每次请求。
-- 既有 CookieJar 为 RFC 子集，未实现浏览器分区语义；V1 明确拒绝分区 Cookie，不声称通用浏览器会话兼容。
+成功登记不承诺首次获取一定成功。凭证存在、URL 可以登记、HTTP 返回 200 都不能单独证明认证有效。
 
-2026-11-09 后端（C）已处理前三项，测试见 `server/tests/test_fetch_compliance.py`：
-- Cookie Domain 必须与请求主机域匹配，拒绝顶级域、IP 上级域、明文响应设置或覆盖 Secure Cookie、控制字符；每域 50 条、总数 3000 条上限；保存 SameSite。**站点白名单**（只接受适配器登记的 Cookie 名与主机）属于监测模块 A 的导入校验，仍待实现。
-- `Retry-After` 支持秒数与 HTTP-date；超过 30 秒不再截短，记为该主机的 `not_before` 并通过 `FetchError.retry_after` 让采集调度推迟整个来源。
-- `Fetcher` 自己逐跳跟随重定向：robots.txt、每一跳、每一次重试都经过同一个按主机限速器；跨源跳转去掉 Authorization／Cookie 与条件请求头。robots.txt 按 RFC 9309 解析（分组、Allow、`*`／`$`、最长匹配），无法获取（5xx／网络错误）视为全部禁止。
-- 第四项（分区 Cookie）维持现状：拒绝，不实现。
+### 5.2 执行失败：是否自动恢复
 
-## 11. 依据
+获取阶段捕获的 `MonitorError` 通常转换为第 3.3 节事件；`superseded` 单独报告。
 
-仓库：`CLAUDE.md`、`docs/product-definition.md`、IC-001、IC-002、`docs/browser-extension.md`、`docs/protocols/http.md`、`docs/integrations/must-moodle.md`、`server/gleaner/collector/{fetcher,session}.py`、`server/gleaner/net/http/cookies.py`（审阅 main 于 2026-11-07）。接入文档仍有历史 Web Service token 方案，本契约不依赖其可用性，也不删除该历史记录。
+| 场景 / 典型错误 | 模块动作 | 调用方与下游处理 |
+|---|---|---|
+| 登录页、明确失效：`auth_required` | 报告 `failed`，会话进入 `auth_required`，后续等待授权 | 保留历史结果；由桥接方重新授权 |
+| 缺少正面登录证据：`auth_unverified` | 不交付 HTML；进入等待授权流程 | 检查会话及 profile 识别规则；不能把匿名页面计作成功 |
+| 账号不一致或缺少确认 | 不交付本次结果，使会话要求重新授权 | 按第 5.1 节处理账号绑定 |
+| 可重试网络错误，如 `dns / network / timeout`，HTTP 路径的 `upstream_5xx` | 报告 `failed`，按最早允许时刻重试 | 调用方持续驱动 tick，无需重复登记 |
+| 限流：`rate_limited` | 同时遵守任务间隔和服务端等待要求 | 等待，不用手动调用提前突破间隔 |
+| 不可重试拒绝，如 `forbidden / robots_denied / blocked / target_missing / response_too_large`、证书错误 | 报告 `failed` 并设置任务 `enabled=false` | 检查原因；恢复条件后显式重新登记，不删除下游历史数据 |
+| HTTP 路径收到 304：`missing_baseline` | 当前页面路径不支持条件 GET；此错误不产生“无变化”，任务被禁用 | 不套用旧事项路径的 304 成功语义 |
+| 配置或会话代际已变 | 报告 `superseded`，丢弃过期结果 | 不将旧结果应用到新任务或新会话 |
+| 接收端失败或回执不匹配 | 报告 `delivery_pending`，保留原快照 | 接收端恢复并允许幂等重试 |
 
-外部规范（查阅 2026-11-07）：
-- [Chrome cookies](https://developer.chrome.com/docs/extensions/reference/api/cookies)：权限、属性、分区与更新事件。
-- [Chrome alarms](https://developer.chrome.com/docs/extensions/reference/api/alarms) 与 [worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)：调度唤醒和休眠恢复。
-- [跨源请求](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests) 与 [本地网络访问](https://developer.chrome.com/docs/modern-web-guidance/guides/security/local-network-access)：扩展与浏览器环境约束，具体版本须实测。
-- [RFC 6265](https://www.rfc-editor.org/rfc/rfc6265.html) §5：Cookie Jar；[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) §10.2.3、§13、§15：Retry-After、条件请求与状态语义；[RFC 9112](https://www.rfc-editor.org/rfc/rfc9112.html)：HTTP/1.1 报文与连接。
-- [OWASP SSRF](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)：域名/IP 白名单、DNS 与重定向验证。
-- [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html)：随附 HTTP 契约格式。
+自动重试以实际 `retryable` 值为准。不同后端的错误分类可能不同，例如 `robots_unavailable` 不具有跨后端统一的可重试性；调用方不能仅凭错误名自行发起网络重试。
+
+可重试失败后，下一次等待至少取任务间隔与 `retry_after_s` 中较大者；连续获取失败达到三次且本次错误可重试时，还须至少等待 1800 秒。有效获取后失败计数清零。当前页面路径没有总重试次数上限，也不采用旧事项路径“最多两次后续重试”的承诺。认证错误须先恢复会话；其他不可重试错误须先恢复任务。
+
+组件尚未将所有异常统一封装成状态事件：准备阶段的错误或未覆盖异常可能向宿主抛出。宿主应终止本次执行、保留原结果并记录脱敏诊断；不得将异常文本、凭证或 HTML 直接输出到用户接口。统一错误封装待实现。
+
+### 5.3 交付失败、过期结果与重启
+
+- 接收失败后保留同一份 HTML 与 `snapshot_id`，至少 60 秒后由后续 `tick()` 重试。存在待交付快照时停止新获取，避免用新页面覆盖尚未确认的结果。
+- 当前没有接收调用超时、最大交付重试次数或死信接口；sink 应有界返回，长期挂起会阻塞该实例。统一超时及终止策略列为待实现。
+- 模块在交付前、接收调用返回后检查任务 ID/revision、认证 generation 和有效状态；普通 Cookie 轮换只增加认证 revision，不废弃同身份快照。
+- 暂停、重新登记、撤销或重新授权会使旧结果失效。若下游已经进入 `accept()`，监测模块无法撤回接收方已经执行的副作用；下游必须按代际处理延迟业务写入。跨模块提交时的有效性校验接口尚待正式接入。
+- 任务、待交付 HTML 和本路径的运行状态只驻进程内存。进程退出后重新装配、按仍有效的授权重新导入凭证并登记；不承诺待交付快照的跨进程恢复、跨进程至少一次交付或 exactly-once。
+- 获取或交付失败不会清除已有成功时间；重新登记新任务会重置这些时间。状态与数据消费者须分别处理“本次失败”和“历史仍有成功结果”。
+
+## 6. 待实现接口与兼容接入
+
+### 6.1 尚不能依赖的接口或保证
+
+| 待实现项 | 需要明确或完成的边界 |
+|---|---|
+| 统一模块入口与生命周期 | 封装 profile、会话、传输、接收端装配及循环启停，向调用方提供稳定入口；当前需宿主集成这些组件 |
+| 页面任务管理 | 按 ID 查询/列表、保留 ID 的恢复、参数更新、取消/删除、受限手动检查、任务创建幂等；当前仅有单实例 register/pause/tick |
+| 统一状态与错误响应 | 关联 task_id、暂停原因、下一次允许时间、重试等待；当前事件字段按第 3.3 节，不能套用旧 Check Schema |
+| 多任务协调 | 跨实例的同账号轮次、同主机请求预算、全局并发和共享会话规则；单实例锁不提供全局保证 |
+| 接收端可靠性 | 接收超时、重试终止策略、跨模块代际提交校验及正式下游接收实现；当前只有端口与验证替身 |
+| 跨进程恢复 | 任务恢复和交付恢复策略；完整认证 HTML 不因旧 outbox 设计而自动获得持久化授权 |
+| 正式桥接与 HTTP 包装 | Chrome 授权/在线信号接入，可信 owner 注入与所有权校验，回环限制、令牌及敏感操作 Origin 校验；调试页面不能替代正式桥接 |
+| 能力查询与统一执行预算 | 对外列出已登记 profile、依赖及限制，并对齐各后端超时和大小预算；旧文档中的统一数字不能当作浏览器路径已经通过的验收结论 |
+
+这些条目不表示需要立即新增独立服务或消息中间件。当前已实现端口采用进程内调用；未来新增 HTTP 包装时须另行定义请求/响应 Schema、鉴权与版本，本文没有预设新的 URL。
+
+### 6.2 原事项监测路径
+
+既有 `Registry → Scheduler → MoodleAdapter → ObservationBatch → ObservationSink.apply() → ApplyReceipt` 仍保留在代码中，面向已保存的 `item_id/locator`。其选定内容的 SQLite outbox、逐事项结果及业务应用语义不属于页面 HTML 主契约。
+
+| 内容 | 页面主契约 | 原事项路径 |
+|---|---|---|
+| 任务身份 | `task_id` 与四项任务参数 | `source_id`、已保存事项和 locator |
+| 数据交付 | 完整主文档 `HTMLSnapshot` | 已选目标的 `ObservationBatch` |
+| 回执 | `HTMLReceipt.accepted`：已接收 | `ApplyReceipt`：逐目标应用结果 |
+| 成功时间 | `last_fetch_at / last_delivery_at` | 观察应用后推进的目标/来源 `last_success_at` |
+| 恢复 | 当前进程内重试 | 选定观察内容的持久 outbox 重试 |
+
+新接入方使用页面契约即可，不需要为抓取而先创建业务事项。将 HTML 转为事项观察或业务事件的适配属于下游集成，正式适配待实现；此次文档重写不表示相关代码已经迁移。
+
+IC-001 Capture 与 IC-002 工作台契约继续有效。既有 `/api/monitor/due`、`/api/monitor/results` 属于旧插件监测接口；旧提案中的 `/api/monitor/v1/capabilities`、presence、auth-contexts、sources、checks 等生产端点尚未接入。相关 OpenAPI 文件此次保持原样，只用于识别旧 HTTP 提案范围。
+
+### 6.3 实现与验证依据
+
+- [pages.py](../../server/gleaner/monitoring/pages.py)：任务输入、HTMLSnapshot、HTMLReceipt、状态事件和交付重试。
+- [auth.py](../../server/gleaner/monitoring/auth.py)、[profiles.py](../../server/gleaner/monitoring/profiles.py)、[backends.py](../../server/gleaner/monitoring/backends.py)：会话控制、站点登记和受控后端选择。
+- [页面测试](../../server/tests/test_monitoring_pages.py)、[配置测试](../../server/tests/test_monitoring_profiles.py)、[后端测试](../../server/tests/test_monitoring_backends.py)、[会话资源测试](../../server/tests/test_monitoring_session_resources.py)：输入拒绝、完整 HTML、重复交付、撤销、并发和旧代际隔离。
+- [Moodle 验证与运行说明](monitoring_module/README.md)：包含指定作业页 130 分钟验证及正式业务接入的限制。
+- [参数化 HTML 计划](../exec-plans/2026-11-11-parameterized-html-monitor.md)、[浏览器接入记录](../log/2026-11-14_r-b-cheng/playwright-resume.md)：页面路径与指定 YouTube 频道的认证 HTML 验证；不将单站验证推广为任意站点、完整应用渲染或正式业务成功。

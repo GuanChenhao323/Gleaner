@@ -1,0 +1,261 @@
+{
+  "status": "complete",
+  "development_complete": true,
+  "recorded_at_utc": "2026-11-10T05:25:30.909538+00:00",
+  "code_commit": "58bf99aa3185601b44e6e17cd051a9fe7448409d",
+  "branch": "codex/monitoring-v1-validation",
+  "checklist": {
+    "total": 39,
+    "passed": [
+      "S1-01",
+      "S1-02",
+      "S1-03",
+      "S1-04",
+      "S1-05",
+      "S1-06",
+      "S1-07",
+      "S2-01",
+      "S2-02",
+      "S2-03",
+      "S2-04",
+      "S2-05",
+      "S2-06",
+      "S2-07",
+      "S2-08",
+      "S3-01",
+      "S3-02",
+      "S3-03",
+      "S3-04",
+      "S3-05",
+      "S3-06",
+      "S3-07",
+      "S3-08",
+      "S3-09",
+      "S3-10",
+      "S3-11",
+      "S3-12",
+      "S3-13",
+      "S3-14",
+      "S4-01",
+      "S4-02",
+      "S4-03",
+      "S4-04",
+      "S4-05",
+      "S4-06",
+      "F-01",
+      "F-02",
+      "F-03",
+      "F-04"
+    ],
+    "pending": []
+  },
+  "tests": {
+    "command": "python -m pytest -q (cwd: server)",
+    "passed": 296,
+    "failed": 0,
+    "skipped": 3,
+    "monitoring_passed": 93,
+    "monitoring_skipped": 0,
+    "duration_s": 110.47,
+    "skip_details": [
+      {
+        "test": "test_concurrent_schema_init",
+        "reason": "未设置 GLEANER_TEST_PG"
+      },
+      {
+        "test": "test_reconnect_after_server_drops_connection",
+        "reason": "未设置 GLEANER_TEST_PG"
+      },
+      {
+        "test": "test_pool_runs_statements_concurrently",
+        "reason": "未设置 GLEANER_TEST_PG"
+      }
+    ]
+  },
+  "environment": {
+    "python": "3.14.7",
+    "httpx": "0.28.1",
+    "httpcore": "1.0.9",
+    "pytest": "9.2.0",
+    "ruff": "0.17.4",
+    "chrome": "157.0.8103.50",
+    "database": "SQLite"
+  },
+  "lint": {
+    "ruff_check": "passed",
+    "ruff_format_check": "passed"
+  },
+  "review": {
+    "model": "gpt-6.1-terra",
+    "reasoning_effort": "max",
+    "status": "all_reported_substantive_findings_addressed",
+    "areas": [
+      "target redirect scope",
+      "long-run gaps and receipts",
+      "DNS/HTTP pacing and budgets",
+      "Retry-After and robots authentication",
+      "restart and persisted receipts",
+      "cookie deletion",
+      "activity title structure",
+      "opaque credential handles",
+      "debug DoH",
+      "backoff state",
+      "safe redirect diagnostics",
+      "explicit single-target robots fallback",
+      "authentication inspection required before fallback"
+    ],
+    "reviewed_code_commit": "58bf99aa3185601b44e6e17cd051a9fe7448409d"
+  },
+  "computer_use": {
+    "mode": "local synthetic site",
+    "run_id": "285c1ce7-e5c2-4cf2-83e2-ffb91a5eade4",
+    "evidence": "local-fault-scenarios.jsonl",
+    "scenario_assertions_passed": true,
+    "scenarios": [
+      "hidden cookie input cleared",
+      "initial content read",
+      "unchanged content",
+      "changed content",
+      "waiting_browser without fake failure",
+      "auth_required without unchanged",
+      "recovery",
+      "stop and clear credentials"
+    ],
+    "summary": {
+      "record": "summary",
+      "run_id": "285c1ce7-e5c2-4cf2-83e2-ffb91a5eade4",
+      "finished_at": 1794274933.261577,
+      "elapsed_s": 64.26769450004213,
+      "elapsed_utc_s": 64.26869606971741,
+      "successful_rounds": 26,
+      "failed_rounds": 1,
+      "missed_rounds": 0,
+      "interruptions": [
+        "bridge_paused"
+      ],
+      "passed": false,
+      "reason": "stopped_or_failed"
+    },
+    "summary_note": "passed=false is expected: this is a short deliberate pause/auth-failure test, not the 130-minute acceptance run."
+  },
+  "real_browser_dom": {
+    "checked": true,
+    "page_type": "Moodle assignment detail",
+    "title_structure": "#region-main main landmark > h2",
+    "identity_marker": "cmid-<target>",
+    "body_region": "#intro",
+    "raw_content_saved": false
+  },
+  "public_network_probe": {
+    "credentials_sent": false,
+    "system_dns": "non-public Fake-IP; correctly blocked",
+    "udp_public_dns": "also returned Fake-IP",
+    "explicit_cloudflare_doh": "one validated public A record; Moodle TLS connection succeeded",
+    "robots_status": 303,
+    "redirect_origin": "https://moodle.must.edu.mo",
+    "redirect_path": "/login/index.php",
+    "redirect_followed": false,
+    "body_saved": false
+  },
+  "live_acceptance": {
+    "passed": true,
+    "run_id": "877777cc-9f92-473d-85f5-4e8222397803",
+    "code_commit": "58bf99aa3185601b44e6e17cd051a9fe7448409d",
+    "report": "live-success.jsonl",
+    "credentials_imported": true,
+    "assignment_fetch_verified": true,
+    "browser_baseline_match": true,
+    "first_success_utc": 1794279524.842637,
+    "last_success_utc": 1794287323.309013,
+    "finished_at_utc": 1794287325.852715,
+    "elapsed_s": 7800.980709416966,
+    "elapsed_utc_s": 7801.010031938553,
+    "last_success_delta_s": 7798.46753754199,
+    "successful_rounds": 14,
+    "failed_rounds": 0,
+    "missed_rounds": 0,
+    "interruptions": [],
+    "content_requests_200": 14,
+    "robots_requests_303": 2,
+    "request_count": 16,
+    "min_host_gap_s": 3.144201749993954,
+    "min_round_gap_s": 600.018728017807,
+    "max_round_gap_s": 600.4649360179901,
+    "unique_representation_hashes": 1,
+    "stub_receipts": {
+      "applied": 14,
+      "changed": 1,
+      "unchanged": 13,
+      "note": "Initial changed establishes the debug sink baseline; all source hashes are identical. This does not validate real Item Service application."
+    },
+    "robots_policy": "explicit registered-target fallback; default remains strict",
+    "policy_decisions": [
+      {
+        "record": "policy",
+        "kind": "robots_fallback",
+        "reason": "dashboard_redirect",
+        "scope": "one_registered_target",
+        "utc": 1794279520.9348412
+      },
+      {
+        "record": "policy",
+        "kind": "robots_fallback",
+        "reason": "dashboard_redirect",
+        "scope": "one_registered_target",
+        "utc": 1794283721.023812
+      }
+    ],
+    "moodle_tabs_closed": true,
+    "ui_final_state": {
+      "running": false,
+      "auth_state": "needs_credentials",
+      "runtime_status": "paused",
+      "finished": true,
+      "passed": true
+    },
+    "process_stopped": true,
+    "idle_sleep_assertion_released": true,
+    "real_cookie_values_saved": false
+  },
+  "browser_baseline": {
+    "captured_via": "read-only Chrome DOM",
+    "hash_algorithm": "SHA-256",
+    "hash_self_test_passed": true,
+    "representation_hash": "b193ec1fcd6a5319859ad8b541c7363b65246ab2358e72853fc3f2520e18f685",
+    "title_length": 57,
+    "text_length": 378,
+    "raw_title_or_body_saved": false
+  },
+  "failed_attempts": [
+    {
+      "report": "live-attempt-01.jsonl",
+      "result": "blocked by strict robots redirect policy; no target content fetched"
+    },
+    {
+      "report": "live-attempt-02.jsonl",
+      "result": "same-origin /my/ redirect confirmed; no target content fetched"
+    }
+  ],
+  "scope": {
+    "implemented": "Selected Moodle assignment title and intro text monitoring, with debug bridge/sink",
+    "not_validated": [
+      "production Chrome bridge",
+      "production Extractor/Item Service",
+      "workbench integration",
+      "independent date/attachment fields",
+      "general Moodle page coverage"
+    ]
+  },
+  "runtime_independent_review": {
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "run_id": "877777cc-9f92-473d-85f5-4e8222397803",
+    "result": "passed",
+    "scope": "read-only redacted log monitoring; no credentials or raw page content"
+  },
+  "delivery": {
+    "git_policy": "dedicated branch and small commits",
+    "final_commit_hash_location": "delivery message; not embedded in its own commit",
+    "push_or_merge_performed": false
+  }
+}

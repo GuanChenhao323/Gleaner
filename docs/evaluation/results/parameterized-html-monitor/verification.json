@@ -1,0 +1,329 @@
+{
+  "generated_utc": "2026-11-12T08:47:41.528308+00:00",
+  "content_start_utc_is_estimated_from_finish_and_monotonic_duration": true,
+  "duration_required_s": 7200,
+  "minimum_interval_s": 600,
+  "runs": [
+    {
+      "file": "bilibili-20261112-01.jsonl",
+      "run_id": "ff6c3f16-22c4-41ef-8988-29ad53c3be96",
+      "site": "bilibili",
+      "successful_rounds": 0,
+      "failed_rounds": 0,
+      "errors": [],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "bilibili-20261112-02.jsonl",
+      "run_id": "41f20728-d4a7-44f5-9316-1c6a7af98299",
+      "site": "bilibili",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "bilibili-20261112-03.jsonl",
+      "run_id": "30d96cf1-1683-4a67-8970-5f5d2392b71a",
+      "site": "bilibili",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "auth_unverified"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "bilibili-20261112-04.jsonl",
+      "run_id": "8b994e74-d372-4576-a251-9f4bae8b53b5",
+      "site": "bilibili",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "auth_unverified"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "moodle-20261112-01.jsonl",
+      "run_id": "44c388ea-b7c8-489f-9ded-367f5c79a085",
+      "site": "moodle",
+      "successful_rounds": 1,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": "2026-11-12T06:37:47.866541+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T06:37:47.866541+00:00",
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "moodle-20261112-02.jsonl",
+      "run_id": "7b5addb1-64fd-4083-a640-265b3add5c7e",
+      "site": "moodle",
+      "successful_rounds": 0,
+      "failed_rounds": 0,
+      "errors": [],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "moodle-20261112-03.jsonl",
+      "run_id": "81b91bf7-a616-4a3c-87b0-8b75f43324ab",
+      "site": "moodle",
+      "successful_rounds": 6,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 3055.18032,
+      "successful_content_start_intervals_s": [
+        610.31391,
+        613.673161,
+        610.882929,
+        608.94669,
+        611.363629
+      ],
+      "all_content_start_intervals_s": [
+        610.31391,
+        613.673161,
+        610.882929,
+        608.94669,
+        611.363629
+      ],
+      "first_content_start_utc_estimate": "2026-11-12T07:23:24.491746+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T08:14:19.680309+00:00",
+      "dns_fallback_events": 1,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "moodle-20261112-04.jsonl",
+      "run_id": "13e90d3f-c3f8-4d91-9605-1b0cc12804b5",
+      "site": "moodle",
+      "successful_rounds": 1,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": "2026-11-12T08:34:51.761884+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T08:34:51.761884+00:00",
+      "dns_fallback_events": 2,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-01.jsonl",
+      "run_id": "1da55a6c-fe74-4d32-9845-eec8579fe0a1",
+      "site": "youtube",
+      "successful_rounds": 0,
+      "failed_rounds": 0,
+      "errors": [],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-02.jsonl",
+      "run_id": "9d486f3c-8f03-41c1-9391-adeb16bb0b74",
+      "site": "youtube",
+      "successful_rounds": 0,
+      "failed_rounds": 0,
+      "errors": [],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-03.jsonl",
+      "run_id": "63bf1bb1-e4fa-4d46-a246-b04951b47e52",
+      "site": "youtube",
+      "successful_rounds": 1,
+      "failed_rounds": 1,
+      "errors": [
+        "auth_required"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [
+        606.586954
+      ],
+      "first_content_start_utc_estimate": "2026-11-12T06:34:13.476701+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T06:34:13.476701+00:00",
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-04.jsonl",
+      "run_id": "03a0c85a-bc0c-4c9d-8c4b-f0a910e0a5ea",
+      "site": "youtube",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-05.jsonl",
+      "run_id": "8153c0ed-32b5-42e4-beaf-4ee5ba250178",
+      "site": "youtube",
+      "successful_rounds": 1,
+      "failed_rounds": 1,
+      "errors": [
+        "timeout"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": "2026-11-12T07:06:26.814733+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T07:06:26.814733+00:00",
+      "dns_fallback_events": 2,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-06.jsonl",
+      "run_id": "5337ee5b-6eeb-47cf-9e1e-085c7ab6a71b",
+      "site": "youtube",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 1,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-07.jsonl",
+      "run_id": "3122acd4-4598-4260-ace1-17146cba4f12",
+      "site": "youtube",
+      "successful_rounds": 2,
+      "failed_rounds": 1,
+      "errors": [
+        "auth_required"
+      ],
+      "successful_content_start_span_s": 610.300249,
+      "successful_content_start_intervals_s": [
+        610.300249
+      ],
+      "all_content_start_intervals_s": [
+        610.300249,
+        605.265895
+      ],
+      "first_content_start_utc_estimate": "2026-11-12T07:37:20.281428+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T07:47:30.582416+00:00",
+      "dns_fallback_events": 0,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-08.jsonl",
+      "run_id": "4b188258-88ca-440d-9c0f-3e89334591c0",
+      "site": "youtube",
+      "successful_rounds": 2,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 609.637953,
+      "successful_content_start_intervals_s": [
+        609.637953
+      ],
+      "all_content_start_intervals_s": [
+        609.637953
+      ],
+      "first_content_start_utc_estimate": "2026-11-12T08:07:59.121728+00:00",
+      "last_content_start_utc_estimate": "2026-11-12T08:18:08.760812+00:00",
+      "dns_fallback_events": 3,
+      "interruptions": 0,
+      "summary_passed": false
+    },
+    {
+      "file": "youtube-20261112-09.jsonl",
+      "run_id": "e3326b14-c48d-4632-8628-f0310529dacf",
+      "site": "youtube",
+      "successful_rounds": 0,
+      "failed_rounds": 1,
+      "errors": [
+        "dns"
+      ],
+      "successful_content_start_span_s": 0.0,
+      "successful_content_start_intervals_s": [],
+      "all_content_start_intervals_s": [],
+      "first_content_start_utc_estimate": null,
+      "last_content_start_utc_estimate": null,
+      "dns_fallback_events": 2,
+      "interruptions": 0,
+      "summary_passed": false
+    }
+  ]
+}

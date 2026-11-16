@@ -1,0 +1,16 @@
+{
+  "run_id": "5974d008-5915-43eb-aa84-b9dd5c03ec4d",
+  "code_commit": "e1dbcb9b33bbf65369260e4c42d85773bec0f797",
+  "source_matches_git": true,
+  "profile": "youtube_browser_v1",
+  "http_status": 200,
+  "authenticated": true,
+  "received_bytes": 1352657,
+  "snapshot_and_digest_match": true,
+  "sink_kind": "memory_stub",
+  "classification": "single_round_integrated_smoke",
+  "two_hour_proof": false,
+  "source_sha256": "9c1b8035179b62d12620d8789b367e9412ee284a7fcf12277e43351c0e10cab5",
+  "redacted_file_sha256": "5fab986a2e77694a03842bad65a69f161b98d58bc705b8702b8270c2e97a7143",
+  "exit_code": 0
+}

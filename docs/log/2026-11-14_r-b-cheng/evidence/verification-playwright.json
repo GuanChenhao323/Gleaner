@@ -1,0 +1,47 @@
+{
+  "run_id": "54adc4f8-fdf1-4386-a49d-a4fb32e090c7",
+  "code_commit": "8a5595b680ce62e4ba8fcce1a3b5cc19611d6b1a",
+  "source_sha256": "090bc2c9be1a6b05e39c28f4534fceb3b1e1b3d7899c2eecef3a38cd97b9e5be",
+  "source_matches_git": true,
+  "redacted_file_sha256": "bfa51fc3200b9f41cb971270f25469e1362c1a928f6af4da43c3cc6d7bb6cfd1",
+  "successful_rounds": 13,
+  "failed_rounds": 0,
+  "conservative_span_s": {
+    "mono": 7473.392933249939,
+    "utc": 7473.400471687317
+  },
+  "min_gap_s": 620.9936422919855,
+  "max_gap_s": 626.2071652412415,
+  "first_request_local_bounds": [
+    "2026-11-14T18:19:22.655438-05:00",
+    "2026-11-14T18:19:23.417848-05:00"
+  ],
+  "last_request_local_bounds": [
+    "2026-11-14T20:23:56.818320-05:00",
+    "2026-11-14T20:23:57.522319-05:00"
+  ],
+  "html_bytes": [
+    1351527,
+    1352657,
+    1354244,
+    1351740,
+    1351701,
+    1352834,
+    1353464,
+    1351608,
+    1351805,
+    1353631,
+    1352866,
+    1352003,
+    1352443
+  ],
+  "dom_logged_in_rounds": 13,
+  "account_menu_visible_rounds": 0,
+  "confirmed_idle_rounds": 13,
+  "dns_resolved": 13,
+  "dns_fallback": 0,
+  "dns_failure": 0,
+  "receipt_evidence": "program-confirmed HTMLReceipt; no separate sink log in this build",
+  "issues": [],
+  "two_hours_passed_independently": true
+}

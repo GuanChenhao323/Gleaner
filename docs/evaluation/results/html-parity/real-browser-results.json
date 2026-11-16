@@ -1,0 +1,66 @@
+{
+  "extractor": "assignment-html-parity-prototype/1",
+  "timezone": "Asia/Macau",
+  "browser_html_bytes": 166166,
+  "http_html_bytes": 170046,
+  "raw_html_equal": false,
+  "fields": {
+    "locator": {
+      "equal": true,
+      "browser_length": 21,
+      "http_length": 21
+    },
+    "title": {
+      "equal": true,
+      "browser_length": 57,
+      "http_length": 57
+    },
+    "text": {
+      "equal": true,
+      "browser_length": 360,
+      "http_length": 360
+    },
+    "deadline_at": {
+      "equal": true,
+      "browser_state": "present",
+      "http_state": "present"
+    }
+  },
+  "all_fields_equal": true,
+  "four_fields_verified": true,
+  "browser_result_sha256": "e0e6c07bcb013c60236a15d2e4abebd016844070b95b5ca157395389e31dcee4",
+  "http_result_sha256": "e0e6c07bcb013c60236a15d2e4abebd016844070b95b5ca157395389e31dcee4",
+  "raw_content_saved": false,
+  "mode": "real",
+  "captured_at": "2026-11-11T01:36:25.324169+00:00",
+  "requests": [
+    {
+      "kind": "robots",
+      "path": "/robots.txt",
+      "status": 303,
+      "wire_bytes": 1494,
+      "decoded_bytes": 1494,
+      "started_mono": 522973.273419541,
+      "finished_mono": 522973.6576415,
+      "utc": 1794360980.469484,
+      "redirect_path": "/my/",
+      "redirect_same_origin": true
+    },
+    {
+      "kind": "robots_fallback",
+      "reason": "dashboard_redirect",
+      "scope": "one_registered_target",
+      "utc": 1794360980.482594
+    },
+    {
+      "kind": "content",
+      "path": "/mod/assign/view.php",
+      "status": 200,
+      "wire_bytes": 25910,
+      "decoded_bytes": 170046,
+      "started_mono": 522976.992783208,
+      "finished_mono": 522978.386805,
+      "utc": 1794360985.1986408
+    }
+  ]
+}

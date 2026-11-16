@@ -1,0 +1,118 @@
+[
+  {
+    "extractor": "assignment-html-parity-prototype/1",
+    "timezone": "Asia/Macau",
+    "browser_html_bytes": 762,
+    "http_html_bytes": 675,
+    "raw_html_equal": false,
+    "fields": {
+      "locator": {
+        "equal": true,
+        "browser_length": 15,
+        "http_length": 15
+      },
+      "title": {
+        "equal": true,
+        "browser_length": 12,
+        "http_length": 12
+      },
+      "text": {
+        "equal": true,
+        "browser_length": 29,
+        "http_length": 29
+      },
+      "deadline_at": {
+        "equal": true,
+        "browser_state": "present",
+        "http_state": "present"
+      }
+    },
+    "all_fields_equal": true,
+    "four_fields_verified": true,
+    "browser_result_sha256": "27b53e87c64f5a0496c69a7cb4b9acbf5ee792d09eb7b670386a98ef30bdf219",
+    "http_result_sha256": "27b53e87c64f5a0496c69a7cb4b9acbf5ee792d09eb7b670386a98ef30bdf219",
+    "raw_content_saved": false,
+    "mode": "static",
+    "captured_at": "2026-11-11T00:28:46.397058+00:00",
+    "requests": [
+      {
+        "kind": "robots",
+        "path": "/robots.txt",
+        "status": 200,
+        "wire_bytes": 22,
+        "decoded_bytes": 22,
+        "started_mono": 518919.465322916,
+        "finished_mono": 518919.466254458,
+        "utc": 1794356926.2882009
+      },
+      {
+        "kind": "content",
+        "path": "/mod/assign/view.php",
+        "status": 200,
+        "wire_bytes": 675,
+        "decoded_bytes": 675,
+        "started_mono": 518919.567547708,
+        "finished_mono": 518919.56841925,
+        "utc": 1794356926.3903658
+      }
+    ]
+  },
+  {
+    "extractor": "assignment-html-parity-prototype/1",
+    "timezone": "Asia/Macau",
+    "browser_html_bytes": 862,
+    "http_html_bytes": 683,
+    "raw_html_equal": false,
+    "fields": {
+      "locator": {
+        "equal": true,
+        "browser_length": 15,
+        "http_length": 15
+      },
+      "title": {
+        "equal": true,
+        "browser_length": 12,
+        "http_length": 12
+      },
+      "text": {
+        "equal": true,
+        "browser_length": 29,
+        "http_length": 29
+      },
+      "deadline_at": {
+        "equal": false,
+        "browser_state": "present",
+        "http_state": "absent"
+      }
+    },
+    "all_fields_equal": false,
+    "four_fields_verified": false,
+    "browser_result_sha256": "27b53e87c64f5a0496c69a7cb4b9acbf5ee792d09eb7b670386a98ef30bdf219",
+    "http_result_sha256": "92a67099ab53dff8923250eb5eb2fd6eaec006c70684be1ec951bed5196d6d31",
+    "raw_content_saved": false,
+    "mode": "dynamic",
+    "captured_at": "2026-11-11T00:29:22.607025+00:00",
+    "requests": [
+      {
+        "kind": "robots",
+        "path": "/robots.txt",
+        "status": 200,
+        "wire_bytes": 22,
+        "decoded_bytes": 22,
+        "started_mono": 518955.672231541,
+        "finished_mono": 518955.673050125,
+        "utc": 1794356962.495023
+      },
+      {
+        "kind": "content",
+        "path": "/mod/assign/view.php",
+        "status": 200,
+        "wire_bytes": 683,
+        "decoded_bytes": 683,
+        "started_mono": 518955.775157416,
+        "finished_mono": 518955.776151416,
+        "utc": 1794356962.598124
+      }
+    ]
+  }
+]
