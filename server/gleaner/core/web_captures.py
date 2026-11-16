@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
+from .capture_context import CaptureFence
 from .monitors import ContractError, compact, digest, raw_content, string, web_url
 from .pipeline import Pipeline, owner_prefix
 from .source_identity import account_identity
@@ -219,6 +220,7 @@ class WebCaptureService:
         self.on_capture: Callable[..., Any] | None = None
         self.validate_reading: Callable[..., Any] | None = None
         self.guard_reading: Callable[..., Any] | None = None
+        self.fence = CaptureFence(db)
 
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         async def handle(req: Request, user: dict[str, Any]) -> Response:
@@ -286,7 +288,9 @@ class WebCaptureService:
         self, uid: int, body: Any, *, from_reading_job: bool = False
     ) -> dict[str, Any]:
         value = self.contract.validate(
-            {k: v for k, v in body.items() if k != "reading"} if isinstance(body, dict) else body
+            {k: v for k, v in body.items() if k not in {"reading", "capture_generation"}}
+            if isinstance(body, dict)
+            else body
         )
         if isinstance(body, dict) and "reading" in body:
             if not self.validate_reading:
@@ -302,6 +306,8 @@ class WebCaptureService:
         binding, source = value["source_binding"], value["source"]
         identity = digest(self.contract.identity(value))
         async with self.db.transaction():
+            if not from_reading_job:
+                await self.fence.guard(uid, body.get("capture_generation", 0))
             if "reading" in body and self.guard_reading:
                 await self.guard_reading(uid, body, self.contract.capture_kind)
             previous = await self.db.fetchone(

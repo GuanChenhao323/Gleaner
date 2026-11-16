@@ -21,7 +21,7 @@
 ## 4. 输出
 - 账号核对：返回绑定和脱敏显示，只有实际 DOM 核对通过才显示已绑定；后台能力另需重读测试。
 - 来源删除：{schema_version:1,ok:true,source_id,deleted:true,trashed_item_ids:[...]}；事务撤销任务、增加 revision、停调度，保留底层资料和访问权。
-- 移入最后一份关联资料后暂停该 owner 的来源并撤销租约；恢复保留暂停，由用户恢复检查。回收站不提供本轮永久清除，避免共享资料级联损坏。
+- 移入最后一份关联资料后暂停该 owner 的来源并撤销租约；恢复保留暂停，由用户恢复检查。个人回收站仍不提供逐资料物理删除；已删除来源可按[永久删除契约](source-permanent-delete-v1.md)一并清理本人独有资料，先确认范围并拒绝共享资料级联删除。
 - GET /api/v1/reading-sources/deleted 返回当前 owner 的墓碑摘要；POST .../{id}/restore 输入 {revision:int}，恢复后 revision+1、paused=true、verified=false、mode=manual，需重新测试。恢复来源不恢复回收站资料，且旧租约仍无效。相同 revision 的立即重试返回同一恢复确认；配置再次改变后返回 revision_conflict。
 - 已删除来源不在活动列表列出、不接收 check/config/result；历史资料仍可打开。旧请求 receipt 可能可查询，但重试不能重新创建来源。
 - 失败使用现有严格 envelope；过期租约 409、账号不符 409、跨用户 404。HTTP200 空对象不算成功。

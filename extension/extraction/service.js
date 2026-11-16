@@ -35,7 +35,7 @@ export class PageExtractionService {
     else {try {intent={...this.parser.parse(input.query),match_scope:scope};}catch(e){if(!site.local)throw e;intent=new LiteralIntentParser().parse(input.query,scope);}}
     if(site.source!=='generic' && scope!=='content')throw Error('unsupported_query');
     if(!(await this.browser.permissions.contains({origins:[new URL(url).origin+'/*']}))) throw Error('permission_denied');
-    const values={schema_version:2,tabId:tab.id,url,query:intent.query,match_scope:scope,intent,choice:input.choice || ''};
+    const values={capture_generation:input.capture_generation || 0,schema_version:2,tabId:tab.id,url,query:intent.query,match_scope:scope,intent,choice:input.choice || ''};
     const task=await this.repository.create(this.owner(cfg),{...values,signature:JSON.stringify(values)},input.request_id);
     if(task.fresh) this.queue=this.queue.then(()=>this.run(cfg,task)).catch(()=>{});
     return {id:task.id};
@@ -97,6 +97,7 @@ export class PageExtractionService {
         if(!task.result.binding)throw Error('account_unknown');
         if(task.submission)return task.submission;
         const payload=new TimelineCapturePayload().create(resident?.task || task);
+        payload.capture_generation=task.capture_generation || 0;
         payload.reading=resident?.reading || new ReadingRecipeFactory().create(task);
         if(!payload.reading || !this.enqueueTimeline)throw Error('reading_unavailable');
         const submission=await this.enqueueTimeline(cfg,payload);
@@ -113,6 +114,7 @@ export class PageExtractionService {
         if(task.submission)return task.submission;
         const payload=new WebCapturePayload().create(resident?.task || task,binding);
         const reading=resident?.reading || new ReadingRecipeFactory().create(task,binding);
+        payload.capture_generation=task.capture_generation || 0;
         if(reading)payload.reading=reading;
         await this.repository.update(owner,task.id,{save_binding:binding});
         if(!this.enqueueWeb)throw Error('worker_unavailable');
@@ -127,7 +129,7 @@ export class PageExtractionService {
       if(task.submission) return task.submission;
       const result=await this.enqueue(cfg,{request_id:task.id,tabId:task.tabId,binding:task.result.binding,
         selected:candidates.map(c=>({...c.target,candidate_id:c.candidate_id,needs_detail:false})),enabled:false,
-        reading:resident?.reading || new ReadingRecipeFactory().create(task)});
+        capture_generation:task.capture_generation || 0,reading:resident?.reading || new ReadingRecipeFactory().create(task)});
       await this.repository.update(owner,task.id,{submission:result}); return result;
     }
     throw Error('unknown_message');

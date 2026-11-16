@@ -11,10 +11,12 @@ from typing import Any
 
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
+from .capture_context import CaptureFence
 from .monitors import BrowserMonitorService, ContractError, digest, string
 from .reading_contract import FAILURES, INTERVALS, ReadingRecipe, semantic_snapshot
 from .reading_schedule import ReadingSchedule
 from .resident_contract import ResidentContract
+from .source_purge import SourcePurgeService
 from .web_captures import WebCaptureService
 
 MESSAGES = {
@@ -23,6 +25,12 @@ MESSAGES = {
     "account_unknown": "来源标签无法核对网站账号，请在原网页手动采集。",
     "source_deleted": "信息源已删除；资料与历史按删除时的选择保留。",
     "source_missing": "原资料已删除，不会自动重新创建。",
+    "recapture_required": "关联资料已彻底删除，请在原网页重新提取并保存。",
+    "delete_first": "请先将来源移入已删除来源，再彻底删除。",
+    "shared_document": "资料仍被其他账号或公共来源使用，不能物理删除。",
+    "invalid_purge_plan": "删除确认无效，请重新查看删除范围。",
+    "purge_plan_expired": "删除确认已过期，请重新查看删除范围。",
+    "purge_plan_changed": "关联资料或来源状态已变化，请重新确认删除范围。",
     "stale_lease": "任务已过期或配置已改变，结果没有写入。",
     "not_found": "来源或任务不存在，或不属于当前账号。",
     "invalid_request": "来源检查请求格式异常。",
@@ -42,6 +50,9 @@ class ReadingSourceService:
     ) -> None:
         self.db, self.web, self.native, self.timeline = db, web, native, timeline
         self.recipes = ReadingRecipe()
+        self.fence = CaptureFence(db)
+        self.purging = SourcePurgeService(db, self)
+        self.notify_purge: Callable[..., Any] | None = None
         self.schedule = schedule or ReadingSchedule()
         self.change_state: Callable[..., Any] | None = None
 
@@ -52,6 +63,9 @@ class ReadingSourceService:
     def register(self, router: Router, authed: Callable[..., Any]) -> None:
         operations = [
             ("GET", "/api/v1/reading-sources", "list_sources"),
+            ("GET", "/api/v1/capture-context", "capture_context"),
+            ("GET", "/api/v1/reading-sources/{id}/purge-preview", "purge_preview"),
+            ("POST", "/api/v1/reading-sources/{id}/purge", "purge"),
             ("GET", "/api/v1/reading-sources/deleted", "deleted_sources"),
             ("POST", "/api/v1/reading-sources/{id}/restore", "restore"),
             ("PUT", "/api/v1/reading-sources/{id}", "configure"),
@@ -92,6 +106,15 @@ class ReadingSourceService:
 
         for method, path, operation in operations:
             router.add(method, path, authed(handler(operation)))
+
+    async def capture_context(self, uid: int) -> dict[str, Any]:
+        return await self.fence.context(uid)
+
+    async def purge_preview(self, uid: int, sid: int) -> dict[str, Any]:
+        return await self.purging.preview(uid, sid)
+
+    async def purge(self, uid: int, sid: int, body: Any) -> dict[str, Any]:
+        return await self.purging.purge(uid, sid, body)
 
     async def own(self, uid: int, sid: int, *, include_deleted: bool = False) -> dict[str, Any]:
         row = await self.db.fetchone(
@@ -286,6 +309,8 @@ class ReadingSourceService:
             row = await self.own(uid, sid)
             if row["revision"] != body["revision"]:
                 raise ContractError("revision_conflict", 409)
+            if row["last_result"] == "documents_purged":
+                raise ContractError("recapture_required", 409)
             if not await self.has_items(sid):
                 raise ContractError("source_missing", 409)
             for peer in await self.peers(row):
@@ -559,6 +584,8 @@ class ReadingSourceService:
             row = await self.own(uid, sid)
             if row["revision"] != body["revision"]:
                 raise ContractError("revision_conflict", 409)
+            if row["last_result"] == "documents_purged":
+                raise ContractError("recapture_required", 409)
             if not await self.has_items(sid):
                 raise ContractError("source_missing", 409)
             if body["mode"] == "periodic" and not body["paused"] and not row["verified"]:
@@ -593,6 +620,8 @@ class ReadingSourceService:
             row = await self.own(uid, sid)
             if row["revision"] != body["revision"]:
                 raise ContractError("revision_conflict", 409)
+            if row["last_result"] == "documents_purged":
+                raise ContractError("recapture_required", 409)
             if not await self.has_items(sid):
                 raise ContractError("source_missing", 409)
             if loads(row["recipe"])["binding"][
@@ -888,6 +917,7 @@ class ReadingSourceService:
         if set(body) != allowed or type(body.get("revision")) is not int:
             raise ContractError("invalid_request")
         async with self.db.transaction():
+            await self.fence.lock(uid)
             job = await self.db.fetchone(
                 "SELECT * FROM reading_jobs WHERE owner_id = ? AND id = ?", uid, jid
             )
@@ -968,7 +998,7 @@ class ReadingSourceService:
                                 )
                             else:
                                 receipt = await (self.web if generic else self.native).capture(
-                                    uid, value
+                                    uid, value, from_reading_job=True
                                 )
                             if any(r["status"] == "failed" for r in receipt["results"]):
                                 raise ContractError("capture_failed", 409)

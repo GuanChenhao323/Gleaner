@@ -13,6 +13,7 @@ import '../../widgets/common.dart';
 import 'package:go_router/go_router.dart';
 
 import 'reading_source.dart';
+import 'source_purge.dart';
 import 'reading_source_card.dart';
 import 'resident_source_group.dart';
 import 'campus_source_entries.dart';
@@ -26,7 +27,7 @@ class SourcesPage extends ConsumerWidget {
   ) async {
     try {
       await action();
-      if (context.mounted) toast(context, message);
+      if (context.mounted && message.isNotEmpty) toast(context, message);
     } catch (e) {
       if (context.mounted) toast(context, '$e', error: true);
     }
@@ -80,6 +81,55 @@ class SourcesPage extends ConsumerWidget {
     }, trashItems ? '来源已删除，关联资料已移入回收站。' : '来源已删除，资料与历史保留。');
   }
 
+  Future<void> _purge(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> source,
+  ) async {
+    await _act(context, () async {
+      final repo = ref.read(readingRepositoryProvider);
+      final plan = await repo.purgePreview(source['id'] as int);
+      if (!context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (c) => SourcePurgeDialog(
+          plan: plan,
+          title: '${(source['recipe'] as Map)['query']}',
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+      if (!identical(repo, ref.read(readingRepositoryProvider))) {
+        throw StateError("工作台账号已变化，请重新确认。");
+      }
+      final result = await repo.purge(plan);
+      if (!identical(repo, ref.read(readingRepositoryProvider))) return;
+      String? cleanupError;
+      try {
+        await ref
+            .read(feedProvider.notifier)
+            .forgetPermanently(result.itemIds, result.generation);
+      } catch (e) {
+        cleanupError = '$e';
+      }
+      for (final id in result.itemIds) {
+        ref.invalidate(versionsProvider(id));
+      }
+      ref.invalidate(deletedReadingSourcesProvider);
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+      await ref.read(readingSourcesProvider.notifier).refresh();
+      if (context.mounted) {
+        toast(
+          context,
+          cleanupError == null
+              ? '来源、关联资料与历史已彻底删除。请重新提取后保存。'
+              : '服务器已彻底删除；本机缓存清理待重试：$cleanupError',
+          error: cleanupError != null,
+        );
+      }
+    }, '');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final deleted = ref.watch(deletedReadingSourcesProvider);
@@ -94,6 +144,7 @@ class SourcesPage extends ConsumerWidget {
       });
       ref.invalidate(sourcesProvider);
       ref.invalidate(legacyCapturesProvider);
+      ref.invalidate(deletedReadingSourcesProvider);
     }
 
     return Scaffold(
@@ -277,13 +328,44 @@ class SourcesPage extends ConsumerWidget {
                 error: (e, _) => Text('已删除来源暂不可用：$e'),
                 data: (values) => ExpansionTile(
                   title: Text('已删除来源（${values.length}）'),
-                  subtitle: const Text('手动恢复后保持暂停；回收站资料需单独恢复。'),
-                  children: [for (final value in values) ListTile(
-                    title: Text('${(value['recipe'] as Map)['query']}'),
-                    subtitle: const Text('检查已停止 · 资料与历史按原选择保留'),
-                    trailing: TextButton.icon(icon: const Icon(Icons.restore), label: const Text('恢复来源'), onPressed: () => _act(context,
-                      () => controller.restore(value['id'] as int, value['revision'] as int), '来源已恢复并暂停；请重新测试重读。')),
-                  )],
+                  subtitle: const Text('恢复后保持暂停；彻底删除会永久清除关联资料与历史。'),
+                  children: [
+                    for (final value in values)
+                      ListTile(
+                        title: Text('${(value['recipe'] as Map)['query']}'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('检查已停止 · 资料与历史按原选择保留'),
+                            Wrap(
+                              spacing: 12,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(Icons.restore),
+                                  label: const Text('恢复来源'),
+                                  onPressed: () => _act(
+                                    context,
+                                    () => controller.restore(
+                                      value['id'] as int,
+                                      value['revision'] as int,
+                                    ),
+                                    '来源已恢复并暂停；请重新测试重读。',
+                                  ),
+                                ),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: cs.error,
+                                  ),
+                                  icon: const Icon(Icons.delete_forever),
+                                  label: const Text('彻底删除'),
+                                  onPressed: () => _purge(context, ref, value),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
               if (oldCaptures.isNotEmpty ||

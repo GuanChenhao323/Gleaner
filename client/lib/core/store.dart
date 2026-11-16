@@ -79,10 +79,13 @@ class FeedStore extends Notifier<FeedState> {
   Timer? _reconnect;
   Timer? _syncDebounce;
   Timer? _ackTimer;
+  Timer? _erasureTimer;
   int _backoff = 1;
   int _pendingAck = 0;
   bool _disposed = false;
   final _uuid = const Uuid();
+  final Set<int> _erasedIds = {};
+  Future<void>? _erasureSync;
 
   Api get _api => ref.read(apiProvider);
   LocalDb get _db => ref.read(localDbProvider);
@@ -93,11 +96,17 @@ class FeedStore extends Notifier<FeedState> {
       _disposed = true;
       _reconnect?.cancel();
       _syncDebounce?.cancel();
+      _erasureTimer?.cancel();
       _wsSub?.cancel();
       _ws?.sink.close();
     });
     final token = ref.watch(sessionProvider.select((s) => s.token));
     if (token != null) {
+      _erasureTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+        reconcileErasure().catchError((Object e) {
+          debugPrint('erasure reconciliation failed: $e');
+        });
+      });
       Future.microtask(_bootstrap);
     }
     return const FeedState();
@@ -126,8 +135,42 @@ class FeedStore extends Notifier<FeedState> {
     }
   }
 
+  Future<void> reconcileErasure() => _erasureSync ??=
+      _reconcileErasure().whenComplete(() => _erasureSync = null);
+
+  Future<void> _reconcileErasure() async {
+    final api = _api, session = ref.read(sessionProvider);
+    final context = await api.captureContext(), generation = context['generation'];
+    if (_disposed || !identical(api, _api)) return;
+    if (generation is! int || context['item_ids'] is! List) {
+      throw const FormatException('采集代次响应异常');
+    }
+    final key = 'capture_generation:${session.server}|${session.me?.id ?? 'current'}';
+    if (await _db.getKv(key) == '$generation') return;
+    final keep = (context['item_ids'] as List).cast<int>().toSet();
+    _erasedIds.addAll(state.items.keys.where((id) => !keep.contains(id)));
+    final next = {...state.items}..removeWhere((id, _) => !keep.contains(id));
+    state = state.copyWith(items: next);
+    final cleared = await _cache(() async {
+      await _db.retainItems(keep);
+      await _db.setKv(key, '$generation');
+    });
+    if (!cleared) throw StateError('本地缓存清理失败，请重新连接后重试。');
+  }
+
+  Future<void> forgetPermanently(List<int> ids, int generation) async {
+    _erasedIds.addAll(ids);
+    final next = {...state.items}..removeWhere((id, _) => ids.contains(id));
+    state = state.copyWith(items: next);
+    final cleared = await _cache(() => _db.forgetItems(ids));
+    if (!cleared) throw StateError('本地缓存清理失败，请重新连接后重试。');
+    await reconcileErasure();
+    await refreshAll();
+  }
+
   Future<void> refreshAll() async {
     try {
+      await reconcileErasure();
       final all = <int, Item>{};
       String? cursor;
       int syncCursor = state.cursor;
@@ -209,10 +252,18 @@ class FeedStore extends Notifier<FeedState> {
       case 'welcome':
         _backoff = 1;
         state = state.copyWith(conn: Conn.online, node: m['node'] as String?, lastSync: DateTime.now());
-        flushPending();
+        reconcileErasure().then((_) {
+          if (!_disposed) {
+            flushPending();
+            _scheduleSync();
+          }
+        }).catchError((Object e) { debugPrint('erasure sync failed: $e'); });
         _scheduleSync(); // 兜底：补齐握手期间可能错过的投递
       case 'item' || 'change' || 'reminder':
         _applyItemPayload(m);
+      case 'purged':
+        forgetPermanently((m['item_ids'] as List).cast<int>(), m['generation'] as int)
+            .catchError((Object e) { debugPrint('purge cache failed: $e'); });
       case 'state':
         _applyState(m);
       case 'source_status':
@@ -235,6 +286,10 @@ class FeedStore extends Notifier<FeedState> {
     if (j is Map) {
       final incoming = Map<String, dynamic>.from(j);
       final id = incoming['id'] as int;
+      if (_erasedIds.contains(id)) {
+        _advance(m);
+        return;
+      }
       final old = state.items[id];
       final it = old == null ? Item.fromJson(incoming) : old.merge(incoming);
       state = state.copyWith(items: {...state.items, id: it});

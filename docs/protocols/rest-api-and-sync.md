@@ -97,3 +97,10 @@ GET `/api/feed?filter=trash` 使用既有分页语义返回当前用户 hidden=1
 ## 专用监测页扩展（0.12）
 
 [IC-RESIDENT-001](../architecture/resident-monitoring-v1.md)扩展既有条件来源接口：`POST /api/v1/reading-sources/{id}/activate` 接收 `{revision,interval_s}`，只排队首次实际刷新；claim可返回同页companions，逐租约幂等确认。保存响应的 `monitoring.state=starting` 仅表示启动请求。实际成功后才设置成功时间及下次计划。Cookie不上传，opaque session/page引用不证明网站账号已认证。旧手动模式和删除／恢复修订规则保留。
+
+
+## 已删除来源永久清理（0.13）
+
+GET `/api/v1/reading-sources/{id}/purge-preview` 返回5分钟有效的签名影响计划；POST `.../{id}/purge` 输入 `{plan,token,confirm:true}`，事务校验所有权、软删除状态、修订与影响，清理本人独有的来源／资料／版本／任务／回执后增加账号采集代次。响应含 `purged:true,item_ids,generation`；同有效计划重试可确认已不存在，不持久保留清理回执或来源墓碑。
+
+GET `/api/v1/capture-context` 提供代次、当前可访问资料ID、来源／监测修订及保留页面引用；不含 Cookie。三种 typed capture 端点新增外层 `capture_generation`，缺省0兼容从未清理的旧账号；旧代次409 `capture_context_changed`。后台租约结果不受无关代次变更影响。完整输入、错误及联动规则见[IC-SOURCE-PURGE-001](../architecture/source-permanent-delete-v1.md)。

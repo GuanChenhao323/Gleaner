@@ -85,6 +85,8 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
               fact('匹配范围', s.scope),
               fact('关联资料', '${s.matchCount} 条匹配 · ${s.items.length} 份资料'),
               heading('02 · 来源会话与后台重读'),
+              if (s.result == 'documents_purged')
+                const Text('部分关联资料已经彻底删除。请先在原网页重新提取并保存，确认新的采集范围。'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -121,7 +123,10 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                             label: Text(s.isPublic ? '打开原网页' : '去原站登录'),
                           ),
                           FilledButton.icon(
-                            onPressed: busy || s.active
+                            onPressed:
+                                busy ||
+                                    s.active ||
+                                    s.result == 'documents_purged'
                                 ? null
                                 : () => act(
                                     () => controller.activate(s, period),

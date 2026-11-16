@@ -1,6 +1,12 @@
 # 浏览器插件｜输入条件、匹配预览与明确保存
 
-更新：2026-11-16，扩展 **0.12.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+更新：2026-11-16，扩展 **0.13.0**。需求以 [产品定义](product-definition.md) 为准；内部契约见 [IC-EXTRACTION-001 v2.3](architecture/page-extraction-v1.md)，网络保存见 [IC-BROWSER-001](architecture/browser-capture-v1.md)。
+
+## 已删除来源与重新采集（0.13.0）
+
+工作台“已删除来源”提供恢复与彻底删除。彻底删除会永久清除目标来源、关联资料／历史和检查记录；先显示签名影响范围，并要求独立勾选确认。此前该工作台账号的未完成预览统一失效，插件联网后清理旧草稿、提交回执、无用绑定与失效任务缓存，再携带新采集代次提取。无关资料与监测规则保留，其他账号隔离，学校 Cookie 不变。涉及同账号其他规则引用时，确认框列出一并移除的空规则或需要暂停重采的规则。
+
+保存被 `source_deleted` 拒绝时，显示“管理已删除来源”和“重新提取”，不再引导检查连接或显示正在保存。新代次旧请求返回 `capture_context_changed`；后台检查仍使用原租约和修订，不能因无关清理中断。接口与离线边界见[IC-SOURCE-PURGE-001](architecture/source-permanent-delete-v1.md)。
 
 ## 当前默认流程：保存并开启定期监测（0.12.0）
 

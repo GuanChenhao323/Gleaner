@@ -16,7 +16,7 @@ export class ReadingJobExecutor {
         for(const job of active.jobs || [active.job]) {
           const path=`/api/v1/reading-jobs/${job.id}/result`;
           const rows=await this.outbox.all();
-          if(!rows.some(r=>r.scope===owner(cfg)&&r.path===path))await this.outbox.add(cfg,path,{schema_version:1,device_id,lease:job.lease,revision:job.revision,status:'worker_interrupted'});
+          if(!rows.some(r=>r.scope===owner(cfg)&&r.path===path))await this.outbox.add(cfg,path,{schema_version:1,device_id,lease:job.lease,revision:job.revision,status:'worker_interrupted'},{reading_source_id:job.source_id});
         }
       }
       await this.storage.remove('readingActiveJob');
@@ -34,7 +34,7 @@ export class ReadingJobExecutor {
         try {if(prepareError)throw prepareError;payload={...payload,status:'success',...await this.reader.read(item)};}
         catch(e){payload.status=failures.has(e.message)?e.message:'failed';}
         if(owner(await this.config())!==owner(cfg))return;
-        await this.outbox.add(cfg,`/api/v1/reading-jobs/${item.id}/result`,payload);
+        await this.outbox.add(cfg,`/api/v1/reading-jobs/${item.id}/result`,payload,{reading_source_id:item.source_id});
       }
     } finally {this.reader.end?.();}
     await this.storage.remove('readingActiveJob');

@@ -155,6 +155,26 @@ class Api {
     return (result['sources'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
   }
 
+  Future<Map<String, dynamic>> captureContext() async {
+    final result = await _browser('GET', '/api/v1/capture-context');
+    if (result['generation'] is! int || result['generation'] < 0 ||
+        result['item_ids'] is! List ||
+        (result['item_ids'] as List).any((v) => v is! int || v <= 0)) {
+      throw ApiException(502, 'invalid_response', '采集代次响应异常，未清理本地缓存。');
+    }
+    return result;
+  }
+
+  Future<Map<String, dynamic>> purgeReadingPreview(int id) => _browser('GET','/api/v1/reading-sources/$id/purge-preview');
+
+  Future<Map<String, dynamic>> purgeReading(int id, Map<String,dynamic> body) async {
+    final result=await _browser('POST','/api/v1/reading-sources/$id/purge',data:body);
+    if(result['source_id']!=id || result['purged']!=true || result['generation'] is! int || result['item_ids'] is! List || (result['item_ids'] as List).any((v)=>v is! int || v<=0)) {
+      throw ApiException(502,'invalid_response','永久删除未获确认，请刷新核对。');
+    }
+    return result;
+  }
+
   Future<void> restoreReading(int id, int revision) async {
     final result = await _browser('POST', '/api/v1/reading-sources/$id/restore', data: {'revision':revision});
     if (result['source_id'] != id || result['restored'] != true || result['paused'] != true || result['revision'] != revision + 1) {

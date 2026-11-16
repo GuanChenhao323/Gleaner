@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
 import '../../core/session.dart';
+import 'source_purge.dart';
 
 String readingResultLabel(String value) => switch (value) {
+  'documents_purged' => '关联资料已彻底删除 · 请在原网页重新提取',
   'starting' => '自动监测启动中 · 等待首次刷新',
   'user_busy' => '监测页正在编辑 · 延后刷新',
   'tab_missing' => '监测页已关闭 · 请打开原页后重新绑定',
@@ -125,6 +127,8 @@ abstract interface class ReadingSourceRepository {
   Future<void> remove(ReadingSource source, bool trashItems);
   Future<List<Map<String, dynamic>>> deleted();
   Future<void> restore(int id, int revision);
+  Future<SourcePurgePlan> purgePreview(int id);
+  Future<SourcePurgeResult> purge(SourcePurgePlan plan);
   Future<List<Map<String, dynamic>>> checks(int id);
 }
 
@@ -145,6 +149,20 @@ class ApiReadingSourceRepository implements ReadingSourceRepository {
       api.checkReading(source.id, source.revision, purpose);
   @override
   Future<List<Map<String, dynamic>>> deleted() => api.deletedReadingSources();
+  @override
+  Future<SourcePurgePlan> purgePreview(int id) async =>
+      SourcePurgePlan.fromJson(await api.purgeReadingPreview(id));
+  @override
+  Future<SourcePurgeResult> purge(SourcePurgePlan plan) async {
+    final value = await api.purgeReading(plan.sourceId, plan.body);
+    final result = SourcePurgeResult.fromJson(value);
+    if (result.itemIds.join(',') != plan.itemIds.join(',') ||
+        result.generation <= plan.generation) {
+      throw const FormatException('永久删除范围未获完整确认');
+    }
+    return result;
+  }
+
   @override
   Future<void> restore(int id, int revision) =>
       api.restoreReading(id, revision);

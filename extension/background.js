@@ -1,3 +1,4 @@
+import {CaptureContextSync} from './lifecycle/capture-context.js';
 import {ResidentTabRegistry} from './monitoring/resident-registry.js';
 import {ResidentCycleReader} from './monitoring/resident-reader.js';
 import { request } from './lib/api.js';
@@ -34,7 +35,10 @@ const reentry=new PageReentry(chrome,storage,domReader);
 const residents=new ResidentTabRegistry(chrome,storage,domReader,accountKey);
 const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,
   reader:new ResidentCycleReader({browser:chrome,registry:residents,reader:domReader,verifier:new SourceSessionVerifier(accountKey),config,legacy:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey))}),reentry,config,device});
-const extraction = new PageExtractionService({ browser: chrome, repository: new DraftRepository(storage),
+const drafts=new DraftRepository(storage);
+const contexts=new CaptureContextSync({storage,repository:drafts,api:request});
+box.beforeFlush=cfg=>contexts.sync(cfg,{offline:true});
+const extraction = new PageExtractionService({ browser: chrome, repository: drafts,
   reader: domReader, config, accountKey, residents, findSubmission:recoverSubmission, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture,
   enqueueTimeline:(cfg,payload)=>enqueueCollection(cfg,payload,'/api/v1/timeline-captures') });
 // Content scripts have no reason to access Campus Radar tokens or private drafts.
@@ -101,7 +105,7 @@ async function legacyWake() {
   if (active) {
     // A terminated worker cannot assert a successful read. Persist an explicit failure for its lease.
     if (active.scope === scope(cfg) && !active.queued && !(await box.all()).some(r => r.path === `/api/v1/monitor-jobs/${active.job.id}/result` && (r.body?.lease === active.job.lease || r.state === 'confirmed'))) {
-      await box.add(cfg, `/api/v1/monitor-jobs/${active.job.id}/result`, { schema_version: 1, device_id: active.job.device_id, lease: active.job.lease, revision: active.job.revision, status: 'failed' });
+      await box.add(cfg, `/api/v1/monitor-jobs/${active.job.id}/result`, { schema_version: 1, device_id: active.job.device_id, lease: active.job.lease, revision: active.job.revision, status: 'failed' },{monitor_id:active.job.monitor_id});
     }
     await storage.remove('activeJob'); await box.flush(cfg);
   }
@@ -117,7 +121,7 @@ async function legacyWake() {
     const allowed = ['need_login', 'selection_missing', 'render_timeout', 'permission_denied', 'account_mismatch', 'unsupported', 'view_mismatch', 'route_mismatch'];
     payload.status = allowed.includes(e.message) ? e.message : 'failed';
   }
-  await box.add(cfg, `/api/v1/monitor-jobs/${job.id}/result`, payload);
+  await box.add(cfg, `/api/v1/monitor-jobs/${job.id}/result`, payload,{monitor_id:job.monitor_id});
   await storage.set({ activeJob: { scope: scope(cfg), job, queued: true } });
   await box.flush(cfg); await storage.remove('activeJob');
 }
@@ -153,6 +157,8 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (user.id !== cfg.uid || current.uid !== cfg.uid || current.server !== cfg.server) throw Error('backend_account_changed');
       return { state: 'connected', uid: user.id, email: user.email };
     }
+    if (m.type==='extract.start')return extraction.handle(cfg,{...m,capture_generation:await contexts.sync(cfg,{offline:true})});
+    if (m.type==='extract.save')await contexts.sync(cfg,{offline:true});
     if (m.type?.startsWith('extract.')) return extraction.handle(cfg, m);
     if (m.type === 'scan') {
       const page = await invoke(m.tabId, 'wait');
@@ -190,7 +196,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     throw Error('unknown_message');
   };
   // Reads have their own repository/reader queue; monitor navigation must not block popup queries.
-  const independent = ['config', 'connection.check', 'extract.start', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
+  const independent = ['config', 'connection.check', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
   (independent ? action() : serial(action)).then(value => reply({ ok: true, value }), e => reply({ ok: false, error: e.code || e.message }));
   return true;
 });
@@ -199,7 +205,7 @@ async function enqueueCapture(cfg, m) {
   if (m.selected.some(c => c.needs_detail)) throw Error('preview_required');
   const { device: id } = await device();
   const signature = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({binding:m.binding,selected:m.selected,enabled:m.enabled,reading:m.reading}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
-  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, reading:m.reading, state: 'pending' };
+  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, reading:m.reading, capture_generation:m.capture_generation || 0, state: 'pending' };
   const existing = (await storage.get('intents')).intents || [];
   const previous = existing.find(r => r.scope === scope(cfg) && r.id === intent.id);
   if (previous) {
@@ -244,7 +250,7 @@ async function processIntents(cfg) {
           locator: found.locator, raw: found.raw, recipe: found.recipe, supported: candidate.supported, enabled: Boolean(intent.enabled && candidate.supported) });
         intent.captured = targets; await storage.set({ intents });
       }
-      await box.add(cfg, '/api/v1/captures', { schema_version: 1, request_id: intent.id, device_id: (await device()).device, binding: intent.binding, targets, ...(intent.reading?{reading:intent.reading}:{}) });
+      await box.add(cfg, '/api/v1/captures', { schema_version: 1, request_id: intent.id, device_id: (await device()).device, binding: intent.binding, capture_generation:intent.capture_generation || 0, targets, ...(intent.reading?{reading:intent.reading}:{}) });
       intent.state = 'queued';
       delete intent.selected; delete intent.captured;
     } catch (e) { intent.state = 'failed'; intent.error = e.message; delete intent.selected; delete intent.captured; }

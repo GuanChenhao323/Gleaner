@@ -245,7 +245,7 @@ export class CaptureController {
   async poll() {
     if (this.polling || this.disposed) return;
     this.polling = true;
-    try {await this.checkPage();await this.refresh();if (this.cfg.uid && this.clock() - (this.connectionCheckedAt || 0) > 30000) void this.checkConnection();}
+    try {await this.checkPage();await this.restoreTask();if (this.cfg.uid && this.clock() - (this.connectionCheckedAt || 0) > 30000) void this.checkConnection();}
     finally {this.polling = false;}
   }
   async refresh(receipt = false) {
@@ -349,6 +349,7 @@ export class CaptureController {
     const displayTask = !task.submission && this.uncertainSave ? {...task, submission: {request_id: task.id}} : task;
     this.view.task(displayTask, {stale, monitoring:this.view.$('auto-monitor').checked, saving: this.busy(), onChoice: id => this.guard(() => this.capture(id))()});
     const receipt = this.view.receipt(this.entry, this.cfg, Boolean(task.submission || this.uncertainSave));
+    if(receipt.rejected)this.view.$('save-hint').textContent='本次提交已被拒绝，处理原因后请重新提取；查询不会再次提交。';
     this.view.$('refresh').hidden = !task.submission && !this.uncertainSave;
     if (receipt.state === 'unconfirmed') {
       if (receipt.auth) this.view.connection({state: 'expired', error: this.entry?.error});

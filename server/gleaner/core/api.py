@@ -145,6 +145,7 @@ class API:
         )
         self.reading = reading
         reading.change_state = self.apply_state
+        reading.notify_purge = self.publish
         native.guard_reading = web.guard_reading = timeline.guard_reading = reading.guard_capture
         native.on_capture = web.on_capture = timeline.on_capture = reading.attach
         native.validate_reading = web.validate_reading = timeline.validate_reading = (

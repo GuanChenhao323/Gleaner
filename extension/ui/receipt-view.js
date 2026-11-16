@@ -33,10 +33,12 @@ export class ReceiptView extends DomView {
     this.model = model;
     root.replaceChildren(); root.hidden = model.state === 'none';
     this.$('retry').hidden = model.state !== 'unconfirmed' || Boolean(model.rejected);
-    this.$('receipt-settings').hidden = model.state !== 'unconfirmed';
+    this.$('receipt-settings').hidden = model.state !== 'unconfirmed' || model.rejected;
     this.$('receipt-settings').textContent = model.auth ? '重新登录工作台' : '检查连接';
-    this.$('continue').hidden = !['success', 'partial'].includes(model.state);
-    this.$('workbench').hidden = !['success', 'partial'].includes(model.state);
+    this.$('continue').hidden = !['success', 'partial'].includes(model.state) && !model.rejected;
+    this.$('continue').textContent = model.rejected?'重新提取':'继续提取';
+    this.$('workbench').hidden = !['success', 'partial'].includes(model.state) && model.error!=='source_deleted';
+    this.$('workbench').textContent = model.error==='source_deleted'?'管理已删除来源':'在工作台查看';
     if (model.state === 'none') return model;
     if (model.state === 'pending') { root.append(this.node('p', '正在保存，等待后端确认…', 'muted')); return model; }
     if (model.state === 'unconfirmed') {

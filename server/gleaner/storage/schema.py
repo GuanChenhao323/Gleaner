@@ -219,6 +219,7 @@ SCHEMA: list[str] = [
 
 # 已有数据库的增量迁移：列已存在时忽略错误
 MIGRATIONS: list[str] = [
+    "ALTER TABLE users ADD COLUMN capture_generation INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reading_sources ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reading_sources ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reading_sources ADD COLUMN delete_result TEXT",

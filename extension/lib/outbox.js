@@ -3,7 +3,7 @@ export const scope = cfg => `${cfg.server}|${cfg.uid}`;
 export class Outbox {
   constructor(storage, api = request) { this.storage = storage; this.api = api; }
   async all() { return (await this.storage.get('outbox')).outbox || []; }
-  async add(cfg, path, body) {
+  async add(cfg, path, body, context) {
     const all = await this.all();
     let signature;
     if(body.request_id) {
@@ -13,11 +13,12 @@ export class Outbox {
     }
     const rows = [...all.filter(r => r.state !== 'confirmed'), ...all.filter(r => r.state === 'confirmed').slice(-15)];
     if (rows.length >= 60 || JSON.stringify(rows).length + JSON.stringify(body).length > 2000000) throw Error('outbox_full');
-    const entry = { id: crypto.randomUUID(), request_id: body.request_id, signature, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
+    const entry = { context, id: crypto.randomUUID(), request_id: body.request_id, signature, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
     await this.storage.set({ outbox: [...rows, entry] });
     return entry.id;
   }
   async flush(cfg) {
+    await this.beforeFlush?.(cfg);
     const rows = await this.all();
     for (const row of rows) {
       if (row.scope !== scope(cfg) || row.state !== 'pending' || row.next > Date.now()) continue;
@@ -32,6 +33,7 @@ export class Outbox {
         if (e.status === 401) row.state = 'auth_required';
         else if (e.status === 409) row.state = 'rejected';
         else if (row.attempts >= 3 || (e.status >= 400 && e.status < 500)) row.state = 'failed';
+        if (row.path.endsWith('/result') && [404,409].includes(e.status))delete row.body;
         row.next = Date.now() + 1000 * 2 ** row.attempts;
       }
       await this.storage.set({ outbox: rows });

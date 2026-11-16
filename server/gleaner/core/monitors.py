@@ -233,7 +233,9 @@ class BrowserMonitorService:
             "raw": raw_content(target.get("raw")),
         }
 
-    async def capture(self, uid: int, body: Any) -> dict[str, Any]:
+    async def capture(
+        self, uid: int, body: Any, *, from_reading_job: bool = False
+    ) -> dict[str, Any]:
         if (
             not isinstance(body, dict)
             or type(body.get("schema_version")) is not int
@@ -272,6 +274,10 @@ class BrowserMonitorService:
             self.validate_reading(body, "native")
         payload_hash = digest(body)
         async with self.db.transaction():
+            from .capture_context import CaptureFence
+
+            if not from_reading_job:
+                await CaptureFence(self.db).guard(uid, body.get("capture_generation", 0))
             if "reading" in body and self.guard_reading:
                 await self.guard_reading(uid, body, "native")
             prev = await self.db.fetchone(
@@ -670,6 +676,9 @@ class BrowserMonitorService:
         now = time.time()
         payload_hash = digest(body)
         async with self.db.transaction():
+            from .capture_context import CaptureFence
+
+            await CaptureFence(self.db).lock(uid)
             job = await self.db.fetchone(
                 "SELECT * FROM browser_jobs WHERE id = ? AND owner_id = ?", jid, uid
             )
