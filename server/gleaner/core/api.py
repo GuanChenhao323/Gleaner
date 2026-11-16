@@ -28,6 +28,7 @@ from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
 from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
+from .reading_schedule import ReadingSchedule
 from .reading_sources import ReadingSourceService
 from .templates import get_template, list_templates
 from .timeline_captures import TimelineCaptureContract
@@ -88,9 +89,16 @@ CLIP_MAX_TEXT = 100_000  # 插件上传正文上限（字符）
 
 class API:
     def __init__(
-        self, db: Database, pipeline: Pipeline, publish: Publish, *, fetcher: Fetcher | None = None
+        self,
+        db: Database,
+        pipeline: Pipeline,
+        publish: Publish,
+        *,
+        fetcher: Fetcher | None = None,
+        reading_schedule: ReadingSchedule | None = None,
     ) -> None:
         self.db = db
+        self.reading_schedule = reading_schedule
         self.pipeline = pipeline
         self.publish = publish
         self.fetcher = fetcher or Fetcher(min_interval=0.2)
@@ -132,7 +140,9 @@ class API:
         native = BrowserMonitorService(self.db, self.pipeline)
         web = WebCaptureService(self.db, self.pipeline)
         timeline = WebCaptureService(self.db, self.pipeline, TimelineCaptureContract())
-        reading = ReadingSourceService(self.db, web, native, timeline)
+        reading = ReadingSourceService(
+            self.db, web, native, timeline, schedule=self.reading_schedule
+        )
         self.reading = reading
         reading.change_state = self.apply_state
         native.guard_reading = web.guard_reading = timeline.guard_reading = reading.guard_capture

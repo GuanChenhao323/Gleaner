@@ -25,6 +25,8 @@ class ReadingSourceCard extends StatelessWidget {
     final warning =
         ![
           'not_executed',
+          'starting',
+          'user_busy',
           'restored',
           'documents_restored',
           'verified',
@@ -88,7 +90,7 @@ class ReadingSourceCard extends StatelessWidget {
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            s.isPublic ? '无需登录（声明）' : '需要登录',
+                            s.loginRequirement,
                             style: TextStyle(
                               fontSize: 12,
                               color: cs.onSurfaceVariant,
@@ -218,7 +220,7 @@ class ReadingSourceCard extends StatelessWidget {
                   TextButton.icon(
                     onPressed: onDelete,
                     icon: const Icon(Icons.delete_outline, size: 16),
-                    label: const Text('删除来源'),
+                    label: Text(s.resident ? '删除此规则' : '删除来源'),
                   ),
                 if (s.mode == 'periodic' && s.verified)
                   TextButton(
@@ -234,7 +236,7 @@ class ReadingSourceCard extends StatelessWidget {
                 else if (s.capability != 'account_unknown')
                   FilledButton.tonal(
                     onPressed: onSettings,
-                    child: const Text('设置检查'),
+                    child: const Text('启用自动监测'),
                   ),
               ],
             ),

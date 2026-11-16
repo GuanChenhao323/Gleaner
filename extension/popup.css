@@ -651,3 +651,5 @@ details.settings-panel:not([open]) {
     max-width: 68%;
   }
 }
+
+#monitor-options{margin-bottom:12px}.monitor-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600}.monitor-toggle input{width:auto;margin:0;accent-color:var(--primary,#386f5c)}#monitor-interval{width:auto;margin-left:12px;font-size:12px;padding:6px}#monitor-explanation{font-size:11px;line-height:1.5;margin:6px 0}

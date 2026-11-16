@@ -14,6 +14,7 @@ import 'package:go_router/go_router.dart';
 
 import 'reading_source.dart';
 import 'reading_source_card.dart';
+import 'resident_source_group.dart';
 import 'campus_source_entries.dart';
 
 class SourcesPage extends ConsumerWidget {
@@ -158,6 +159,30 @@ class SourcesPage extends ConsumerWidget {
           final oldSources = (legacy.value ?? <Source>[])
               .where((s) => s.type != 'browser')
               .toList();
+          final groups = <String, List<ReadingSource>>{};
+          for (final s in rows) {
+            groups.putIfAbsent(s.pageId ?? 'legacy-${s.id}', () => []).add(s);
+          }
+          Widget ruleCard(ReadingSource s) =>
+                ReadingSourceCard(
+                  source: s,
+                  onCheck: () => _act(
+                    context,
+                    () => controller.check(s, 'check'),
+                    '检查已排队；结果确认后更新状态。',
+                  ),
+                  onSettings: () => context.push('/sources/${s.id}/settings'),
+                  onDetails: () => context.push('/sources/${s.id}${s.result=='changed'?'?tab=changes':''}'),
+                  onLogs: () => context.push('/sources/${s.id}/checks'),
+                  onPause: () => _act(
+                    context,
+                    () =>
+                        controller.configure(s, s.settings(paused: !s.paused)),
+                    s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
+                  ),
+                  onOpen: () => launchUrl(Uri.parse(s.url)),
+                  onDelete: () => _remove(context, ref, s),
+                );
           return ListView(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
             children: [
@@ -189,13 +214,13 @@ class SourcesPage extends ConsumerWidget {
                       spacing: 16,
                       runSpacing: 14,
                       children: [
-                        metric('${rows.length}', '已保存来源'),
+                        metric('${groups.length}', '已保存页面'),
                         metric(
                           '${rows.where((s) => s.periodic).length}',
-                          '定期检查中',
+                          '定期规则',
                         ),
                         metric(
-                          '${rows.where((s) => !['not_executed', 'verified', 'unchanged', 'changed'].contains(s.result) || s.capability == 'account_unknown').length}',
+                          '${rows.where((s) => !['not_executed', 'verified', 'unchanged', 'changed', 'starting', 'user_busy'].contains(s.result) || s.capability == 'account_unknown').length}',
                           '需要处理',
                         ),
                         metric(
@@ -215,30 +240,35 @@ class SourcesPage extends ConsumerWidget {
                   padding: EdgeInsets.symmetric(vertical: 24),
                   child: Text('还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。'),
                 ),
-              for (final s in rows)
-                ReadingSourceCard(
-                  source: s,
-                  onCheck: () => _act(
-                    context,
-                    () => controller.check(s, 'check'),
-                    '检查已排队；结果确认后更新状态。',
-                  ),
-                  onSettings: () => context.push('/sources/${s.id}/settings'),
-                  onDetails: () => context.push('/sources/${s.id}${s.result=='changed'?'?tab=changes':''}'),
-                  onLogs: () => context.push('/sources/${s.id}/checks'),
-                  onPause: () => _act(
-                    context,
-                    () =>
-                        controller.configure(s, s.settings(paused: !s.paused)),
-                    s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
-                  ),
-                  onOpen: () => launchUrl(Uri.parse(s.url)),
-                  onDelete: () => _remove(context, ref, s),
-                ),
+              for (final group in groups.values)
+                if (group.first.resident)
+                  ResidentSourceGroup(
+                    rules: group,
+                    ruleCard: ruleCard,
+                    onSettings: () =>
+                        context.push('/sources/${group.first.id}/settings'),
+                    onCheck: () => _act(
+                      context,
+                      () => controller.check(group.first, 'check'),
+                      '整页检查已排队；同页规则共享刷新。',
+                    ),
+                    onPause: () => _act(
+                      context,
+                      () => controller.configure(
+                        group.first,
+                        group.first.settings(
+                          paused: !group.any((s) => s.paused),
+                        ),
+                      ),
+                      '整页监测计划已更新。',
+                    ),
+                  )
+                else
+                  ruleCard(group.first),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text(
-                  '关闭原网页不影响已授权检查。请保持 Chrome、扩展和本地后端运行；检查可能延后。',
+                  '专用监测标签页需要保持打开；可以关闭工作台页面。请保持Chrome、扩展和本地服务运行，检查可能延后。',
                   style: TextStyle(fontSize: 12),
                 ),
               ),

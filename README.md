@@ -8,7 +8,7 @@ Campus Radar 是当前产品名称；Gleaner／拾课保留为仓库、代码包
 
 ## 当前产品组成
 
-Chrome 插件（按条件提取与预览保存）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义；候选采集、持久后台和浏览器来源契约见 [插件说明](docs/browser-extension.md)。通用网页片段采用整组资料、来源标签和明确保存后版本更新；校园事项沿用原生身份。通用合成夹具见 `http://127.0.0.1:8098/generic`，接口见 [通用快照契约](docs/architecture/universal-web-capture-v1.md)。真实学校／Gmail DOM 和认证仍须另行验收。
+Chrome 插件（按条件提取与预览保存）→ 本地后端（结构化、分类、存储与监测协作）→ Flutter 工作台（查看、编辑、状态与来源变化）。具体流程和边界引用产品定义；候选采集、持久后台和浏览器来源契约见 [插件说明](docs/browser-extension.md)。通用网页片段采用整组资料和明确保存后版本更新；默认保存后绑定当前专用标签页，自动刷新验证并定期检查，同页多规则共享刷新，原站会话留在Chrome。保留仅保存一次，旧来源需显式启动；校园事项沿用原生身份。通用合成夹具见 `http://127.0.0.1:8098/generic`，接口见 [通用快照契约](docs/architecture/universal-web-capture-v1.md)。真实学校／Gmail DOM 和认证仍须另行验收。
 
 ## 既有课程技术架构
 
@@ -73,6 +73,16 @@ ruff check . && ruff format --check .
 ```bash
 python devtools/dev_all.py --seed
 ```
+
+需要脱离当前终端持续运行时，可从仓库根目录执行（不重置／seed现有数据库）：
+
+```bash
+.venv/bin/python devtools/local_service.py start all
+.venv/bin/python devtools/local_service.py status all
+.venv/bin/python devtools/local_service.py stop all
+```
+
+`all`包含本地完整栈与8098结构夹具；日志及PID记录在`data/local-services/`。只停止该启动器创建且命令／启动时间匹配的进程，端口占用不自动结束他人服务。启动后仍须核对HTTP与登录。QA可显式加`--fixture-reading-interval 60`，仅加速loopback来源且工作台显示测试标记，不改变真实网站周期；日常启动不要加此参数。
 
 浏览器打开 http://localhost:8080 ，演示账号 `demo@gleaner.test` / `demo12345`。
 fake_moodle 管理台 http://localhost:8090/admin 可以现场“提前截止时间”“替换附件”“发布通知”“发提醒邮件”“让会话失效”。

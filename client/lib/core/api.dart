@@ -176,6 +176,11 @@ class Api {
     }
   }
 
+  Future<void> activateReading(int id, int revision, int interval) async {
+    final result = await _browser('POST', '/api/v1/reading-sources/$id/activate', data: {'revision':revision, 'interval_s':interval});
+    if (result['source_id'] != id || result['status'] != 'queued') throw ApiException(502, 'invalid_response', '自动监测启动未获确认');
+  }
+
   Future<void> checkReading(int id, int revision, String purpose) async {
     final result = await _browser(
       'POST',

@@ -7,9 +7,10 @@ import {TimelineCapturePayload} from '../extraction/timeline-summary.js';
 export class SourceSessionVerifier {
   constructor(accountKey) {this.accountKey=accountKey;}
   async verify(recipe,result) {
-    if(recipe.binding.account_key==='unverified')throw Error('account_unknown');
+    if(recipe.binding.account_key==='unverified' && !recipe.resident)throw Error('account_unknown');
     if(result.source!==recipe.source)throw Error('route_mismatch');
     if(recipe.source==='generic') {
+      if(recipe.resident && recipe.binding.account_key==='unverified')return 'unverified';
       if(recipe.binding.account_key==='public') {
         if(new LoginRequirementPolicy().requiresLogin(recipe.url,result.account))throw Error('private_source_required');
         return 'public';
@@ -100,7 +101,7 @@ export class ConditionalPageReader {
     }
     if(result.save_mode==='timeline_summary')throw Error('view_mismatch');
     if(recipe.source==='generic') {
-      const binding=recipe.binding.account_key==='public'?{kind:'public',label:recipe.source_label}:{kind:'labeled',label:recipe.source_label,identity:{version:1,probe:recipe.account_probe.kind,display:recipe.account_probe.display,account_key}};
+      const binding=recipe.binding.account_key==='public'?{kind:'public',label:recipe.source_label}:{kind:'labeled',label:recipe.source_label,...(recipe.account_probe?{identity:{version:1,probe:recipe.account_probe.kind,display:recipe.account_probe.display,account_key}}:{})};
       const payload=new WebCapturePayload().create({id:crypto.randomUUID(),query:recipe.query,result},binding);
       // The backend retains the initial title and source identity. Only content changes.
       return {account_key,snapshot:payload};

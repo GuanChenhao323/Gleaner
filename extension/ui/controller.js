@@ -42,6 +42,8 @@ export class CaptureController {
     this.historical = false; this.closed = !tab.url;this.uncertainSave = Boolean(this.form.pending_save);if (this.uncertainSave) this.entry = {state:'failed',error:'worker_timeout'};
     this.view.$('query').value = this.form.query;
     this.view.select('match-scope', this.form.match_scope || 'content');
+    this.view.$('auto-monitor').checked = this.form.auto_monitor !== false;
+    this.view.select('monitor-interval', String(this.form.monitor_interval || 1800));
     this.view.restoreBinding(this.form.source_binding, this.form.binding_draft);
     this.showPage({...tab, url: this.form.url});
     this.view.status(this.form.read_error ? errorText(this.form.read_error) : '', Boolean(this.form.read_error));
@@ -67,6 +69,11 @@ export class CaptureController {
     for (const b of this.view.document.querySelectorAll('[data-scope]')) b.onclick = () => {
       if (this.busy()) return;
       this.view.select('match-scope', b.dataset.scope); this.edit();
+    };
+    for(const id of ['auto-monitor','monitor-interval']) $(id).onchange=()=>{
+      if(this.busy() || this.task?.submission)return;
+      this.form.auto_monitor=$('auto-monitor').checked;
+      this.form.monitor_interval=Number($('monitor-interval').value);void this.persist();this.render();
     };
     $('capture').onclick = this.guard(() => this.capture());
     $('save').onclick = this.guard(() => this.save());
@@ -300,7 +307,7 @@ export class CaptureController {
     this.uncertainSave = Boolean(this.form.pending_save);
     if (this.uncertainSave) this.entry = {state:'failed',error:'worker_timeout'};
     this.view.$('query').value = summary.query;this.view.select('match-scope', this.form.match_scope);
-    this.view.restoreBinding(this.form.source_binding, this.form.binding_draft);this.view.clear();this.showPage({url: summary.url, title: '历史预览 · ' + summary.query});
+    this.view.$('auto-monitor').checked=this.form.auto_monitor !== false;this.view.select('monitor-interval',String(this.form.monitor_interval || 1800));this.view.restoreBinding(this.form.source_binding, this.form.binding_draft);this.view.clear();this.showPage({url: summary.url, title: '历史预览 · ' + summary.query});
     await this.refresh(true);
     this.view.$('history-panel').hidden = true;this.view.$('drafts').setAttribute('aria-expanded','false');
   }
@@ -314,7 +321,8 @@ export class CaptureController {
     const task = this.task, query = this.view.$('query').value.trim(), generation = this.generation;
     if (query !== task.query || (task.intent?.match_scope || task.result?.intent?.match_scope || 'content') !== (this.view.$('match-scope').value || 'content')) throw Error('query_changed');
     if (this.view.authBlocked) throw Error('backend_login_required');
-    const binding = task.result?.source === 'generic' ? this.view.binding() : null;
+    const monitoring = this.view.$('auto-monitor').checked ? {mode:'resident',interval_s:Number(this.view.$('monitor-interval').value)} : null;
+    const binding = task.result?.source === 'generic' && !monitoring ? this.view.binding() : null;
     // Reserve the operation before the first await: rapid clicks must not enqueue twice.
     this.actionError = null;this.saving = true;this.render();
     try {
@@ -322,7 +330,7 @@ export class CaptureController {
       catch (e) {if (e.message === 'route_mismatch') throw e;}
       if (generation !== this.generation) return;
       let result;
-      try {result = await this.client.send({type: 'extract.save', id: task.id, query, ...(binding ? {source_binding: binding} : {})});}
+      try {result = await this.client.send({type: 'extract.save', id: task.id, query, ...(binding ? {source_binding: binding} : {}), ...(monitoring?{monitoring}:{})});}
       catch (e) {
         if (generation === this.generation && ['worker_timeout','worker_unavailable','backend_timeout','backend_unavailable'].includes(e.message)) {
           this.uncertainSave = true;this.form.pending_save = true;this.entry = {state: 'failed', error: e.message};
@@ -339,7 +347,7 @@ export class CaptureController {
   renderTask(task) {
     const stale = task.query !== this.view.$('query').value.trim() || (task.intent?.match_scope || task.result?.intent?.match_scope || 'content') !== (this.view.$('match-scope').value || 'content');
     const displayTask = !task.submission && this.uncertainSave ? {...task, submission: {request_id: task.id}} : task;
-    this.view.task(displayTask, {stale, saving: this.busy(), onChoice: id => this.guard(() => this.capture(id))()});
+    this.view.task(displayTask, {stale, monitoring:this.view.$('auto-monitor').checked, saving: this.busy(), onChoice: id => this.guard(() => this.capture(id))()});
     const receipt = this.view.receipt(this.entry, this.cfg, Boolean(task.submission || this.uncertainSave));
     this.view.$('refresh').hidden = !task.submission && !this.uncertainSave;
     if (receipt.state === 'unconfirmed') {

@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from .monitors import ContractError, compact, string, web_url
+from .resident_contract import ResidentContract
 from .source_identity import account_probe
 from .web_captures import normalized_query
 
@@ -25,6 +26,11 @@ FAILURES = {
     "worker_interrupted",
     "preview_only",
     "private_source_required",
+    "tab_missing",
+    "tab_rebind_required",
+    "tab_ambiguous",
+    "user_busy",
+    "single_account_conflict",
 }
 INTERVALS = {1800, 3600, 7200}
 
@@ -46,7 +52,7 @@ class ReadingRecipe:
         }
         if (
             not isinstance(value, dict)
-            or set(value) - (keys | {"source_label", "representation", "account_probe"})
+            or set(value) - (keys | {"source_label", "representation", "account_probe", "resident"})
             or not keys <= set(value)
             or type(value["version"]) is not int
             or value["version"] != 1
@@ -137,6 +143,8 @@ class ReadingRecipe:
             or value["match_scope"] != "content"
         ):
             raise ContractError("invalid_reading_recipe")
+        if "resident" in value:
+            recipe["resident"] = ResidentContract().validate(value["resident"])
         recipe.update(url=url, query=query)
         return recipe
 

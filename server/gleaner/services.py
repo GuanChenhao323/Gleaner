@@ -19,6 +19,7 @@ from .config import Config
 from .core.agent_hub import AgentHub
 from .core.api import API
 from .core.pipeline import Pipeline
+from .core.reading_schedule import ReadingSchedule
 from .core.reminders import publish_digests, send_due_reminders
 from .gateway.app import Gateway
 from .gateway.balancer import UpstreamPool
@@ -81,7 +82,7 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
         await hub.publish(topic, payload)
 
     pipe = Pipeline(db, route)
-    api = API(db, pipe, route)
+    api = API(db, pipe, route, reading_schedule=ReadingSchedule(cfg.fixture_reading_interval))
     router = Router()
     api.register(router)
 

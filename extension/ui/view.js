@@ -20,6 +20,9 @@ export class CaptureView extends DomView {
   ready(value) { this.initialized = value; this.controls(); }
   controls({saving = this.busy, reading = this.reading, historical = this.historical, closed = this.closed} = {}) {
     Object.assign(this, {busy: saving, reading, historical, closed});
+    this.$('auto-monitor').disabled = saving || Boolean(this.submitted);
+    this.$('monitor-interval').disabled = saving || Boolean(this.submitted) || !this.$('auto-monitor').checked;
+    this.$('monitor-explanation').hidden = !this.$('auto-monitor').checked;
     this.$('query').disabled = !this.initialized || saving || historical;
     this.$('clear-query').disabled = !this.initialized || saving || historical;
     this.$('capture').disabled = !this.initialized || saving || reading || historical || closed || this.restricted || this.authBlocked || !this.cfg?.uid || !this.$('query').value.trim();
@@ -76,12 +79,14 @@ export class CaptureView extends DomView {
   binding() { return this.source.get(); }
   restoreBinding(value, draft) { this.source.restore(value, draft); }
   clear() {
+    this.submitted=false;this.$('monitor-options').hidden=false;
     this.preview.clear(); this.$('save').disabled = true; this.$('save').hidden = true;
     this.$('refresh').hidden = true;
     this.source.render(); this.$('save-hint').textContent = '预览确认后再保存，不会自动采集整页。';
     this.receipt(null, this.cfg || {});
   }
   task(task, options = {}) {
+    this.submitted=Boolean(task?.submission);
     this.preview.render(task, options);
     if (task?.save_binding) this.source.restore(task.save_binding);
     this.source.requiresLogin = Boolean(task?.url && new LoginRequirementPolicy().requiresLogin(task.url, task.result?.account));
@@ -90,11 +95,13 @@ export class CaptureView extends DomView {
     this.source.render({visible: p.bindingVisible && !submitted, locked: Boolean(task?.save_binding) || options.saving});
     this.$('save').hidden = !p.count || !p.valid || submitted;
     this.$('save').disabled = !p.canSave || this.authBlocked;
-    this.$('save').textContent = p.timeline ? `保存为一份活动摘要（${p.count} 条）` : p.generic ? '保存为一份网页资料' : `保存匹配结果（${p.count}）`;
+    this.$('monitor-options').hidden = submitted;
+    this.$('save').textContent = options.monitoring ? `保存并开启定期监测` : p.timeline ? `保存为一份活动摘要（${p.count} 条）` : p.generic ? '保存为一份网页资料' : `保存匹配结果（${p.count}）`;
     if (p.count && !task.result.candidates.every(c => c.save_allowed)) this.$('save').textContent = this.preview.groups.previewGuidance(task.result.candidates).button;
     if(p.timeline && task.result.candidates.some(c=>c.save_reason==='account_unknown'))this.$('save').textContent='请登录原学校账号后重新提取';
     this.$('save-hint').textContent = p.oversize ? '匹配内容超过保存范围，请缩小条件；不会截断保存。'
       : submitted ? '已提交原预览，正在核对保存结果。'
+      : options.monitoring && p.count ? '先保存资料，自动刷新验证后启动；首次检查失败会显示原因，已有资料保留。'
       : p.count ? p.timeline ? '仅保存当前已加载的活动摘要及详情链接，不含作业完整正文；来源检查在工作台设置。' : p.generic ? `${p.count} 个网页片段合为一份资料，非完整文章或邮件；来源检查在工作台设置。` : '仅保存完整且身份明确的匹配事项；不启用监测。'
       : '预览确认后再保存，不会自动采集整页。';
     this.controls({saving: Boolean(options.saving), reading});

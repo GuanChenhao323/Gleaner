@@ -14,12 +14,12 @@ async function harness({permission=async()=>true,tabGet}={}) {
   let task;
   const browser={tabs:{query:async()=>[{id:1}],get:tabGet || (async()=>({id:1,url:'https://moodle.must.edu.mo/my/',title:'合成面板'}))},permissions:{request:permission,contains:async()=>true}};
   const client={send:async m=>{messages.push(m);if(m.type==='config')return cfg;if(m.type==='connection.check')return {state:'connected',uid:cfg.uid,email:cfg.email};if(m.type==='extract.start'){task={id:m.request_id,schema_version:2,state:'succeeded',query:m.query,result:{intent:{query:m.query},candidates:[candidate(1),candidate(2)]}};return {id:task.id};}if(m.type==='extract.get')return structuredClone(task);if(m.type==='extract.save'){task.submission={request_id:task.id};return task.submission;}if(m.type==='status')return {entries:[{request_id:task.id,state:'confirmed',response:{results:[{status:'new',item_id:11},{status:'new',item_id:12}]}}],intents:[]};if(m.type==='extract.list')return {tasks:[]};}};
-  const controller=new CaptureController({browser,client,forms,view,location:{href:'chrome-extension://test/popup.html'}});await controller.init();clearInterval(controller.timer);
+  const controller=new CaptureController({browser,client,forms,view,location:{href:'chrome-extension://test/popup.html'}});await controller.init();view.$('auto-monitor').checked=false;controller.form.auto_monitor=false;controller.render();clearInterval(controller.timer);
   return {controller,view,forms,messages,setTask:t=>task=t};
 }
 
 test('popup directly accepts query, previews two without checkboxes and explicitly saves entire batch',async()=>{
-  const h=await harness();assert.ok(h.view.$('query'));assert.equal(h.view.document.querySelectorAll('input[type="checkbox"]').length,0);
+  const h=await harness();assert.ok(h.view.$('query'));assert.equal(h.view.$('preview').querySelectorAll('input[type="checkbox"]').length,0);
   h.view.$('query').value='网络编程的作业';h.view.$('query').oninput();await h.controller.capture();assert.equal(h.messages.filter(m=>m.type==='extract.save').length,0);assert.equal(h.view.$('preview').querySelectorAll('article').length,2);assert.equal(h.view.$('save').disabled,false);
   await h.controller.save();const save=h.messages.find(m=>m.type==='extract.save');assert.deepEqual(Object.keys(save).sort(),['id','query','type']);assert.match(h.view.$('results').textContent,/新增 2/);assert.equal(h.view.$('save').disabled,true);
 });

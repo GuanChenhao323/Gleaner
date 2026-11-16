@@ -17,7 +17,7 @@ def test_default_extension_is_dom_only():
     ui = (root / "extension/popup.html").read_text()
     assert 'id="query"' in ui
     assert 'id="scope-options"' in ui
-    assert 'type="checkbox"' not in ui
+    assert 'id="auto-monitor" type="checkbox"' in ui
     assert "ax-option" not in ui
     assert "workspace.html" not in ui
     assert not (root / "extension/workspace.html").exists()

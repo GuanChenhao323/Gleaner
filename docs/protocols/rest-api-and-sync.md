@@ -92,3 +92,8 @@ POST `/api/v1/timeline-captures`，GET同路径列表及 `/{request_id}` 回执�
 DELETE `/api/v1/reading-sources/{id}` 输入 `{revision,trash_items}`，严格确认来源墓碑，默认保留资料和历史，逐项个人回收站在同事务执行。GET `/api/v1/reading-sources/deleted` 列出本用户墓碑；POST `.../{id}/restore` 输入 `{revision}`，显式恢复到暂停／未验证，旧租约仍无效。不存在／跨用户404，修订不符或墓碑拒绝409。既有私有资料的订阅访问保留，不使用会级联删除 items 的旧接口。
 
 GET `/api/feed?filter=trash` 使用既有分页语义返回当前用户 hidden=1 的资料；PUT `/api/items/{id}/state` 的布尔 hidden=true／false 对应移入回收站／恢复，沿用 op_id 幂等。本轮按钮在线严格确认，不以200空对象当成功。回收站不修改来源内容版本、不影响其他用户，日历／课程／摘要／提醒排除；最后一份资料移入时暂停相关来源。恢复任一对象均不自动启用周期。私人 generic source_binding.identity 与 reading.account_probe 的字段、错误及兼容详见 [完整契约](../architecture/source-identity-and-lifecycle-v1.md)。
+
+
+## 专用监测页扩展（0.12）
+
+[IC-RESIDENT-001](../architecture/resident-monitoring-v1.md)扩展既有条件来源接口：`POST /api/v1/reading-sources/{id}/activate` 接收 `{revision,interval_s}`，只排队首次实际刷新；claim可返回同页companions，逐租约幂等确认。保存响应的 `monitoring.state=starting` 仅表示启动请求。实际成功后才设置成功时间及下次计划。Cookie不上传，opaque session/page引用不证明网站账号已认证。旧手动模式和删除／恢复修订规则保留。

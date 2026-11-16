@@ -37,7 +37,8 @@ export async function panelHarness(options = {}) {
   async function boot() {
     const {document}=parseHTML(fs.readFileSync(new URL('../popup.html',import.meta.url),'utf8'));
     const view=new CaptureView(document),controller=new CaptureController({browser,client,forms,view,location:{href:'chrome-extension://test/popup.html'}});
-    controllers.push(controller);await controller.init();clearInterval(controller.timer);await new Promise(r=>setImmediate(r));
+    controllers.push(controller);await controller.init();
+    if(!options.monitoring){view.$('auto-monitor').checked=false;controller.form.auto_monitor=false;controller.render();}clearInterval(controller.timer);await new Promise(r=>setImmediate(r));
     return {document,view,controller};
   }
   const ui=await boot();

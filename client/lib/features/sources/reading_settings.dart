@@ -74,11 +74,13 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
             children: [
               Text(s.title, style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 5),
-              const Text('沿用保存时的原条件，不需要重新填写。'),
+              const Text(
+                '保留原资料、关键词和历史。请在本机Chrome登录原站，并保留唯一的原网页作为专用监测页。重新登录后，先刷新原页确认内容可见，再重新绑定。',
+              ),
               heading('01 · 检查内容'),
               fact('来源网页', s.url),
               fact('原关键词', s.query),
-              fact('原站登录要求', s.isPublic ? '无需登录（用户声明）' : '需要登录'),
+              fact('原站登录要求', s.loginRequirement),
               fact('资料可见范围', '仅自己可见'),
               fact('匹配范围', s.scope),
               fact('关联资料', '${s.matchCount} 条匹配 · ${s.items.length} 份资料'),
@@ -97,7 +99,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                       Text(
                         s.isPublic
                             ? '公开来源依据你的声明；测试验证当次页面能否重新读取。'
-                            : '复用本机 Chrome 的原站会话，不上传学校密码或 Cookie。',
+                            : '复用专用标签页的Chrome会话，每次实际刷新后读取；不复制Cookie到工作台。',
                       ),
                       const SizedBox(height: 9),
                       Text(s.status, style: TextStyle(color: cs.primary)),
@@ -105,7 +107,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
-                            '来源标签不能证明网站账号一致，暂不提供后台重读。请在原网页让账号控件可见，重新提取后，用插件的“核对当前网页账号”绑定并保存。只有正文中的邮箱不能作为证明。',
+                            '可以明确绑定当前原页会话进行单账号监测；无需为了识别邮箱而停留在手动模式。未识别到账号不代表已经认证，已知账号切换仍会暂停。',
                           ),
                         ),
                       const SizedBox(height: 12),
@@ -118,7 +120,23 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                             icon: const Icon(Icons.open_in_new),
                             label: Text(s.isPublic ? '打开原网页' : '去原站登录'),
                           ),
-                          if (s.capability != 'account_unknown')
+                          FilledButton.icon(
+                            onPressed: busy || s.active
+                                ? null
+                                : () => act(
+                                    () => controller.activate(s, period),
+                                    '正在绑定原网页并启动自动监测；首次实际刷新完成后显示成功时间。',
+                                  ),
+                            icon: const Icon(Icons.play_arrow),
+                            label: Text(
+                              s.active
+                                  ? '等待执行'
+                                  : s.resident
+                                  ? '重新绑定监测页并启动'
+                                  : '绑定原页并开启定期监测',
+                            ),
+                          ),
+                          if (!s.resident && s.capability != 'account_unknown')
                             FilledButton.tonal(
                               onPressed: busy || s.active
                                   ? null
@@ -148,6 +166,11 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                   child: Text('尚未检测到执行设备近期连接；排队不代表已执行。'),
                 ),
               heading('03 · 检查方式'),
+              if (s.resident)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text('周期、暂停和立即检查作用于此监测页的全部规则；删除只影响所选规则。'),
+                ),
               DropdownButtonFormField<String>(
                 initialValue: selected,
                 decoration: const InputDecoration(labelText: '检查方式'),
@@ -177,7 +200,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                 ),
               const SizedBox(height: 13),
               const Text(
-                '只读取原条件和约定范围；零匹配、登录失效或加载失败不会清空成功资料。关闭原标签不影响检查，退出 Chrome 或设备休眠期间不保证执行。',
+                '专用监测页需要保持打开；可以关闭工作台页面。编辑时延后刷新，登录失效或标签关闭时暂停。Chrome、扩展与本地服务需保持运行；失败不覆盖成功资料。',
               ),
               const SizedBox(height: 24),
               Wrap(
@@ -283,7 +306,11 @@ class ReadingChecksBody extends ConsumerWidget {
                   ),
                   title: Text(readingResultLabel('${r['result']}')),
                   subtitle: Text(
-                    '${r['purpose'] == 'verify' ? '重读验证' : '来源检查'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()))}',
+                    '${r['purpose'] == 'verify'
+                        ? '重读验证'
+                        : r['purpose'] == 'activate'
+                        ? '首次刷新／绑定'
+                        : '来源检查'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()))}',
                   ),
                 ),
               ),

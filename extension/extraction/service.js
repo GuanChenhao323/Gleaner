@@ -1,3 +1,4 @@
+import {ResidentCaptureContext} from '../monitoring/resident-capture.js';
 import {LoginRequirementPolicy} from '../identity/login-requirement.js';
 import {AccountBindingService,accountIdentity} from '../identity/account-binding.js';
 import {ExtractionPipeline} from './pipeline.js';
@@ -11,8 +12,8 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 
 /** Orchestrates ports; source DOM rules and UI state do not live in this service. */
 export class PageExtractionService {
-  constructor({browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,pipeline=new ExtractionPipeline(),parser=new IntentParser()}) {
-    Object.assign(this,{browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,pipeline,parser});
+  constructor({browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,residents,findSubmission,pipeline=new ExtractionPipeline(),parser=new IntentParser()}) {
+    Object.assign(this,{browser,repository,reader,config,accountKey,enqueue,enqueueWeb,enqueueTimeline,residents,findSubmission,pipeline,parser});
     this.ready=repository.recover(); this.queue=Promise.resolve();
   }
   owner(cfg) { if(!cfg.uid || !cfg.token) throw Error('backend_login_required'); return `${cfg.server}|${cfg.uid}`; }
@@ -54,12 +55,20 @@ export class PageExtractionService {
       await this.repository.update(owner,task.id,{state:result.state,result,...(result.source==='generic' && key?{observed_account_key:key}:{})});
     } catch(error) { try { await this.repository.update(owner,task.id,{state:'failed',error:error.message}); } catch { /* deleted / expired */ } }
   }
+  async savedTask(cfg,owner,id) {
+    const task=await this.repository.get(owner,id);
+    if(!task.submission) {
+      const submission=await this.findSubmission?.(cfg,id);
+      if(submission){await this.repository.update(owner,id,{submission});return {...task,submission};}
+    }
+    return task;
+  }
   async handle(cfg,input) {
     await this.ready;
     const owner=this.owner(cfg);
     if(input.type==='extract.start') return this.start(cfg,input);
     if(input.type==='extract.list') return {tasks:await this.repository.list(owner)};
-    if(input.type==='extract.get') { const {owner:_,signature,fresh,...task}=await this.repository.get(owner,input.id); return task; }
+    if(input.type==='extract.get') { const {owner:_,signature,fresh,...task}=await this.savedTask(cfg,owner,input.id); return task; }
     if(input.type==='extract.delete') return this.repository.remove(owner,input.id);
     if(input.type==='extract.verifyAccount') {
       const task=await this.repository.get(owner,input.id);
@@ -69,22 +78,32 @@ export class PageExtractionService {
       return {identity};
     }
     if(input.type==='extract.save') {
-      if(Object.keys(input).some(key=>!['type','id','query','source_binding'].includes(key))) throw Error('invalid_request');
-      const task=await this.repository.get(owner,input.id);
+      if(Object.keys(input).some(key=>!['type','id','query','source_binding','monitoring'].includes(key))) throw Error('invalid_request');
+      const task=await this.savedTask(cfg,owner,input.id);
       if(task.schema_version!==2 || task.state!=='succeeded') throw Error('preview_required');
       if(typeof input.query!=='string' || input.query.trim()!==task.query) throw Error('query_changed');
+      const monitoring=input.monitoring;
+      if(monitoring && (Object.keys(monitoring).sort().join(',')!=='interval_s,mode' || monitoring.mode!=='resident' || ![1800,3600,7200].includes(monitoring.interval_s)))throw Error('invalid_resident');
+      if(task.save_monitoring && (!monitoring || task.save_monitoring.mode!==monitoring.mode || task.save_monitoring.interval_s!==monitoring.interval_s))throw Error('idempotency_conflict');
+      const defaultBinding={kind:'labeled',label:'当前网页会话'};
+      const bindingValue=task.result?.source==='generic'?sourceBinding(input.source_binding || (monitoring?defaultBinding:null)):null;
+      if(task.result?.source!=='generic' && input.source_binding)throw Error('invalid_request');
+      if(task.save_binding && JSON.stringify(bindingValue)!==JSON.stringify(sourceBinding(task.save_binding)))throw Error('idempotency_conflict');
+      if(task.submission)return task.submission;
+      const resident=monitoring?await new ResidentCaptureContext(this.residents).prepare(cfg,task,bindingValue,monitoring):null;
+      if(monitoring)await this.repository.update(owner,task.id,{save_monitoring:monitoring});
       if(task.result?.save_mode==='timeline_summary') {
         if(input.source_binding)throw Error('invalid_request');
         if(!task.result.binding)throw Error('account_unknown');
         if(task.submission)return task.submission;
-        const payload=new TimelineCapturePayload().create(task);
-        payload.reading=new ReadingRecipeFactory().create(task);
+        const payload=new TimelineCapturePayload().create(resident?.task || task);
+        payload.reading=resident?.reading || new ReadingRecipeFactory().create(task);
         if(!payload.reading || !this.enqueueTimeline)throw Error('reading_unavailable');
         const submission=await this.enqueueTimeline(cfg,payload);
         await this.repository.update(owner,task.id,{submission});return submission;
       }
       if(task.result?.source==='generic') {
-        const binding=sourceBinding(input.source_binding);
+        const binding=bindingValue;
         if(binding.identity) {
           if(JSON.stringify(binding.identity)!==JSON.stringify(accountIdentity(task.verified_identity)))throw Error('invalid_account_proof');
           const identity=await new AccountBindingService(this.reader,this.accountKey).verify(task);
@@ -92,8 +111,8 @@ export class PageExtractionService {
         } else if(binding.kind==='public' && (task.observed_account_key || new LoginRequirementPolicy().requiresLogin(task.url)))throw Error('private_source_required');
         if(task.save_binding && JSON.stringify(binding)!==JSON.stringify(sourceBinding(task.save_binding)))throw Error('idempotency_conflict');
         if(task.submission)return task.submission;
-        const payload=new WebCapturePayload().create(task,binding);
-        const reading=new ReadingRecipeFactory().create(task,binding);
+        const payload=new WebCapturePayload().create(resident?.task || task,binding);
+        const reading=resident?.reading || new ReadingRecipeFactory().create(task,binding);
         if(reading)payload.reading=reading;
         await this.repository.update(owner,task.id,{save_binding:binding});
         if(!this.enqueueWeb)throw Error('worker_unavailable');
@@ -108,7 +127,7 @@ export class PageExtractionService {
       if(task.submission) return task.submission;
       const result=await this.enqueue(cfg,{request_id:task.id,tabId:task.tabId,binding:task.result.binding,
         selected:candidates.map(c=>({...c.target,candidate_id:c.candidate_id,needs_detail:false})),enabled:false,
-        reading:new ReadingRecipeFactory().create(task)});
+        reading:resident?.reading || new ReadingRecipeFactory().create(task)});
       await this.repository.update(owner,task.id,{submission:result}); return result;
     }
     throw Error('unknown_message');

@@ -6,6 +6,12 @@ import '../../core/api.dart';
 import '../../core/session.dart';
 
 String readingResultLabel(String value) => switch (value) {
+  'starting' => '自动监测启动中 · 等待首次刷新',
+  'user_busy' => '监测页正在编辑 · 延后刷新',
+  'tab_missing' => '监测页已关闭 · 请打开原页后重新绑定',
+  'tab_rebind_required' => '浏览器会话已重启 · 请重新绑定监测页',
+  'tab_ambiguous' => '打开了多个相同网页 · 请保留一个监测页',
+  'single_account_conflict' => '本站已绑定另一账号 · 已暂停',
   'restored' => '来源已恢复 · 检查暂停，须重新测试',
   'documents_restored' => '资料已恢复 · 来源检查保持暂停',
   'documents_trashed' => '关联资料已移入回收站 · 检查已暂停',
@@ -30,7 +36,7 @@ String readingResultLabel(String value) => switch (value) {
 };
 
 class ReadingSource {
-  final int id, revision, interval, matchCount;
+  final int id, revision, interval, effectiveInterval, matchCount;
   final String mode, result, capability, pending;
   final bool paused, verified, deviceOnline;
   final num? lastSuccess, lastAttempt, nextAt;
@@ -41,6 +47,8 @@ class ReadingSource {
     : id = data['id'] as int,
       revision = data['revision'] as int,
       interval = data['interval_s'] as int,
+      effectiveInterval =
+          (data['effective_interval_s'] ?? data['interval_s']) as int,
       matchCount = data['match_count'] as int,
       mode = data['mode'] as String,
       result = data['last_result'] as String,
@@ -62,9 +70,22 @@ class ReadingSource {
   String get query => recipe['query'] as String;
   String get url => recipe['url'] as String;
   String get platform => recipe['source'] as String;
+  bool get resident => recipe['resident'] is Map;
+  String? get pageId =>
+      resident ? (recipe['resident'] as Map)['page_id'] as String : null;
   bool get isTimeline => recipe['representation'] == 'timeline_summary';
   bool get isPublic => (recipe['binding'] as Map)['account_key'] == 'public';
-  String get identity => isPublic
+  String get loginRequirement =>
+      resident &&
+          platform == 'generic' &&
+          (recipe['binding'] as Map)['account_key'] == 'unverified'
+      ? '复用当前Chrome会话（用户确认）'
+      : isPublic
+      ? '无需登录（声明）'
+      : '需要登录';
+  String get identity => resident
+      ? (platform == 'generic' ? '专用监测页 · 单账号会话（用户确认）' : '原学校账号 · 专用监测页')
+      : isPublic
       ? '无需登录（用户声明）'
       : platform == 'generic'
       ? '${recipe['source_label']} · ${recipe['account_probe'] is Map ? (recipe['account_probe'] as Map)['display'] : '账号未核对'}'
@@ -100,6 +121,7 @@ abstract interface class ReadingSourceRepository {
   Future<List<ReadingSource>> list();
   Future<void> configure(ReadingSource source, Map<String, dynamic> settings);
   Future<void> check(ReadingSource source, String purpose);
+  Future<void> activate(ReadingSource source, int interval);
   Future<void> remove(ReadingSource source, bool trashItems);
   Future<List<Map<String, dynamic>>> deleted();
   Future<void> restore(int id, int revision);
@@ -115,6 +137,9 @@ class ApiReadingSourceRepository implements ReadingSourceRepository {
   @override
   Future<void> configure(ReadingSource source, Map<String, dynamic> settings) =>
       api.configureReading(source.id, settings);
+  @override
+  Future<void> activate(ReadingSource source, int interval) =>
+      api.activateReading(source.id, source.revision, interval);
   @override
   Future<void> check(ReadingSource source, String purpose) =>
       api.checkReading(source.id, source.revision, purpose);
@@ -167,6 +192,11 @@ class ReadingSourcesController extends AsyncNotifier<List<ReadingSource>> {
       ref.invalidate(deletedReadingSourcesProvider);
       await refresh();
     }
+  }
+
+  Future<void> activate(ReadingSource source, int interval) async {
+    await ref.read(readingRepositoryProvider).activate(source, interval);
+    if (ref.mounted) await refresh();
   }
 
   Future<void> check(ReadingSource source, String purpose) async {

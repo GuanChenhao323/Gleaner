@@ -18,3 +18,5 @@ export const errorText=code=>ERRORS[code] || `操作未完成：${code}`;
 Object.assign(ERRORS,{bad_credentials:'工作台邮箱或密码错误，请核对后重试。',invalid_server:'请输入有效的 HTTP(S) 后端地址。',unauthorized:'工作台登录已失效，请重新登录后重试原提交。',invalid_session_response:'工作台身份响应异常，请检查后端连接。',outbox_full:'待提交内容已达容量上限，请先处理未确认记录。'});
 
 Object.assign(ERRORS,{account_unknown:'页面未显示可可靠核对的当前账号控件，仍可手动保存。请在原网页展开账号菜单后重新提取。',account_reextract_required:'这份预览提取时没有账号证明，请让当前账号控件可见后重新提取，再核对。',invalid_account_proof:'账号证明不完整，请在原网页重新提取并核对账号。',private_source_required:'检测到原站登录账号，请选择“需要登录”，核对账号后再保存。',source_deleted:'原信息源已删除，旧预览不会自动恢复来源；资料与历史保留。'});
+
+Object.assign(ERRORS,{tab_missing:"专用监测标签页已关闭。请打开原网页后，在来源设置中重新绑定。",tab_rebind_required:"请在来源设置中重新绑定已打开的专用监测页。",tab_ambiguous:"同一网页打开了多个标签，请仅保留一个后重试。",monitor_tab_exists:"这个网页已有专用监测标签，请在原监测页添加条件。",single_account_conflict:"这个站点已绑定另一账号会话；请切回原账号。",user_busy:"页面正在编辑或有未提交内容，已延后刷新。",source_limit:"此页面最多支持10条监测规则，请先管理已有规则。",invalid_resident:"监测会话数据异常，请重新提取。",resident_unavailable:"当前版本无法绑定监测页，请重新加载插件。"});

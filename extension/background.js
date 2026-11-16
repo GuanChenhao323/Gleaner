@@ -1,3 +1,5 @@
+import {ResidentTabRegistry} from './monitoring/resident-registry.js';
+import {ResidentCycleReader} from './monitoring/resident-reader.js';
 import { request } from './lib/api.js';
 import { Outbox, scope } from './lib/outbox.js';
 import { DomPageReader } from './extraction/readers.js';
@@ -29,10 +31,11 @@ async function accountKey(adapter, account) {
 }
 const domReader = new DomPageReader(chrome);
 const reentry=new PageReentry(chrome,storage,domReader);
+const residents=new ResidentTabRegistry(chrome,storage,domReader,accountKey);
 const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,
-  reader:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey)),reentry,config,device});
+  reader:new ResidentCycleReader({browser:chrome,registry:residents,reader:domReader,verifier:new SourceSessionVerifier(accountKey),config,legacy:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey))}),reentry,config,device});
 const extraction = new PageExtractionService({ browser: chrome, repository: new DraftRepository(storage),
-  reader: domReader, config, accountKey, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture,
+  reader: domReader, config, accountKey, residents, findSubmission:recoverSubmission, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture,
   enqueueTimeline:(cfg,payload)=>enqueueCollection(cfg,payload,'/api/v1/timeline-captures') });
 // Content scripts have no reason to access Campus Radar tokens or private drafts.
 storage.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -88,7 +91,7 @@ async function cleanup() {
   for (const tab of await chrome.tabs.query({})) if (!tab.active && tab.url?.startsWith(chrome.runtime.getURL('runner.html'))) await chrome.tabs.remove(tab.id);
   await storage.set({ ownedTabs: {} });
 }
-async function wake() {
+async function legacyWake() {
   const cfg = await config();
   if (!cfg.token) return;
   await cleanup();
@@ -104,7 +107,7 @@ async function wake() {
   }
   const { device: id } = await device();
   const { job } = await request(cfg, '/api/v1/monitor-jobs/claim', { device_id: id });
-  if (!job) { await readingJobs.wake(cfg); return; }
+  if (!job) return;
   await storage.set({ activeJob: { scope: scope(cfg), job, queued: false } });
   let payload = { schema_version: 1, device_id: id, lease: job.lease, revision: job.revision };
   try {
@@ -117,7 +120,12 @@ async function wake() {
   await box.add(cfg, `/api/v1/monitor-jobs/${job.id}/result`, payload);
   await storage.set({ activeJob: { scope: scope(cfg), job, queued: true } });
   await box.flush(cfg); await storage.remove('activeJob');
-  await readingJobs.wake(cfg);
+}
+async function wake() {
+  const cfg=await config();
+  if(!cfg.token)return;
+  try {await readingJobs.wake(cfg);}catch {/* Connection remains visible in popup/workbench; next alarm retries. */}
+  try {await legacyWake();}catch {/* Legacy failures must not block saved-page monitoring. */}
 }
 async function alarm() {
   if (!(await chrome.alarms.get('campus-radar'))) chrome.alarms.create('campus-radar', { periodInMinutes: 1 });
@@ -203,7 +211,7 @@ async function enqueueCapture(cfg, m) {
   const intents = [...existing.filter(r => r.state !== 'pending').slice(-20), ...pending];
   if (JSON.stringify([...intents, intent]).length > 2000000) throw Error('outbox_full');
   await storage.set({ intents: [...intents, intent] });
-  queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); }).catch(() => {}));
+  queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); if(intent.reading?.resident)await wake(); }).catch(() => {}));
   return { request_id: intent.id, device_id: id };
 }
 async function enqueueWebCapture(cfg,payload) {
@@ -213,8 +221,13 @@ async function enqueueCollection(cfg,payload,path) {
   const {device:id}=await device();
   // The atomic outbox write is the durable submission, before acknowledgement.
   await box.add(cfg,path,{...payload,device_id:id});
-  queueMicrotask(()=>serial(()=>box.flush(cfg)).catch(()=>{}));
+  queueMicrotask(()=>serial(async()=>{await box.flush(cfg);if(payload.reading?.resident)await wake();}).catch(()=>{}));
   return {request_id:payload.request_id,device_id:id};
+}
+async function recoverSubmission(cfg,id) {
+  const row=(await box.all()).find(r=>r.scope===scope(cfg)&&r.request_id===id&&['/api/v1/captures','/api/v1/web-captures','/api/v1/timeline-captures'].includes(r.path));
+  const intent=((await storage.get('intents')).intents || []).find(r=>r.scope===scope(cfg)&&r.id===id);
+  return row || intent ? {request_id:id,device_id:(await device()).device} : null;
 }
 async function processIntents(cfg) {
   const intents = (await storage.get('intents')).intents || [];

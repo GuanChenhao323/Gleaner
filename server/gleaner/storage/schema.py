@@ -219,6 +219,7 @@ SCHEMA: list[str] = [
 
 # 已有数据库的增量迁移：列已存在时忽略错误
 MIGRATIONS: list[str] = [
+    "ALTER TABLE reading_sources ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reading_sources ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reading_sources ADD COLUMN delete_result TEXT",
     "ALTER TABLE users ADD COLUMN digest_email INTEGER NOT NULL DEFAULT 0",
@@ -323,5 +324,19 @@ SCHEMA += [
         reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
         job_id INTEGER NOT NULL, purpose TEXT NOT NULL, result TEXT NOT NULL,
         detail TEXT NOT NULL, checked_at REAL NOT NULL
+    )""",
+]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS reading_sessions (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, origin TEXT NOT NULL, session_id TEXT NOT NULL,
+        PRIMARY KEY(owner_id, device_id, origin)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_pages (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, page_id TEXT NOT NULL, origin TEXT NOT NULL,
+        url TEXT NOT NULL, session_id TEXT NOT NULL, view TEXT NOT NULL,
+        PRIMARY KEY(owner_id, device_id, page_id), UNIQUE(owner_id, device_id, url, view)
     )""",
 ]

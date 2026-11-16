@@ -17,6 +17,7 @@ export class ReceiptPresenter {
     if (failed) title = `后端已返回结果：成功 ${rows.length - failed}，失败 ${failed}。`;
     if(timeline)title=title.replace('网页资料','活动摘要资料');
     const reading=Number.isInteger(entry.response.reading_source_id)&&entry.response.reading_source_id>0;
+    if(entry.response.monitoring?.state==='starting')return {state:failed?'partial':'success',title,rows,generic,detail:'资料已保存 · 自动监测启动中。此标签页将自动刷新，实际检查结果及下次时间请在工作台查看。'};
     return {state: failed ? 'partial' : 'success', title, rows, generic,
       detail: reading ? `${generic?`${rows[0].fragment_count} ${timeline?'条活动摘要':'个片段'} · v${rows[0].version} · `:''}原条件与来源已关联，可在工作台查看检查状态。` : generic ? `${rows[0].fragment_count} 个片段 · 资料版本 ${rows[0].version} · 未启用监测` : '保存不会自动启用监测。'};
   }
