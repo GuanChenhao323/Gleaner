@@ -32,9 +32,13 @@ from ..storage.db import Database, is_unique_violation, loads
 from ..storage.migrations import share_key
 from . import edits, monitor
 from .itemtypes import ALL_STATUSES, ITEM_TYPES, status_of, status_sql
+from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
+from .reading_schedule import ReadingSchedule
+from .reading_sources import ReadingSourceService
 from .templates import get_template, list_templates
 from .throttle import Throttle
+from .timeline_captures import TimelineCaptureContract
 from .validate import (
     BadRequest,
     Handler,
@@ -48,6 +52,7 @@ from .validate import (
     invalid,
     path_id,
 )
+from .web_captures import WebCaptureService
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +136,7 @@ def _courses_of(v: Any) -> list[str]:
 
 
 ITEM_KINDS = ("assignment", "notice", "mail", "rss", "teacher", "clip", "page")
-FEED_FILTERS = ("unread", "starred", "todo", "important")
+FEED_FILTERS = ("unread", "starred", "todo", "important", "trash")
 
 
 def _like(text: str) -> str:
@@ -362,8 +367,10 @@ class API:
         *,
         fetcher: Fetcher | None = None,
         data_dir: str = "",
+        reading_schedule: ReadingSchedule | None = None,
     ) -> None:
         self.db = db
+        self.reading_schedule = reading_schedule
         self.pipeline = pipeline
         self.publish = publish
         self.fetcher = fetcher or Fetcher(min_interval=0.2)
@@ -380,6 +387,7 @@ class API:
         # “立即检查”冷却：公共来源大家共用，60 秒内只受理一次（私有来源不限，采集端已按主机限速）
         self.refresh_shared = Throttle(limit=0, window=60, base_block=60, max_block=60)
         self._stats_cache: tuple[float, dict[str, Any]] | None = None
+        self.reading: ReadingSourceService | None = None
 
     # ---- 鉴权 ------------------------------------------------------------------
 
@@ -439,6 +447,24 @@ class API:
 
     def register(self, r: Router) -> None:
         a = self.authed
+        native = BrowserMonitorService(self.db, self.pipeline)
+        web = WebCaptureService(self.db, self.pipeline)
+        timeline = WebCaptureService(self.db, self.pipeline, TimelineCaptureContract())
+        reading = ReadingSourceService(
+            self.db, web, native, timeline, schedule=self.reading_schedule
+        )
+        self.reading = reading
+        reading.change_state = self.apply_state
+        reading.notify_purge = self.publish
+        native.guard_reading = web.guard_reading = timeline.guard_reading = reading.guard_capture
+        native.on_capture = web.on_capture = timeline.on_capture = reading.attach
+        native.validate_reading = web.validate_reading = timeline.validate_reading = (
+            reading.validate_capture
+        )
+        native.register(r, a)
+        web.register(r, a)
+        timeline.register(r, a)
+        reading.register(r, a)
 
         def add(method: str, path: str, handler: Handler) -> None:
             r.add(method, path, guard(handler))
@@ -608,7 +634,6 @@ class API:
                         "created_at": time.time(),
                     },
                 )
-                await self._subscribe_shared_defaults(uid)
         except Exception as e:
             if is_unique_violation(e):  # 并发注册同一邮箱
                 return Response.error(409, "该邮箱已注册", "exists")
@@ -617,19 +642,6 @@ class API:
         user = await self.db.fetchone("SELECT * FROM users WHERE id = ?", uid)
         assert user
         return await self._session_response(req, user, 201)
-
-    async def _subscribe_shared_defaults(self, uid: int) -> None:
-        """新用户默认订阅已存在的公共来源（学院通知、教师信息），降低上手成本。"""
-        for s in await self.db.fetch(
-            "SELECT id, template FROM sources WHERE owner_id IS NULL AND template IN ('college_news','faculty')"
-        ):
-            await self.db.execute(
-                "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                uid,
-                s["id"],
-                0.6,
-                time.time(),
-            )
 
     async def login(self, req: Request) -> Response:
         b = body_of(req)
@@ -916,7 +928,7 @@ class API:
         """新基线的事项字段（IC-002 4.1）：生效值、修改明细与冲突、类型与状态、来源定位、监测状态。"""
         values, detail, conflicts = edits.effective(r, item_edits, r.get("deadline_override"))
         attrs = loads(r.get("attrs"), {})
-        origin = "capture" if r.get("src_type") == "clip" else "source"
+        origin = "capture" if r.get("src_type") in ("clip", "browser") else "source"
         it.update(
             {
                 "type": values["type"],
@@ -951,7 +963,9 @@ class API:
     async def feed(self, req: Request, user: dict[str, Any]) -> Response:
         """分页收件箱。cursor = ``排序时间:id``（键集分页，翻页期间有新数据也不会重复或遗漏）。"""
         q = req.query
-        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0"
+        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = " + (
+            "1" if q.get("filter") == "trash" else "0"
+        )
         params: list[Any] = []
         if q.get("kind"):
             if q["kind"] not in ITEM_KINDS:
@@ -970,7 +984,9 @@ class API:
             if q["origin"] not in ("capture", "source"):
                 return Response.error(422, "origin 只能是 capture / source", "invalid")
             where += (
-                " AND src.type = 'clip'" if q["origin"] == "capture" else " AND src.type != 'clip'"
+                " AND src.type IN ('clip', 'browser')"
+                if q["origin"] == "capture"
+                else " AND src.type NOT IN ('clip', 'browser')"
             )
         if q.get("course"):
             where += " AND LOWER(i.course) LIKE ? ESCAPE '!'"
@@ -1052,6 +1068,19 @@ class API:
         it = items[0]
         row = await self.db.fetchone("SELECT body FROM items WHERE id = ?", it["id"])
         it["body"] = row["body"] if row else ""
+        it["browser_monitor"] = await self.db.fetchone(
+            "SELECT id, enabled, supported, last_result, last_success_at, error FROM browser_monitors WHERE owner_id = ? AND item_id = ? AND deleted = 0",
+            user["id"],
+            it["id"],
+        )
+        if it["browser_monitor"]:
+            for flag in ("enabled", "supported"):
+                it["browser_monitor"][flag] = bool(it["browser_monitor"][flag])
+        it["reading_source"] = await self.db.fetchone(
+            "SELECT r.id, r.last_result, r.last_success_at FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND r.deleted = 0 AND link.item_id = ? ORDER BY r.id DESC LIMIT 1",
+            user["id"],
+            it["id"],
+        )
         return Response.json_body(it)
 
     async def versions(self, req: Request, user: dict[str, Any]) -> Response:
@@ -1085,6 +1114,8 @@ class API:
           客户端的键加 ``c:`` 前缀，与服务端内部键（如 ``digest:日期``）分开；同一个键换了内容返回 422。
         - 冲突处理“后写胜出”：以客户端操作时间 ts 为准（夹在 [现在 - 30 天, 现在 + 5 分钟]），无论是否带 op_id。
         """
+        if "hidden" in b and type(b["hidden"]) is not bool:
+            return 422, {"error": "invalid_state"}
         vals = _state_values(b)
         now = time.time()
         client_ts = as_float(b.get("ts"), "ts", default=now)
@@ -1169,6 +1200,11 @@ class API:
                         "note": st["note"],
                     },
                 }
+                if "hidden" in vals and self.reading is not None:
+                    if vals["hidden"]:
+                        await self.reading.pause_empty(uid, item_id)
+                    else:
+                        await self.reading.mark_documents_visible(uid, item_id)
             if key:
                 await self.db.execute(
                     "UPDATE op_log SET result = ? WHERE user_id = ? AND op_id = ?",
@@ -1245,7 +1281,7 @@ class API:
             return Response.error(422, "时间范围不正确（最长 400 天）", "invalid")
         items = await self._items_for(
             user["id"],
-            " AND i.deleted = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
             (frm, to),
             "ORDER BY COALESCE(st.deadline_override, i.deadline_at)",
             500,
@@ -1255,7 +1291,11 @@ class API:
     async def courses(self, req: Request, user: dict[str, Any]) -> Response:
         """课程主页：未完成作业、近期通知、来自官网的教师信息（场景 6）。"""
         items = await self._items_for(
-            user["id"], " AND i.deleted = 0 AND i.course != ''", (), "ORDER BY i.deadline_at", 500
+            user["id"],
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND i.course != ''",
+            (),
+            "ORDER BY i.deadline_at",
+            500,
         )
         # 只看自己订阅的来源里的教师信息（自定义教师来源是私有的）
         teachers = await self.db.fetch(

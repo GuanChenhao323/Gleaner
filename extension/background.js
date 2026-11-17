@@ -1,235 +1,262 @@
-// 后台监测（IC-001 3.2、3.3，决策 D23）：Chrome 运行时由 alarms 定期唤醒，
-// 向本地后端领取到期任务，用浏览器自己的登录会话重新读取页面，按 locator 找回事项后回报结果。
-// 不导出 Cookie、不把页面交给第三方；只读 GET；同一主机请求间隔不少于 2 秒；遵守 robots.txt。
-// 失败一律如实回报（登录过期、无权限、网络、找不到、解析失败），后端不会把失败显示成“无变化”。
-
-const ALARM = "gleaner-monitor";
-const PERIOD_MIN = 5; // 每 5 分钟问一次后端有没有到期任务；真正的检查间隔由后端决定（默认 1 小时）
-const HOST_GAP_MS = 2000;
-const FETCH_TIMEOUT_MS = 30000;
-const MAX_HTML = 8 * 1024 * 1024;
-const ROBOTS_TTL_MS = 3600 * 1000;
-
-const lastHit = new Map(); // host -> 上次请求开始时间
-const robotsCache = new Map(); // origin -> { at, rules | null(不可达) }
-let running = null;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function ensureAlarm() {
-  // service worker 随时可能被回收；每次启动都检查 alarm 是否还在（IC-003 4.2）
-  const a = await chrome.alarms.get(ALARM);
-  if (!a) await chrome.alarms.create(ALARM, { delayInMinutes: 1, periodInMinutes: PERIOD_MIN });
+import {CaptureContextSync} from './lifecycle/capture-context.js';
+import {ResidentTabRegistry} from './monitoring/resident-registry.js';
+import {ResidentCycleReader} from './monitoring/resident-reader.js';
+import { request } from './lib/api.js';
+import { Outbox, scope } from './lib/outbox.js';
+import { DomPageReader } from './extraction/readers.js';
+import { DraftRepository } from './extraction/drafts.js';
+import { PageExtractionService } from './extraction/service.js';
+import {PageReentry,SourceSessionVerifier,ConditionalPageReader} from './monitoring/page-session.js';
+import {ReadingJobExecutor} from './monitoring/jobs.js';
+const storage = chrome.storage.local;
+const box = new Outbox(storage);
+const files = ['content/runtime.js', 'adapters/must_moodle.js', 'adapters/must_student_portal.js', 'adapters/must_fie_people.js', 'content/capture.js'];
+let chain = Promise.resolve();
+const serial = fn => { const next = chain.then(fn, fn); chain = next.catch(() => {}); return next; };
+const config = async () => (await storage.get('config')).config || {};
+let devicePromise;
+async function device() {
+  if (!devicePromise) devicePromise = (async () => {
+    const data = await storage.get(['device', 'salt']);
+    if (data.device && data.salt) return data;
+    const value = { device: crypto.randomUUID(), salt: crypto.randomUUID() };
+    await storage.set(value); return value;
+  })();
+  try { return await devicePromise; } catch (e) { devicePromise = null; throw e; }
 }
-
-chrome.runtime.onInstalled.addListener(ensureAlarm);
-chrome.runtime.onStartup.addListener(ensureAlarm);
-ensureAlarm();
-
-chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === ALARM) runOnce();
-});
-
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === "monitor-kick") runOnce();
-});
-
-function runOnce() {
-  if (!running) running = check().finally(() => (running = null));
-  return running;
+async function accountKey(adapter, account) {
+  if (account === 'public') return 'public';
+  if (!account) throw Error('account_unknown');
+  const { salt } = await device();
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}|${adapter}|${account}`)))].map(b => b.toString(16).padStart(2, '0')).join('');
 }
-
-async function config() {
-  const s = await chrome.storage.local.get(["server", "token"]);
-  return { server: s.server || "", token: s.token || "" };
+const domReader = new DomPageReader(chrome);
+const reentry=new PageReentry(chrome,storage,domReader);
+const residents=new ResidentTabRegistry(chrome,storage,domReader,accountKey);
+const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,
+  reader:new ResidentCycleReader({browser:chrome,registry:residents,reader:domReader,verifier:new SourceSessionVerifier(accountKey),config,legacy:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey))}),reentry,config,device});
+const drafts=new DraftRepository(storage);
+const contexts=new CaptureContextSync({storage,repository:drafts,api:request});
+box.beforeFlush=cfg=>contexts.sync(cfg,{offline:true});
+const extraction = new PageExtractionService({ browser: chrome, repository: drafts,
+  reader: domReader, config, accountKey, residents, findSubmission:recoverSubmission, enqueue: enqueueCapture, enqueueWeb: enqueueWebCapture,
+  enqueueTimeline:(cfg,payload)=>enqueueCollection(cfg,payload,'/api/v1/timeline-captures') });
+// Content scripts have no reason to access Campus Radar tokens or private drafts.
+storage.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
+async function invoke(tabId, method, arg) {
+  await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files });
+  const [result] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: async (name, value) => {
+    try { return { ok: true, value: await globalThis.CampusRadar[name](value) }; }
+    catch (e) { return { ok: false, error: e.code || e.message }; }
+  }, args: [method, arg ?? null] });
+  if (!result?.result || result.result.ok !== true) throw Error(result?.result?.error || 'page_read_failed');
+  return result.result.value;
 }
-
-async function api(cfg, path, body) {
-  const res = await fetch(cfg.server + path, {
-    method: body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.token}` },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`backend HTTP ${res.status}`);
-  return res.json();
+async function readTab(tabId, recipe) {
+  const until = Date.now() + 18000;
+  while (Date.now() < until) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === 'complete') return invoke(tabId, 'wait', recipe);
+    await new Promise(r => setTimeout(r, 250));
+  }
+  throw Error('render_timeout');
 }
-
-async function check() {
+function canClose(tab, expected) {
+  if (tab.active) return false; // A user who opened the runner owns its current interaction.
+  if (tab.url === expected || tab.url?.startsWith(chrome.runtime.getURL('runner.html'))) return true;
+  try {
+    const url = new URL(tab.url);
+    return url.origin === new URL(expected).origin && /\/(login|auth|sso)(\/|\.|$)/i.test(url.pathname);
+  } catch { return false; }
+}
+async function backgroundRead(recipe, jobKey) {
+  const origin = new URL(recipe.url).origin;
+  const times = (await storage.get('originTimes')).originTimes || {};
+  const delay = 2100 - (Date.now() - (times[origin] || 0));
+  if (delay > 0) await new Promise(r => setTimeout(r, delay));
+  times[origin] = Date.now(); await storage.set({ originTimes: times });
+  if (!(await chrome.permissions.contains({ origins: [new URL(recipe.url).origin + '/*'] }))) throw Error('permission_denied');
+  const data = (await storage.get('ownedTabs')).ownedTabs || {};
+  const tab = await chrome.tabs.create({ url: chrome.runtime.getURL('runner.html') + '#' + jobKey, active: false });
+  data[tab.id] = recipe.url;
+  await storage.set({ ownedTabs: data });
+  try { await chrome.tabs.update(tab.id, { url: recipe.url }); return await readTab(tab.id, recipe); }
+  finally {
+    try { const current = await chrome.tabs.get(tab.id); if (canClose(current, recipe.url)) await chrome.tabs.remove(tab.id); } catch { /* already closed */ }
+    delete data[tab.id]; await storage.set({ ownedTabs: data });
+  }
+}
+async function cleanup() {
+  const owned = (await storage.get('ownedTabs')).ownedTabs || {};
+  for (const [id, url] of Object.entries(owned)) {
+    try { const tab = await chrome.tabs.get(Number(id)); if (canClose(tab, url)) await chrome.tabs.remove(Number(id)); } catch { /* gone */ }
+  }
+  // Covers interruption between runner tab creation and recording its ID.
+  for (const tab of await chrome.tabs.query({})) if (!tab.active && tab.url?.startsWith(chrome.runtime.getURL('runner.html'))) await chrome.tabs.remove(tab.id);
+  await storage.set({ ownedTabs: {} });
+}
+async function legacyWake() {
   const cfg = await config();
-  if (!cfg.server || !cfg.token) return;
-  let due;
+  if (!cfg.token) return;
+  await cleanup();
+  await processIntents(cfg);
+  await box.flush(cfg);
+  const active = (await storage.get('activeJob')).activeJob;
+  if (active) {
+    // A terminated worker cannot assert a successful read. Persist an explicit failure for its lease.
+    if (active.scope === scope(cfg) && !active.queued && !(await box.all()).some(r => r.path === `/api/v1/monitor-jobs/${active.job.id}/result` && (r.body?.lease === active.job.lease || r.state === 'confirmed'))) {
+      await box.add(cfg, `/api/v1/monitor-jobs/${active.job.id}/result`, { schema_version: 1, device_id: active.job.device_id, lease: active.job.lease, revision: active.job.revision, status: 'failed' },{monitor_id:active.job.monitor_id});
+    }
+    await storage.remove('activeJob'); await box.flush(cfg);
+  }
+  const { device: id } = await device();
+  const { job } = await request(cfg, '/api/v1/monitor-jobs/claim', { device_id: id });
+  if (!job) return;
+  await storage.set({ activeJob: { scope: scope(cfg), job, queued: false } });
+  let payload = { schema_version: 1, device_id: id, lease: job.lease, revision: job.revision };
   try {
-    due = await api(cfg, "/api/monitor/due?limit=20");
-  } catch {
-    return; // 后端没运行或令牌失效：什么都不做，下次再试（弹窗里会提示重新登录）
+    const found = await backgroundRead(job.recipe, `job-${job.id}`);
+    payload = { ...payload, status: 'success', raw: found.raw, account_key: await accountKey(found.adapter, found.account) };
+  } catch (e) {
+    const allowed = ['need_login', 'selection_missing', 'render_timeout', 'permission_denied', 'account_mismatch', 'unsupported', 'view_mismatch', 'route_mismatch'];
+    payload.status = allowed.includes(e.message) ? e.message : 'failed';
   }
-  const byPage = new Map();
-  for (const t of due.tasks || []) {
-    if (!byPage.has(t.page_url)) byPage.set(t.page_url, []);
-    byPage.get(t.page_url).push(t);
+  await box.add(cfg, `/api/v1/monitor-jobs/${job.id}/result`, payload,{monitor_id:job.monitor_id});
+  await storage.set({ activeJob: { scope: scope(cfg), job, queued: true } });
+  await box.flush(cfg); await storage.remove('activeJob');
+}
+async function wake() {
+  const cfg=await config();
+  if(!cfg.token)return;
+  try {await readingJobs.wake(cfg);}catch {/* Connection remains visible in popup/workbench; next alarm retries. */}
+  try {await legacyWake();}catch {/* Legacy failures must not block saved-page monitoring. */}
+}
+async function alarm() {
+  if (!(await chrome.alarms.get('campus-radar'))) chrome.alarms.create('campus-radar', { periodInMinutes: 1 });
+}
+chrome.runtime.onInstalled.addListener(() => { alarm(); serial(wake).catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => { alarm(); serial(wake).catch(() => {}); });
+chrome.alarms.onAlarm.addListener(a => { if (a.name === 'campus-radar') serial(wake).catch(() => {}); });
+chrome.runtime.onMessage.addListener((m, sender, reply) => {
+  if (sender.id !== chrome.runtime.id || (sender.url && !sender.url.startsWith(chrome.runtime.getURL('')))) return false;
+  const action = async () => {
+    const cfg = await config();
+    if (m.type === 'config') return { ...cfg, token: undefined };
+    if (m.type === 'login') {
+      const url = new URL(m.server); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw Error('invalid_server');
+      const next = { server: url.origin };
+      const data = await request(next, '/api/auth/login', { email: m.email, password: m.password }, { login: true });
+      Object.assign(next, { token: data.token, uid: data.user.id, email: data.user.email });
+      await storage.set({ config: next }); await box.retry(next); return { uid: next.uid, email: next.email, server: next.server };
+    }
+    if (m.type === 'logout') { await storage.set({ config: { server: cfg.server } }); return {}; }
+    if (!cfg.uid || !cfg.token) throw Error('backend_login_required');
+    if (m.type === 'connection.check') {
+      const user = await request(cfg, '/api/me', undefined, { session: true });
+      const current = await config();
+      if (user.id !== cfg.uid || current.uid !== cfg.uid || current.server !== cfg.server) throw Error('backend_account_changed');
+      return { state: 'connected', uid: user.id, email: user.email };
+    }
+    if (m.type==='extract.start')return extraction.handle(cfg,{...m,capture_generation:await contexts.sync(cfg,{offline:true})});
+    if (m.type==='extract.save')await contexts.sync(cfg,{offline:true});
+    if (m.type?.startsWith('extract.')) return extraction.handle(cfg, m);
+    if (m.type === 'scan') {
+      const page = await invoke(m.tabId, 'wait');
+      if (!page.account) throw Error('account_unknown');
+      page.binding = { adapter: page.adapter, origin: new URL(page.url).origin, account_key: await accountKey(page.adapter, page.account) };
+      delete page.account;
+      return page;
+    }
+    if (m.type === 'preview') {
+      const found = await backgroundRead(m.recipe, 'preview');
+      const key = await accountKey(found.adapter, found.account);
+      if (key !== m.binding?.account_key || found.adapter !== m.binding?.adapter) throw Error('account_mismatch');
+      delete found.account; return found;
+    }
+    if (m.type === 'highlight') { await invoke(m.tabId, 'highlight', m.recipe); return {}; }
+    if (m.type === 'manual') {
+      const page = await invoke(m.tabId, 'scan');
+      if (page.adapter !== 'fie') throw Error('manual_private_unsupported');
+      const target = await invoke(m.tabId, 'manual'); target.supported = false;
+      return { target, binding: { adapter: 'manual', origin: new URL(target.locator.url).origin, account_key: 'public' } };
+    }
+    if (m.type === 'submit') {
+      return enqueueCapture(cfg, m);
+    }
+    if (m.type === 'status') {
+      await processIntents(cfg); await box.flush(cfg);
+      const rows = await box.all();
+      return { entries: rows.filter(r => r.scope === scope(cfg)).map(({ body, ...r }) => r), intents: ((await storage.get('intents')).intents || []).filter(r => r.scope === scope(cfg)).map(({ selected, captured, binding, ...r }) => r) };
+    }
+    if (m.type === 'wake') { await processIntents(cfg); await wake(); return {}; }
+    if (m.type === 'retry') {
+      if (m.request_id !== undefined && (typeof m.request_id !== 'string' || !m.request_id || m.request_id.length > 100)) throw Error('invalid_request');
+      await box.retry(cfg, m.request_id); await box.flush(cfg); return {};
+    }
+    throw Error('unknown_message');
+  };
+  // Reads have their own repository/reader queue; monitor navigation must not block popup queries.
+  const independent = ['config', 'connection.check', 'extract.get', 'extract.list', 'extract.delete'].includes(m.type);
+  (independent ? action() : serial(action)).then(value => reply({ ok: true, value }), e => reply({ ok: false, error: e.code || e.message }));
+  return true;
+});
+async function enqueueCapture(cfg, m) {
+  if (!Array.isArray(m.selected) || !m.selected.length || m.selected.length > 30) throw Error('invalid_selection');
+  if (m.selected.some(c => c.needs_detail)) throw Error('preview_required');
+  const { device: id } = await device();
+  const signature = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({binding:m.binding,selected:m.selected,enabled:m.enabled,reading:m.reading}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  const intent = { id: m.request_id || crypto.randomUUID(), signature, scope: scope(cfg), tabId: m.tabId, binding: m.binding, selected: m.selected, enabled: m.enabled, reading:m.reading, capture_generation:m.capture_generation || 0, state: 'pending' };
+  const existing = (await storage.get('intents')).intents || [];
+  const previous = existing.find(r => r.scope === scope(cfg) && r.id === intent.id);
+  if (previous) {
+    if (previous.signature !== signature) throw Error('idempotency_conflict');
+    return { request_id: previous.id, device_id: id };
   }
-  const results = [];
-  for (const [pageUrl, tasks] of byPage) {
-    // 同一页面上的多条事项只取一次页面（IC-003 4.4）
-    results.push(...(await checkPage(pageUrl, tasks)));
-  }
-  for (let i = 0; i < results.length; i += 50) {
+  const pending = existing.filter(r => r.state === 'pending');
+  if (pending.length >= 20) throw Error('outbox_full');
+  const intents = [...existing.filter(r => r.state !== 'pending').slice(-20), ...pending];
+  if (JSON.stringify([...intents, intent]).length > 2000000) throw Error('outbox_full');
+  await storage.set({ intents: [...intents, intent] });
+  queueMicrotask(() => serial(async () => { await processIntents(cfg); await box.flush(cfg); if(intent.reading?.resident)await wake(); }).catch(() => {}));
+  return { request_id: intent.id, device_id: id };
+}
+async function enqueueWebCapture(cfg,payload) {
+  return enqueueCollection(cfg,payload,'/api/v1/web-captures');
+}
+async function enqueueCollection(cfg,payload,path) {
+  const {device:id}=await device();
+  // The atomic outbox write is the durable submission, before acknowledgement.
+  await box.add(cfg,path,{...payload,device_id:id});
+  queueMicrotask(()=>serial(async()=>{await box.flush(cfg);if(payload.reading?.resident)await wake();}).catch(()=>{}));
+  return {request_id:payload.request_id,device_id:id};
+}
+async function recoverSubmission(cfg,id) {
+  const row=(await box.all()).find(r=>r.scope===scope(cfg)&&r.request_id===id&&['/api/v1/captures','/api/v1/web-captures','/api/v1/timeline-captures'].includes(r.path));
+  const intent=((await storage.get('intents')).intents || []).find(r=>r.scope===scope(cfg)&&r.id===id);
+  return row || intent ? {request_id:id,device_id:(await device()).device} : null;
+}
+async function processIntents(cfg) {
+  const intents = (await storage.get('intents')).intents || [];
+  for (const intent of intents) {
+    if (intent.scope !== scope(cfg) || intent.state !== 'pending') continue;
     try {
-      await api(cfg, "/api/monitor/results", { results: results.slice(i, i + 50) });
-    } catch {
-      // 回报失败：租期到了后端会重新发这些任务
-    }
+      const targets = intent.captured || [];
+      for (const candidate of intent.selected) {
+        if (targets.some(t => t.candidate_id === candidate.candidate_id)) continue;
+        // Save exactly the raw snapshot the user previewed. Later reads belong to monitor jobs.
+        const found = candidate;
+        if (candidate.needs_detail) throw Error('preview_required');
+        targets.push({ candidate_id: candidate.candidate_id, entity_id: candidate.entity_id,
+          locator: found.locator, raw: found.raw, recipe: found.recipe, supported: candidate.supported, enabled: Boolean(intent.enabled && candidate.supported) });
+        intent.captured = targets; await storage.set({ intents });
+      }
+      await box.add(cfg, '/api/v1/captures', { schema_version: 1, request_id: intent.id, device_id: (await device()).device, binding: intent.binding, capture_generation:intent.capture_generation || 0, targets, ...(intent.reading?{reading:intent.reading}:{}) });
+      intent.state = 'queued';
+      delete intent.selected; delete intent.captured;
+    } catch (e) { intent.state = 'failed'; intent.error = e.message; delete intent.selected; delete intent.captured; }
+    await storage.set({ intents });
   }
 }
-
-const fail = (tasks, code, message) =>
-  tasks.map((t) => ({ item_id: t.item_id, ok: false, error: { code, message } }));
-
-async function checkPage(pageUrl, tasks) {
-  let url;
-  try {
-    url = new URL(pageUrl);
-  } catch {
-    return fail(tasks, "unsupported", "地址无效");
-  }
-  if (!(await chrome.permissions.contains({ origins: [url.origin + "/*"] }))) {
-    return fail(tasks, "forbidden", "插件没有访问该网站的权限，请在弹窗里重新保存并允许访问");
-  }
-  const robots = await robotsFor(url.origin);
-  if (robots === null) return fail(tasks, "network", "暂时取不到 robots.txt，稍后再试");
-  if (!robotsAllowed(robots, url.pathname + url.search)) {
-    return fail(tasks, "unsupported", "该网站的 robots.txt 不允许自动访问这个页面");
-  }
-  let res;
-  let html;
-  try {
-    res = await politeFetch(pageUrl);
-    if (res.status === 401) return fail(tasks, "auth_expired", "登录已过期，请在浏览器里重新登录该网站");
-    if (res.status === 403) return fail(tasks, "forbidden", "没有权限访问该页面（HTTP 403）");
-    if (res.status === 404 || res.status === 410) return fail(tasks, "not_found", `页面不存在（HTTP ${res.status}）`);
-    if (!res.ok) return fail(tasks, "network", `网站返回 HTTP ${res.status}`);
-    if (!/html|xml/i.test(res.headers.get("Content-Type") || "")) {
-      return fail(tasks, "parse_failed", "页面不是网页格式，无法检查");
-    }
-    const len = Number(res.headers.get("Content-Length") || 0);
-    if (len > MAX_HTML) return fail(tasks, "parse_failed", "页面太大");
-    html = (await res.text()).slice(0, MAX_HTML);
-  } catch (e) {
-    return fail(tasks, "network", e.name === "AbortError" ? "请求超时" : "网络错误");
-  }
-  let parsed;
-  try {
-    parsed = await parseInOffscreen(html, res.url || pageUrl, pageUrl);
-  } catch {
-    return fail(tasks, "parse_failed", "无法解析页面");
-  }
-  if (parsed.login) return fail(tasks, "auth_expired", "登录已过期，请在浏览器里重新登录该网站");
-  const found = new Map(parsed.result.candidates.map((c) => [c.locator, c]));
-  found.set("page", parsed.result.page);
-  return tasks.map((t) => {
-    const c = found.get(t.locator);
-    if (!c) return { item_id: t.item_id, ok: false, error: { code: "not_found", message: "页面上找不到这条事项" } };
-    return {
-      item_id: t.item_id,
-      ok: true,
-      title: c.title,
-      text: c.text || "",
-      url: c.url || pageUrl,
-      ...(c.type ? { type: c.type } : {}),
-    };
-  });
-}
-
-async function politeFetch(url) {
-  const host = new URL(url).host;
-  const wait = (lastHit.get(host) || 0) + HOST_GAP_MS - Date.now();
-  if (wait > 0) await sleep(wait);
-  lastHit.set(host, Date.now());
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-  try {
-    // 用浏览器的会话读取（只读 GET），重定向由浏览器跟随；跳到登录页会在解析时识别出来
-    return await fetch(url, { credentials: "include", cache: "no-store", redirect: "follow", signal: ctl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ---- robots.txt（RFC 9309 的精简实现：* 组与 gleaner 组、Allow/Disallow、* 与 $、最长匹配） ----
-
-async function robotsFor(origin) {
-  const hit = robotsCache.get(origin);
-  if (hit && Date.now() - hit.at < ROBOTS_TTL_MS) return hit.rules;
-  let rules;
-  try {
-    const res = await politeFetch(origin + "/robots.txt");
-    if (res.status >= 500) rules = null;
-    else if (res.ok) rules = parseRobots(await res.text());
-    else rules = []; // 4xx：没有限制
-  } catch {
-    rules = null; // 不可达：视为全部禁止，稍后再试
-  }
-  robotsCache.set(origin, { at: rules === null ? Date.now() - ROBOTS_TTL_MS + 300000 : Date.now(), rules });
-  return rules;
-}
-
-function parseRobots(text) {
-  const groups = [];
-  let cur = null;
-  let lastAgent = false;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.split("#")[0].trim();
-    const i = line.indexOf(":");
-    if (i < 0) continue;
-    const k = line.slice(0, i).trim().toLowerCase();
-    const v = line.slice(i + 1).trim();
-    if (k === "user-agent") {
-      if (!cur || !lastAgent) groups.push((cur = { agents: [], rules: [] }));
-      cur.agents.push(v.toLowerCase());
-      lastAgent = true;
-      continue;
-    }
-    lastAgent = false;
-    if (cur && (k === "allow" || k === "disallow") && v) cur.rules.push({ allow: k === "allow", path: v });
-  }
-  const mine = groups.filter((g) => g.agents.some((a) => a && a !== "*" && "gleaner".includes(a)));
-  const chosen = mine.length ? mine : groups.filter((g) => g.agents.includes("*"));
-  return chosen.flatMap((g) => g.rules);
-}
-
-function robotsAllowed(rules, path) {
-  let best = null;
-  for (const r of rules) {
-    const anchored = r.path.endsWith("$");
-    const body = anchored ? r.path.slice(0, -1) : r.path;
-    const rx = new RegExp("^" + body.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + (anchored ? "$" : ""));
-    if (rx.test(path)) {
-      const cand = [r.path.length, r.allow ? 1 : 0];
-      if (!best || cand[0] > best[0] || (cand[0] === best[0] && cand[1] > best[1])) best = cand;
-    }
-  }
-  return !best || best[1] === 1;
-}
-
-// ---- offscreen 文档：service worker 里没有 DOMParser ----
-
-async function ensureOffscreen() {
-  const has = chrome.offscreen.hasDocument ? await chrome.offscreen.hasDocument() : false;
-  if (has) return;
-  try {
-    await chrome.offscreen.createDocument({
-      url: "offscreen.html",
-      reasons: ["DOM_PARSER"],
-      justification: "解析重新获取的网页，按定位符找回已保存的事项",
-    });
-  } catch (e) {
-    if (!/single offscreen/i.test(String(e))) throw e;
-  }
-}
-
-async function parseInOffscreen(html, finalUrl, pageUrl) {
-  await ensureOffscreen();
-  const r = await chrome.runtime.sendMessage({ target: "offscreen", type: "parse", html, finalUrl, pageUrl });
-  if (!r || r.error) throw new Error(r ? r.error : "no response");
-  return r;
-}
+// Restore a missing alarm without postponing an existing scheduled wake-up.
+alarm();
+serial(async () => { await processIntents(await config()); await wake(); }).catch(() => {});

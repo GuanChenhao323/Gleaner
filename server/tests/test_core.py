@@ -635,3 +635,29 @@ def test_data_key_rotation_and_legacy_blobs(monkeypatch):
         security.decrypt(blob1, aad=b"aad")
     monkeypatch.setenv("GLEANER_DATA_KEY", "abcd")
     assert any("32 字节" in p for p in security.check_secrets())
+
+
+async def test_browser_capture_migration_preserves_existing_users(db_url):
+    url = db_url("browser-migration.db")
+    db = await Database(url).connect()
+    uid = await db.insert(
+        "users",
+        {"email": "existing@test.local", "password_hash": "unused", "created_at": time.time()},
+    )
+    for table, column in (
+        ("users", "capture_generation"),
+        ("reading_sources", "failure_count"),
+        ("reading_sources", "deleted"),
+        ("reading_sources", "delete_result"),
+    ):
+        await db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    await db.execute("DELETE FROM schema_migrations WHERE version = 8")
+    await db.close()
+
+    for _ in range(2):
+        db = await Database(url).connect()
+        user = await db.fetchone("SELECT email, capture_generation FROM users WHERE id = ?", uid)
+        assert user == {"email": "existing@test.local", "capture_generation": 0}
+        assert await db.fetchval("SELECT COUNT(*) FROM schema_migrations WHERE version = 8") == 1
+        await db.fetch("SELECT failure_count, deleted, delete_result FROM reading_sources")
+        await db.close()

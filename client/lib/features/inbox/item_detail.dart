@@ -1,15 +1,23 @@
+import 'document_trash_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
+import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../sources/browser_monitors.dart';
+import '../sources/reading_source.dart';
+import 'item_load_failure.dart';
 import 'item_workbench.dart';
+import 'source_changes.dart';
+import 'web_capture_details.dart';
 
 class ItemDetail extends ConsumerStatefulWidget {
   final int id;
@@ -21,6 +29,8 @@ class ItemDetail extends ConsumerStatefulWidget {
 }
 
 class _ItemDetailState extends ConsumerState<ItemDetail> {
+  Object? _loadError;
+  bool _detailLoading = true;
   @override
   void initState() {
     super.initState();
@@ -34,13 +44,16 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
   }
 
   Future<void> _load() async {
+    setState(() { _detailLoading = true; _loadError = null; });
     final store = ref.read(feedProvider.notifier);
     final it = ref.read(feedProvider).items[widget.id];
     if (it != null && !it.state.read) store.setState(it, read: true);
     try {
       await store.loadDetail(widget.id);
-    } catch (_) {
-      // 离线时显示缓存
+    } catch (e) {
+      if (mounted) setState(() => _loadError = e);
+    } finally {
+      if (mounted) setState(() => _detailLoading = false);
     }
   }
 
@@ -48,7 +61,10 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
   Widget build(BuildContext context) {
     final item = ref.watch(feedProvider.select((s) => s.items[widget.id]));
     if (item == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(body: _detailLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ItemLoadFailure(error: _loadError, email: ref.watch(sessionProvider).me?.email ?? '',
+              onRetry: _load, onSources: () => context.go('/sources')));
     }
     final t = Theme.of(context);
     final cs = t.colorScheme;
@@ -60,7 +76,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         TypeStatusRow(item: item),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Pill(kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
+          Pill(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
           if (item.course.isNotEmpty) CourseTag(item.course),
           if (item.priority != 'low') Pill('${priorityLabel(item.priority)} · ${item.score} 分', color: item.priority == 'urgent' ? Brand.urgent : cs.primary),
           if (item.deleted) Pill('来源已删除', color: cs.error, icon: Icons.delete_outline),
@@ -120,20 +136,40 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             ]),
           ),
         ],
+        if (item.raw['web_capture'] is Map)
+          WebCaptureDetails(Map<String, dynamic>.from(item.raw['web_capture'] as Map), hasReadingSource: item.raw['reading_source'] is Map),
         if (item.body.isNotEmpty) ...[
           const SectionHeader('原文内容'),
           Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(item.body, style: t.textTheme.bodyMedium?.copyWith(height: 1.7)))),
         ],
+        if ((item.raw['source_fields'] as Map? ?? {}).isNotEmpty) ...[
+          const SectionHeader('来源原始字段'),
+          Card(child: Padding(padding: const EdgeInsets.all(12), child: SelectableText((item.raw['source_fields'] as Map).entries.map((e) => '${const {'course':'课程','semester':'学期','week':'周次','weekday':'星期','period':'节次','datetime_text':'原始时间','office':'办公室','department':'部门','role':'角色','phone':'电话','email':'邮箱','requirements':'要求','subtype':'资料类别'}[e.key] ?? e.key}：${e.value}').join('\n')))),
+        ],
+        if (item.raw['reading_source'] is Map) ...[
+          const SectionHeader('条件来源检查'),
+          Text(readingResultLabel('${(item.raw['reading_source'] as Map)['last_result']}')),
+          TextButton(onPressed: () => context.push('/sources/${(item.raw['reading_source'] as Map)['id']}'), child: const Text('查看来源与检查设置')),
+        ] else if (item.raw['browser_monitor'] is Map) ...[
+          const SectionHeader('浏览器来源检查'),
+          Text((item.raw['browser_monitor'] as Map)['supported'] != true ? '仅保存快照 · 暂不支持后台检查' : browserCheckLabel('${(item.raw['browser_monitor'] as Map)['last_result']}')),
+        ],
+        if (item.state.note.isNotEmpty) ...[
+          const SectionHeader('我的备注（来源更新不会覆盖）'),
+          SelectableText(item.state.note),
+        ],
         _History(id: item.id),
-        const SectionHeader('来源监测'),
-        MonitorCard(item: item),
+        if (item.raw['reading_source'] is! Map && item.raw['browser_monitor'] is! Map) ...[
+          const SectionHeader('来源监测'),
+          MonitorCard(item: item),
+        ],
         const SectionHeader('来源与可靠性'),
         Card(
           child: Column(children: [
             ListTile(
               leading: Icon(sourceIcon(item.source?.type ?? '')),
               title: Text(item.source?.name ?? '未知来源'),
-              subtitle: Text('最后成功检查：${relative(tsToDate(item.source?.lastSuccessAt))}'),
+              subtitle: Text('${item.raw['reading_source'] is Map ? '最后成功检查' : item.raw['web_capture'] is Map ? '最后保存' : '最后成功检查'}：${relative(tsToDate(item.raw['reading_source'] is Map ? ((item.raw['reading_source'] as Map)['last_success_at'] as num?)?.toDouble() : item.source?.lastSuccessAt))}'),
             ),
             if (item.channels.length > 1)
               ListTile(
@@ -187,8 +223,9 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       backgroundColor: widget.embedded ? cs.surface : null,
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(typeLabel(item.type)),
+        title: Text(item.raw['web_capture'] is Map ? '网页资料' : typeLabel(item.type)),
         actions: [
+          DocumentTrashButton(item: item),
           IconButton(
             tooltip: item.state.starred ? '取消收藏' : '收藏',
             icon: Icon(item.state.starred ? Icons.star_rounded : Icons.star_outline_rounded, color: item.state.starred ? Brand.wheat : null),
@@ -290,6 +327,8 @@ class _History extends ConsumerWidget {
                             // 版本按新到旧排列：与下一条（更旧的版本）比较
                             if (versions[i].version > 1)
                               VersionDiff(version: versions[i], previous: i + 1 < versions.length ? versions[i + 1] : null),
+                            if (versions[i].changed.containsKey('source_fields'))
+                              SourceChanges({'source_fields': versions[i].changed['source_fields']}),
                           ]),
                         ),
                       ),

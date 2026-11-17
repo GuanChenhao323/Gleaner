@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Campus Radar",
-  "version": "0.2.0",
-  "description": "勾选校园网页上的事项保存到本地工作台，并在 Chrome 运行时检查来源变化。",
-  "minimum_chrome_version": "116",
+  "version": "0.13.1",
+  "description": "在插件弹窗中输入条件、提取当前网页、核对匹配片段并保存到 Campus Radar。",
+  "minimum_chrome_version": "110",
   "action": {
-    "default_title": "保存到 Campus Radar",
+    "default_title": "采集到 Campus Radar",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -20,7 +20,18 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["activeTab", "scripting", "storage", "alarms", "offscreen"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"]
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
 }

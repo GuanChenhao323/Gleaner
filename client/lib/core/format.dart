@@ -94,7 +94,8 @@ Color? dueRowAccent({required bool done, required String priority, DateTime? dea
 }
 
 String kindLabel(String kind) => switch (kind) {
-      'assignment' => '作业',
+      'assignment' => '待办任务',
+      'event' => '日程活动',
       'notice' => '通知',
       'mail' => '邮件',
       'rss' => '通知',
@@ -104,6 +105,7 @@ String kindLabel(String kind) => switch (kind) {
     };
 
 IconData kindIcon(String kind) => switch (kind) {
+      'event' => Icons.event_outlined,
       'assignment' => Icons.assignment_outlined,
       'notice' => Icons.campaign_outlined,
       'mail' => Icons.mail_outline,
@@ -118,6 +120,7 @@ IconData sourceIcon(String type) => switch (type) {
       'rss' => Icons.rss_feed,
       'teacher' => Icons.badge_outlined,
       'imap' || 'pop3' => Icons.mail_outline,
+      'browser' => Icons.web,
       'clip' => Icons.bookmarks_outlined,
       _ => Icons.link,
     };

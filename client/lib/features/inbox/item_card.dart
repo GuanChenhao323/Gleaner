@@ -1,3 +1,4 @@
+import 'document_trash_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -81,6 +82,7 @@ class ItemCard extends ConsumerWidget {
                 ]),
               ]),
             ),
+            DocumentTrashButton(item: item),
             IconButton(
               visualDensity: VisualDensity.compact,
               tooltip: item.state.starred ? '取消收藏' : '收藏',

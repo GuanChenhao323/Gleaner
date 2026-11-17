@@ -1,0 +1,43 @@
+// Loopback HTTP + production ports with a simulated browser DOM, not Chrome acceptance.
+import assert from 'node:assert/strict';
+import {rendered,storage} from '../extension/tests/scoped-fixture.mjs';
+import {PageExtractionService} from '../extension/extraction/service.js';
+import {DraftRepository} from '../extension/extraction/drafts.js';
+import {request} from '../extension/lib/api.js';
+import {Outbox} from '../extension/lib/outbox.js';
+import {ConditionalPageReader,SourceSessionVerifier} from '../extension/monitoring/page-session.js';
+import {ReadingJobExecutor} from '../extension/monitoring/jobs.js';
+const server='http://localhost:8080', url='http://localhost:8098/generic-account?case='+crypto.randomUUID(),device='lifecycle-http-fixture';
+const login=await request({server},'/api/auth/login',{email:'demo@gleaner.test',password:'demo12345'},{login:true});
+const cfg={server,uid:login.user.id,token:login.token};
+const local=async(path,body,method=body===undefined?'GET':'POST',status=200)=>{
+  const r=await fetch(server+path,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+cfg.token},body:body===undefined?undefined:JSON.stringify(body)});
+  const data=await r.json();assert.equal(r.status,status,JSON.stringify(data));return data;
+};
+const res=await fetch('http://localhost:8098/login',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'account=student-a'});
+const cookie=res.headers.get('set-cookie').split(';')[0];
+let account='student-a',html=await (await fetch(url,{headers:{Cookie:cookie}})).text();
+const page=()=>rendered(html.replaceAll('student-a@example.test',account+'@example.test'),url);
+const reader={metadata:async()=>JSON.parse(JSON.stringify(page().context.CampusScoped.metadata())),read:async(_,intent)=>JSON.parse(JSON.stringify(page().context.CampusScoped.execute({intent})))};
+const store=storage();store.remove=async k=>{delete store.data[k];};
+const outbox=new Outbox(store),key=(_,email)=>Promise.resolve((email.startsWith('student-a')?'a':'b').repeat(64));
+const extraction=new PageExtractionService({browser:{tabs:{get:async()=>({id:99,url})},permissions:{contains:async()=>true}},reader,repository:new DraftRepository(store),config:async()=>cfg,accountKey:key,enqueueWeb:async(_,body)=>{await outbox.add(cfg,'/api/v1/web-captures',{...body,device_id:device});return {request_id:body.request_id};}});
+const query='账号核对演示';const {id}=await extraction.start(cfg,{version:2,request_id:crypto.randomUUID(),tabId:99,url,query});await extraction.queue;
+const {identity}=await extraction.handle(cfg,{type:'extract.verifyAccount',id});
+await extraction.handle(cfg,{type:'extract.save',id,query,source_binding:{kind:'labeled',label:'本轮HTTP模拟账号',identity}});await outbox.flush(cfg);
+const receipt=(await outbox.all())[0];assert.equal(receipt.state,'confirmed',receipt.error);
+const sid=receipt.response.reading_source_id,iid=receipt.response.results[0].item_id;
+const get=async()=>(await local('/api/v1/reading-sources')).sources.find(s=>s.id===sid);
+const reentry={cleanup:async()=>{},read:async(recipe,_,before)=>{await before(await reader.metadata());return reader.read(null,recipe.intent);}};
+const executor=new ReadingJobExecutor({storage:store,outbox,api:request,reentry,reader:new ConditionalPageReader(reentry,new SourceSessionVerifier(key)),config:async()=>cfg,device:async()=>({device})});
+let s=await get();await local(`/api/v1/reading-sources/${sid}/check`,{revision:s.revision,purpose:'verify'});await executor.wake(cfg);assert.equal((await get()).verified,true);
+s=await get();account='student-b';await local(`/api/v1/reading-sources/${sid}/check`,{revision:s.revision,purpose:'check'});await executor.wake(cfg);assert.equal((await get()).last_result,'account_mismatch');assert.equal((await local(`/api/items/${iid}`)).version,1);
+account='student-a';s=await get();await local(`/api/v1/reading-sources/${sid}/check`,{revision:s.revision,purpose:'verify'});await executor.wake(cfg);
+html=html.replace('合成项目资料','合成项目资料已更新');s=await get();await local(`/api/v1/reading-sources/${sid}/check`,{revision:s.revision,purpose:'check'});await executor.wake(cfg);assert.equal((await local(`/api/items/${iid}`)).version,2);
+await local(`/api/items/${iid}/state`,{hidden:true},'PUT');assert.equal((await get()).paused,true);assert.ok((await local('/api/feed?filter=trash')).items.some(i=>i.id===iid));
+await local(`/api/items/${iid}/state`,{hidden:false},'PUT');assert.equal((await get()).paused,true);
+s=await get();await local(`/api/v1/reading-sources/${sid}`,{revision:s.revision,trash_items:false},'DELETE');assert.equal(await get(),undefined);assert.equal((await local(`/api/items/${iid}`)).version,2);
+await local('/api/v1/web-captures',{...(await extraction.handle(cfg,{type:'extract.get',id})).result},'POST',422); // Malformed input is not accepted.
+const deleted=(await local('/api/v1/reading-sources/deleted')).sources.find(s=>s.id===sid);assert.ok(deleted);
+await local(`/api/v1/reading-sources/${sid}/restore`,{revision:deleted.revision});s=await get();assert.equal(s.paused,true);assert.equal(s.verified,false);
+console.log(JSON.stringify({mode:'real loopback HTTP + simulated DOM/API',source_id:sid,item_id:iid,version:2,private_binding:true,account_switch_blocked:true,trash_restore:true,source_delete_restore_paused:true}));

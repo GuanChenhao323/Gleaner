@@ -10,75 +10,407 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../widgets/common.dart';
 
+import 'package:go_router/go_router.dart';
+
+import 'reading_source.dart';
+import 'source_purge.dart';
+import 'reading_source_card.dart';
+import 'resident_source_group.dart';
+import 'campus_source_entries.dart';
+
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
+  Future<void> _act(
+    BuildContext context,
+    Future<void> Function() action,
+    String message,
+  ) async {
+    try {
+      await action();
+      if (context.mounted && message.isNotEmpty) toast(context, message);
+    } catch (e) {
+      if (context.mounted) toast(context, '$e', error: true);
+    }
+  }
+
+  Future<void> _remove(
+    BuildContext context,
+    WidgetRef ref,
+    ReadingSource source,
+  ) async {
+    bool trashItems = false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, update) => AlertDialog(
+          title: const Text('删除信息源？'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('停止此来源的手动和定期检查。默认保留已保存资料、备注及历史版本。可从“已删除来源”手动恢复；旧任务不会自动恢复。'),
+              CheckboxListTile(
+                value: trashItems,
+                onChanged: (v) => update(() => trashItems = v ?? false),
+                title: const Text('同时将关联资料移入个人回收站'),
+                subtitle: const Text('也会在引用这些资料的其他来源中隐藏；可从收件箱回收站恢复。'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('删除来源'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await _act(context, () async {
+      await ref
+          .read(readingSourcesProvider.notifier)
+          .remove(source, trashItems);
+      await ref.read(feedProvider.notifier).refreshAll();
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+      ref.invalidate(deletedReadingSourcesProvider);
+    }, trashItems ? '来源已删除，关联资料已移入回收站。' : '来源已删除，资料与历史保留。');
+  }
+
+  Future<void> _purge(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> source,
+  ) async {
+    await _act(context, () async {
+      final repo = ref.read(readingRepositoryProvider);
+      final plan = await repo.purgePreview(source['id'] as int);
+      if (!context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (c) => SourcePurgeDialog(
+          plan: plan,
+          title: '${(source['recipe'] as Map)['query']}',
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+      if (!identical(repo, ref.read(readingRepositoryProvider))) {
+        throw StateError("工作台账号已变化，请重新确认。");
+      }
+      final result = await repo.purge(plan);
+      if (!identical(repo, ref.read(readingRepositoryProvider))) return;
+      String? cleanupError;
+      try {
+        await ref
+            .read(feedProvider.notifier)
+            .forgetPermanently(result.itemIds, result.generation);
+      } catch (e) {
+        cleanupError = '$e';
+      }
+      for (final id in result.itemIds) {
+        ref.invalidate(versionsProvider(id));
+      }
+      ref.invalidate(deletedReadingSourcesProvider);
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+      await ref.read(readingSourcesProvider.notifier).refresh();
+      if (context.mounted) {
+        toast(
+          context,
+          cleanupError == null
+              ? '来源、关联资料与历史已彻底删除。请重新提取后保存。'
+              : '服务器已彻底删除；本机缓存清理待重试：$cleanupError',
+          error: cleanupError != null,
+        );
+      }
+    }, '');
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sources = ref.watch(sourcesProvider);
+    final deleted = ref.watch(deletedReadingSourcesProvider);
+    final data = ref.watch(readingSourcesProvider),
+        legacy = ref.watch(sourcesProvider),
+        captures = ref.watch(legacyCapturesProvider);
+    void refresh() {
+      ref.read(readingSourcesProvider.notifier).refresh().catchError((
+        Object e,
+      ) {
+        if (context.mounted) toast(context, '状态刷新失败：$e', error: true);
+      });
+      ref.invalidate(sourcesProvider);
+      ref.invalidate(legacyCapturesProvider);
+      ref.invalidate(deletedReadingSourcesProvider);
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('信息源'), actions: [
-        IconButton(tooltip: '刷新状态', icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(sourcesProvider)),
-        const SizedBox(width: 8),
-      ]),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showAddSource(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('添加信息源'),
-      ),
-      body: sources.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '无法获取信息源状态', message: '$e', action: OutlinedButton(onPressed: () => ref.invalidate(sourcesProvider), child: const Text('重试'))),
-        data: (list) => list.isEmpty
-            ? EmptyState(
-                icon: Icons.hub_outlined,
-                title: '还没有信息源',
-                message: '用校园模板一键添加 Moodle、学院通知、教师信息和学校邮箱。系统会定期检查这些来源，把作业、通知和邮件整理进收件箱。',
-                action: FilledButton.icon(onPressed: () => showAddSource(context, ref), icon: const Icon(Icons.add), label: const Text('添加第一个信息源')),
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-                children: [
-                  _Summary(list),
-                  const SizedBox(height: 12),
-                  for (final s in list) Padding(padding: const EdgeInsets.only(bottom: 10), child: _SourceCard(s)),
-                ],
+      appBar: AppBar(
+        title: const Text('信息源'),
+        actions: [
+          IconButton(
+            tooltip: '刷新列表状态（不访问来源网页）',
+            icon: const Icon(Icons.refresh),
+            onPressed: refresh,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: FilledButton.tonalIcon(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (c) => const FractionallySizedBox(
+                  heightFactor: .88,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(24),
+                    child: CampusSourceEntries(),
+                  ),
+                ),
               ),
+              icon: const Icon(Icons.add),
+              label: const Text('从网页采集'),
+            ),
+          ),
+        ],
+      ),
+      body: data.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => EmptyState(
+          icon: Icons.cloud_off,
+          title: '无法读取信息源',
+          message: '$e',
+          action: OutlinedButton(onPressed: refresh, child: const Text('重试')),
+        ),
+        data: (rows) {
+          final linked = rows
+              .expand((s) => s.items)
+              .map((i) => i['id'])
+              .toSet();
+          final controller = ref.read(readingSourcesProvider.notifier),
+              cs = Theme.of(context).colorScheme;
+          Widget metric(String value, String label) => Column(
+            children: [
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(color: cs.primary),
+              ),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ],
+          );
+          final oldCaptures = (captures.value ?? <Map<String, dynamic>>[])
+              .where((r) => !linked.contains(r['item_id']))
+              .toList();
+          final oldSources = (legacy.value ?? <Source>[])
+              .where((s) => s.type != 'browser')
+              .toList();
+          final groups = <String, List<ReadingSource>>{};
+          for (final s in rows) {
+            groups.putIfAbsent(s.pageId ?? 'legacy-${s.id}', () => []).add(s);
+          }
+          Widget ruleCard(ReadingSource s) =>
+                ReadingSourceCard(
+                  source: s,
+                  onCheck: () => _act(
+                    context,
+                    () => controller.check(s, 'check'),
+                    '检查已排队；结果确认后更新状态。',
+                  ),
+                  onSettings: () => context.push('/sources/${s.id}/settings'),
+                  onDetails: () => context.push('/sources/${s.id}${s.result=='changed'?'?tab=changes':''}'),
+                  onLogs: () => context.push('/sources/${s.id}/checks'),
+                  onPause: () => _act(
+                    context,
+                    () =>
+                        controller.configure(s, s.settings(paused: !s.paused)),
+                    s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
+                  ),
+                  onOpen: () => launchUrl(Uri.parse(s.url)),
+                  onDelete: () => _remove(context, ref, s),
+                );
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+            children: [
+              Text(
+                '关注的网页，持续有据可查',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 6),
+              const Text('保存的内容、提取条件与更新状态，集中在这里管理。'),
+              const SizedBox(height: 10),
+              Text(
+                rows.isEmpty
+                    ? '保存后会记录原关键词和执行设备。'
+                    : rows.any((s) => s.deviceOnline)
+                    ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
+                    : '尚未检测到执行设备近期连接 · 保留上次成功结果',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 17),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 18,
+                    horizontal: 8,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, c) => Wrap(
+                      alignment: WrapAlignment.spaceAround,
+                      spacing: 16,
+                      runSpacing: 14,
+                      children: [
+                        metric('${groups.length}', '已保存页面'),
+                        metric(
+                          '${rows.where((s) => s.periodic).length}',
+                          '定期规则',
+                        ),
+                        metric(
+                          '${rows.where((s) => !['not_executed', 'verified', 'unchanged', 'changed', 'starting', 'user_busy'].contains(s.result) || s.capability == 'account_unknown').length}',
+                          '需要处理',
+                        ),
+                        metric(
+                          '${rows.where((s) => s.result == 'changed').length}',
+                          '本次发现变化',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('我的信息源', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 10),
+              if (rows.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text('还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。'),
+                ),
+              for (final group in groups.values)
+                if (group.first.resident)
+                  ResidentSourceGroup(
+                    rules: group,
+                    ruleCard: ruleCard,
+                    onSettings: () =>
+                        context.push('/sources/${group.first.id}/settings'),
+                    onCheck: () => _act(
+                      context,
+                      () => controller.check(group.first, 'check'),
+                      '整页检查已排队；同页规则共享刷新。',
+                    ),
+                    onPause: () => _act(
+                      context,
+                      () => controller.configure(
+                        group.first,
+                        group.first.settings(
+                          paused: !group.any((s) => s.paused),
+                        ),
+                      ),
+                      '整页监测计划已更新。',
+                    ),
+                  )
+                else
+                  ruleCard(group.first),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  '专用监测标签页需要保持打开；可以关闭工作台页面。请保持Chrome、扩展和本地服务运行，检查可能延后。',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              deleted.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('已删除来源暂不可用：$e'),
+                data: (values) => ExpansionTile(
+                  title: Text('已删除来源（${values.length}）'),
+                  subtitle: const Text('恢复后保持暂停；彻底删除会永久清除关联资料与历史。'),
+                  children: [
+                    for (final value in values)
+                      ListTile(
+                        title: Text('${(value['recipe'] as Map)['query']}'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('检查已停止 · 资料与历史按原选择保留'),
+                            Wrap(
+                              spacing: 12,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(Icons.restore),
+                                  label: const Text('恢复来源'),
+                                  onPressed: () => _act(
+                                    context,
+                                    () => controller.restore(
+                                      value['id'] as int,
+                                      value['revision'] as int,
+                                    ),
+                                    '来源已恢复并暂停；请重新测试重读。',
+                                  ),
+                                ),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: cs.error,
+                                  ),
+                                  icon: const Icon(Icons.delete_forever),
+                                  label: const Text('彻底删除'),
+                                  onPressed: () => _purge(context, ref, value),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (oldCaptures.isNotEmpty ||
+                  oldSources.isNotEmpty ||
+                  captures.hasError)
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('旧资料与演示订阅'),
+                  subtitle: const Text('保留已有数据；缺少原条件时请打开原网页重新采集。'),
+                  children: [
+                    if (captures.hasError) Text('旧资料读取失败：${captures.error}'),
+                    for (final r in oldCaptures)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.inventory_2_outlined),
+                          title: Text('${r['title']}'),
+                          subtitle: Text('${r['url']}\n旧采集资料 · 未自动迁入条件监测'),
+                          onTap: () => context.push('/item/${r['item_id']}'),
+                        ),
+                      ),
+                    for (final s in oldSources) _SourceCard(s),
+                    TextButton(
+                      onPressed: () => showAddSource(context, ref),
+                      child: const Text('管理旧模板／演示来源'),
+                    ),
+                  ],
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Summary extends StatelessWidget {
-  final List<Source> list;
-  const _Summary(this.list);
-  @override
-  Widget build(BuildContext context) {
-    final ok = list.where((s) => s.status == 'ok').length;
-    final bad = list.where((s) => s.status == 'failed').length;
-    final login = list.where((s) => s.status == 'need_login').length;
-    final ratios = list.where((s) => s.savedRatio != null).map((s) => s.savedRatio!).toList();
-    final saved = ratios.isEmpty ? null : ratios.reduce((a, b) => a + b) / ratios.length;
-    final cs = Theme.of(context).colorScheme;
-    Widget cell(String v, String l, Color c) => Expanded(
-          child: Column(children: [
-            Text(v, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: c)),
-            Text(l, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
-          ]),
-        );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        child: Row(children: [
-          cell('$ok', '正常', sourceStatus(context, list.firstWhere((s) => s.status == 'ok', orElse: () => list.first)).color),
-          cell('$bad', '检查失败', cs.error),
-          cell('$login', '需要登录', const Color(0xFFE0A43A)),
-          cell(saved == null ? '—' : '${(saved * 100).round()}%', '条件请求命中', cs.primary),
-        ]),
-      ),
-    );
-  }
-}
+final legacyCapturesProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
+  final api = ref.watch(apiProvider);
+  final results = await Future.wait([api.browserMonitors(), api.webCaptures()]);
+  return [
+    ...results[0],
+    ...results[1].map((r) => {...r, 'item_id': r['id']}),
+  ];
+});
 
 class _SourceCard extends ConsumerWidget {
   final Source s;

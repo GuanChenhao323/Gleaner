@@ -20,6 +20,7 @@ from .core.agent_hub import AgentHub
 from .core.api import API
 from .core.maintenance import run_maintenance
 from .core.pipeline import Pipeline
+from .core.reading_schedule import ReadingSchedule
 from .core.reminders import publish_digests, send_due_reminders
 from .core.validate import BadRequest, as_int
 from .gateway.app import Gateway
@@ -83,7 +84,13 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
         await hub.publish(topic, payload)
 
     pipe = Pipeline(db, route)
-    api = API(db, pipe, route, data_dir=cfg.data_dir)
+    api = API(
+        db,
+        pipe,
+        route,
+        data_dir=cfg.data_dir,
+        reading_schedule=ReadingSchedule(cfg.fixture_reading_interval),
+    )
     router = Router()
     api.register(router)
 

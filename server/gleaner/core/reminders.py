@@ -144,7 +144,7 @@ async def build_digest(db: Database, uid: int, now: float) -> dict[str, Any]:
         """SELECT i.id, i.title, i.kind, i.deadline_at, st.priority FROM items i
            JOIN subscriptions s ON s.source_id = i.source_id AND s.user_id = ?
            LEFT JOIN user_item_state st ON st.user_id = ? AND st.item_id = i.id
-           WHERE i.deleted = 0 AND i.updated_at > ? ORDER BY i.updated_at DESC LIMIT 30""",
+           WHERE i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND i.updated_at > ? ORDER BY i.updated_at DESC LIMIT 30""",
         uid,
         uid,
         now - 86400,
@@ -152,7 +152,7 @@ async def build_digest(db: Database, uid: int, now: float) -> dict[str, Any]:
     upcoming = await db.fetch(
         """SELECT i.id, i.title, i.deadline_at FROM items i JOIN subscriptions s ON s.source_id = i.source_id AND s.user_id = ?
            LEFT JOIN user_item_state st ON st.user_id = ? AND st.item_id = i.id
-           WHERE i.deleted = 0 AND i.deadline_at BETWEEN ? AND ? AND COALESCE(st.todo_status, '') != 'done' ORDER BY i.deadline_at LIMIT 10""",
+           WHERE i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND i.deadline_at BETWEEN ? AND ? AND COALESCE(st.todo_status, '') != 'done' ORDER BY i.deadline_at LIMIT 10""",
         uid,
         uid,
         now,

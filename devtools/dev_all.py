@@ -85,7 +85,9 @@ async def seed(gateway: str, mail: object) -> None:
             return
         auth = {"Authorization": f"Bearer {r.json()['token']}"}
         sid = (
-            await c.post(f"{gateway}/api/sources", json_body={"template": "moodle"}, headers=auth)
+            await c.post(
+                f"{gateway}/api/sources", json_body={"template": "moodle"}, headers=auth
+            )
         ).json()["source"]["id"]
         await c.post(
             f"{gateway}/api/sources/{sid}/login",
@@ -93,10 +95,14 @@ async def seed(gateway: str, mail: object) -> None:
             headers=auth,
         )
         for t in ("college_news", "faculty"):
-            await c.post(f"{gateway}/api/sources", json_body={"template": t}, headers=auth)
+            await c.post(
+                f"{gateway}/api/sources", json_body={"template": t}, headers=auth
+            )
         mid = (
             await c.post(
-                f"{gateway}/api/sources", json_body={"template": "school_mail"}, headers=auth
+                f"{gateway}/api/sources",
+                json_body={"template": "school_mail"},
+                headers=auth,
             )
         ).json()["source"]["id"]
         await c.post(
@@ -110,7 +116,6 @@ async def seed(gateway: str, mail: object) -> None:
 async def main(do_seed: bool) -> None:
     from fake_mail.server import FakeMailServer
     from fake_moodle import app as fm
-
     from gleaner.__main__ import _dev
     from gleaner.config import Config, setup_logging
 
@@ -119,7 +124,11 @@ async def main(do_seed: bool) -> None:
     srv = fm.serve(8090)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     mail = FakeMailServer(
-        {"student@test.local": "secret", "demo@gleaner.test": "secret", "noreply@gleaner.test": "secret"}
+        {
+            "student@test.local": "secret",
+            "demo@gleaner.test": "secret",
+            "noreply@gleaner.test": "secret",
+        }
     )
     await mail.start("127.0.0.1", 2525, 1143, 1110)
     print(
@@ -136,7 +145,15 @@ async def main(do_seed: bool) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", action="store_true")
+    ap.add_argument(
+        "--fixture-reading-interval",
+        type=int,
+        choices=[60],
+        help="QA only: loopback reading sources every 60 seconds",
+    )
     a = ap.parse_args()
+    if a.fixture_reading_interval:
+        os.environ["GLEANER_FIXTURE_READING_INTERVAL"] = str(a.fixture_reading_interval)
     try:
         asyncio.run(main(a.seed))
     except KeyboardInterrupt:

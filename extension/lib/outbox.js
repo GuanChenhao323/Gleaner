@@ -1,0 +1,47 @@
+import { request } from './api.js';
+export const scope = cfg => `${cfg.server}|${cfg.uid}`;
+export class Outbox {
+  constructor(storage, api = request) { this.storage = storage; this.api = api; }
+  async all() { return (await this.storage.get('outbox')).outbox || []; }
+  async add(cfg, path, body, context) {
+    const all = await this.all();
+    let signature;
+    if(body.request_id) {
+      signature=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(body))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+      const previous=all.find(r=>r.scope===scope(cfg) && r.path===path && r.request_id===body.request_id);
+      if(previous && previous.signature) {if(previous.signature!==signature)throw Error('idempotency_conflict');return previous.id;}
+    }
+    const rows = [...all.filter(r => r.state !== 'confirmed'), ...all.filter(r => r.state === 'confirmed').slice(-15)];
+    if (rows.length >= 60 || JSON.stringify(rows).length + JSON.stringify(body).length > 2000000) throw Error('outbox_full');
+    const entry = { context, id: crypto.randomUUID(), request_id: body.request_id, signature, scope: scope(cfg), path, body, attempts: 0, state: 'pending', next: 0 };
+    await this.storage.set({ outbox: [...rows, entry] });
+    return entry.id;
+  }
+  async flush(cfg) {
+    await this.beforeFlush?.(cfg);
+    const rows = await this.all();
+    for (const row of rows) {
+      if (row.scope !== scope(cfg) || row.state !== 'pending' || row.next > Date.now()) continue;
+      try {
+        row.response = await this.api(cfg, row.path, row.body);
+        row.state = 'confirmed';
+        // Raw content can leave the queue after confirmation; retain only compact result metadata.
+        delete row.body;
+      } catch (e) {
+        row.error = e.code || e.message;
+        row.attempts++;
+        if (e.status === 401) row.state = 'auth_required';
+        else if (e.status === 409) row.state = 'rejected';
+        else if (row.attempts >= 3 || (e.status >= 400 && e.status < 500)) row.state = 'failed';
+        if (row.path.endsWith('/result') && [404,409,422].includes(e.status))delete row.body;
+        row.next = Date.now() + 1000 * 2 ** row.attempts;
+      }
+      await this.storage.set({ outbox: rows });
+    }
+  }
+  async retry(cfg, requestId) {
+    const rows = await this.all();
+    for (const row of rows) if (row.body && row.scope === scope(cfg) && (!requestId || row.request_id === requestId) && (['failed', 'auth_required'].includes(row.state) || requestId && row.state === 'pending' && row.error)) Object.assign(row, { state: 'pending', attempts: 0, next: 0 });
+    await this.storage.set({ outbox: rows });
+  }
+}

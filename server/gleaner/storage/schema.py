@@ -228,4 +228,109 @@ SCHEMA: list[str] = [
 ]
 
 
-# 已有数据库的增量迁移：列已存在时忽略错误
+# Browser capture v1: private entity identity + backend-owned schedule and durable leases.
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS web_collections (
+        id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        identity_key TEXT NOT NULL, source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        created_at REAL NOT NULL, UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS web_capture_requests (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        request_id TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL,
+        created_at REAL NOT NULL, PRIMARY KEY(owner_id, request_id)
+    )""",
+]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS browser_requests (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        request_id TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL,
+        created_at REAL NOT NULL, PRIMARY KEY(owner_id, request_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS browser_monitors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, identity_key TEXT NOT NULL,
+        binding TEXT NOT NULL, recipe TEXT NOT NULL,
+        source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL DEFAULT 1, supported INTEGER NOT NULL,
+        enabled INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+        interval_s REAL NOT NULL DEFAULT 600, next_at REAL NOT NULL DEFAULT 0,
+        last_result TEXT NOT NULL DEFAULT 'not_executed', last_attempt_at REAL,
+        last_success_at REAL, error TEXT NOT NULL DEFAULT '',
+        last_raw TEXT NOT NULL, created_at REAL NOT NULL,
+        UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS browser_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id INTEGER NOT NULL REFERENCES browser_monitors(id) ON DELETE CASCADE,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, revision INTEGER NOT NULL, lease TEXT NOT NULL,
+        expires_at REAL NOT NULL, claimed_at REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 1,
+        digest TEXT, response TEXT, finished_at REAL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_browser_due ON browser_monitors(owner_id, device_id, next_at)",
+    "CREATE INDEX IF NOT EXISTS ix_browser_job_target ON browser_jobs(monitor_id, finished_at)",
+    """CREATE TABLE IF NOT EXISTS browser_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id INTEGER NOT NULL REFERENCES browser_monitors(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL,
+        checked_at REAL NOT NULL, version INTEGER
+    )""",
+]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS reading_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, identity_key TEXT NOT NULL, recipe TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'manual', paused INTEGER NOT NULL DEFAULT 0,
+        verified INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
+        interval_s INTEGER NOT NULL DEFAULT 1800, next_at REAL NOT NULL DEFAULT 0,
+        pending TEXT NOT NULL DEFAULT '', last_result TEXT NOT NULL DEFAULT 'not_executed',
+        last_attempt_at REAL, last_success_at REAL, error TEXT NOT NULL DEFAULT '',
+        last_snapshot TEXT NOT NULL, created_at REAL NOT NULL,
+        UNIQUE(owner_id, identity_key)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_source_items (
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        PRIMARY KEY(reading_id, item_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_devices (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, last_seen_at REAL NOT NULL,
+        PRIMARY KEY(owner_id, device_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, revision INTEGER NOT NULL, purpose TEXT NOT NULL,
+        lease TEXT NOT NULL, expires_at REAL NOT NULL, claimed_at REAL NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 1, finished_at REAL, digest TEXT, response TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_reading_jobs ON reading_jobs(owner_id, device_id, finished_at)",
+    """CREATE TABLE IF NOT EXISTS reading_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading_id INTEGER NOT NULL REFERENCES reading_sources(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL, purpose TEXT NOT NULL, result TEXT NOT NULL,
+        detail TEXT NOT NULL, checked_at REAL NOT NULL
+    )""",
+]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS reading_sessions (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, origin TEXT NOT NULL, session_id TEXT NOT NULL,
+        PRIMARY KEY(owner_id, device_id, origin)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reading_pages (
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, page_id TEXT NOT NULL, origin TEXT NOT NULL,
+        url TEXT NOT NULL, session_id TEXT NOT NULL, view TEXT NOT NULL,
+        PRIMARY KEY(owner_id, device_id, page_id), UNIQUE(owner_id, device_id, url, view)
+    )""",
+]

@@ -42,6 +42,10 @@ class Config:
         default_factory=lambda: _env("GLEANER_PUSH_UPSTREAMS", "push-1=127.0.0.1:8100")
     )
     static_dir: str = field(default_factory=lambda: _env("GLEANER_STATIC_DIR", ""))
+    # QA only: 60s cycles apply exclusively to loopback fixture URLs.
+    fixture_reading_interval: int = field(
+        default_factory=lambda: int(_env("GLEANER_FIXTURE_READING_INTERVAL", "0"))
+    )
     workers: int = field(default_factory=lambda: int(_env("GLEANER_WORKERS", "1")))
     metrics_port: int = field(default_factory=lambda: int(_env("GLEANER_METRICS_PORT", "0")))
     trust_proxy: bool = field(default_factory=lambda: _env("GLEANER_TRUST_PROXY", "0") == "1")

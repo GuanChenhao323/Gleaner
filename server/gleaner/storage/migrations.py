@@ -269,6 +269,16 @@ MIGRATIONS: list[Migration] = [
             "CREATE INDEX IF NOT EXISTS ix_monitors_item ON item_monitors(item_id)",
         ],
     ),
+    Migration(
+        8,
+        "browser capture generation and reading source lifecycle",
+        [
+            add_column("users", "capture_generation", "INTEGER NOT NULL DEFAULT 0"),
+            add_column("reading_sources", "failure_count", "INTEGER NOT NULL DEFAULT 0"),
+            add_column("reading_sources", "deleted", "INTEGER NOT NULL DEFAULT 0"),
+            add_column("reading_sources", "delete_result", "TEXT"),
+        ],
+    ),
 ]
 
 

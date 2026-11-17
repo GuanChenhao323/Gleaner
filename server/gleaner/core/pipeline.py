@@ -90,6 +90,8 @@ def item_public(
         "change_note": attrs.get("change_note", ""),
         "important_change": bool(attrs.get("important_change")),
         "summary_by": attrs.get("summary_by", "rule"),
+        "source_fields": attrs.get("raw_fields", {}),
+        "web_capture": attrs.get("web_capture"),
     }
     if source is not None:
         out["source"] = {
@@ -282,16 +284,21 @@ class Pipeline:
         published = snap.get("published_at")
         deadline = snap.get("deadline_at")
         dl_text = (snap.get("attrs") or {}).get("deadline_text", "")
-        if deadline is None and snap.get("kind") in (
-            "notice",
-            "mail",
-            "assignment",
-            "rss",
-            "clip",
-            "page",
+        if (
+            deadline is None
+            and not (snap.get("attrs") or {}).get("suppress_deadline")
+            and snap.get("kind")
+            in (
+                "notice",
+                "mail",
+                "assignment",
+                "rss",
+                "clip",
+                "page",
+            )
         ):
             m = extract_deadline(
-                f"{snap.get('title', '')} {body}",
+                f"{snap.get('title', '')} {body} {(snap.get('attrs') or {}).get('raw_fields', {}).get('datetime_text', '')}",
                 dt.datetime.fromtimestamp(published, TZ) if published else None,
             )
             if m:
@@ -423,6 +430,7 @@ class Pipeline:
                 if snap.get(k) in ("", None) and old_attrs.get(k) in ("", None):
                     fields["attrs"][k] = old_attrs.get(k)
         old_snap = {
+            "source_fields": old_attrs.get("raw_fields", {}),
             "title": existing["raw_title"] or existing["title"],
             "deadline_at": existing.get("deadline_at"),
             "attachments": old_attrs.get("attachments", []),
@@ -434,6 +442,7 @@ class Pipeline:
             **{k: old_attrs.get(k) for k in EVENT_FIELDS},
         }
         new_snap = {
+            "source_fields": fields["attrs"].get("raw_fields", {}),
             "title": fields["raw_title"],
             "deadline_at": fields["deadline_at"],
             "attachments": fields["attrs"]["attachments"],
@@ -669,7 +678,13 @@ class Pipeline:
             quiet = in_quiet_hours(profile, now)
             mqtt = "urgent" if sc.priority == "urgent" else None
             # 低优先级照常实时推送但静默（不提醒、不发 MQTT）；免打扰时段内普通级同样静默
-            payload["silent"] = sc.priority == "low" or (quiet and sc.priority != "urgent")
+            payload["silent"] = (
+                bool(state and state.get("hidden"))
+                or sc.priority == "low"
+                or (quiet and sc.priority != "urgent")
+            )
+            if state and state.get("hidden"):
+                mqtt = None
             await self._deliver(
                 user["id"],
                 item["id"],
