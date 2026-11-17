@@ -4,6 +4,8 @@
 
 **当前产品范围唯一依据：[产品定义](docs/product-definition.md)。** 新定义已取代旧产品范围；[项目提案](docs/proposal.md) 保留独立课程技术交付，[里程碑](docs/milestones.md) 记录新基线进度，[待决问题](docs/open-questions.md) 记录尚未确认的选择。
 
+后端团队交接入口：[四节模板接口报告](docs/architecture/browser-extraction-interface-report-v1.md)、[完整数据流与交接说明](docs/architecture/browser-data-handoff-v1.md)（2026-11-17，扩展0.13.1基线）。汇总渲染DOM与HTML边界、三类保存请求、字段与合成报文、来源检查、持久化和客户端消费；当前上传结构化JSON，不上传整页HTML／DOM树或Cookie。
+
 Campus Radar 是当前产品名称；Gleaner／拾课保留为仓库、代码包、配置及历史实现名称。仓库包含多协议网关、邮件、云部署等既有课程实现；这些模块存在不代表当前产品承诺提供对应功能。当前 MVP 尚待按新基线验收，首发 Flutter 平台尚待确认。
 
 ## 当前产品组成

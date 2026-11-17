@@ -1,0 +1,393 @@
+{
+  "generic_save_request": {
+    "schema_version": 1,
+    "request_id": "00000001-1111-4111-8111-111111111111",
+    "device_id": "00000009-1111-4111-8111-111111111111",
+    "source": {
+      "url": "https://example.test/notices",
+      "title": "合成项目公告"
+    },
+    "query": "项目会议",
+    "match_scope": "content",
+    "observed_at": 1700000000000,
+    "source_binding": {
+      "kind": "public",
+      "label": "公开网页"
+    },
+    "fragments": [
+      {
+        "candidate_id": "candidate-1",
+        "title": "项目会议",
+        "text": "项目会议：周五讨论测试安排。",
+        "evidence": {
+          "channel": "dom",
+          "locator": "body > main:nth-child(1) > p:nth-child(1)",
+          "text": "项目会议：周五讨论测试安排。"
+        },
+        "context": {
+          "frame_url": "https://example.test/notices",
+          "boundary": "paragraph",
+          "completeness": "fragment",
+          "matched_by": "literal"
+        }
+      }
+    ],
+    "capture_generation": 0,
+    "reading": {
+      "version": 1,
+      "url": "https://example.test/notices",
+      "query": "项目会议",
+      "match_scope": "content",
+      "intent": {
+        "version": 2,
+        "query": "项目会议",
+        "mode": "literal",
+        "match_scope": "content",
+        "kind": "auto",
+        "target": "项目会议",
+        "keyword": "",
+        "fields": [],
+        "current": false,
+        "all": false
+      },
+      "choice": "",
+      "source": "generic",
+      "view": {},
+      "source_label": "公开网页",
+      "binding": {
+        "adapter": "generic",
+        "origin": "https://example.test",
+        "account_key": "public"
+      },
+      "resident": {
+        "version": 1,
+        "session_id": "00000007-1111-4111-8111-111111111111",
+        "page_id": "00000008-1111-4111-8111-111111111111",
+        "refresh": "reload",
+        "interval_s": 1800
+      }
+    }
+  },
+  "generic_save_response": {
+    "schema_version": 1,
+    "ok": true,
+    "request_id": "00000001-1111-4111-8111-111111111111",
+    "candidate_ids": [
+      "candidate-1"
+    ],
+    "results": [
+      {
+        "candidate_id": "collection",
+        "capture_id": "00000004-1111-4111-8111-111111111111",
+        "item_id": 11,
+        "source_id": 111,
+        "status": "new",
+        "fragment_count": 1,
+        "version": 1
+      }
+    ],
+    "reading_source_id": 211,
+    "monitoring": {
+      "state": "starting",
+      "mode": "resident",
+      "interval_s": 1800
+    }
+  },
+  "native_save_request": {
+    "schema_version": 1,
+    "request_id": "00000002-1111-4111-8111-111111111111",
+    "device_id": "00000009-1111-4111-8111-111111111111",
+    "binding": {
+      "adapter": "moodle",
+      "origin": "http://localhost:8098",
+      "account_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "targets": [
+      {
+        "candidate_id": "candidate-1",
+        "entity_id": "assignment:1001",
+        "locator": {
+          "url": "http://localhost:8098/mod/assign/view.php?id=1001",
+          "frame_url": "http://localhost:8098/mod/assign/view.php?id=1001",
+          "view": {
+            "route": "",
+            "query": "?id=1001"
+          }
+        },
+        "raw": {
+          "title": "网络编程实验",
+          "text": "完成一个并发服务端实验。",
+          "fields": {
+            "course": "网络编程",
+            "requirements": "提交实验报告",
+            "datetime_text": "2026年11月20日 23:59"
+          }
+        },
+        "recipe": {
+          "adapter": "moodle",
+          "version": 2,
+          "strategy": "snapshot",
+          "entity_id": "assignment:1001",
+          "url": "http://localhost:8098/mod/assign/view.php?id=1001",
+          "view": {
+            "route": "",
+            "query": "?id=1001"
+          }
+        },
+        "supported": false,
+        "enabled": false
+      }
+    ],
+    "capture_generation": 0,
+    "reading": {
+      "version": 1,
+      "url": "http://localhost:8098/mod/assign/view.php?id=1001",
+      "query": "网络编程的作业",
+      "match_scope": "content",
+      "intent": {
+        "version": 2,
+        "query": "网络编程的作业",
+        "kind": "assignments",
+        "target": "网络编程",
+        "keyword": "",
+        "fields": [],
+        "current": false,
+        "all": false,
+        "match_scope": "content"
+      },
+      "choice": "",
+      "source": "moodle",
+      "view": {},
+      "source_label": "",
+      "binding": {
+        "adapter": "moodle",
+        "origin": "http://localhost:8098",
+        "account_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  "native_save_response": {
+    "schema_version": 1,
+    "ok": true,
+    "request_id": "00000002-1111-4111-8111-111111111111",
+    "results": [
+      {
+        "candidate_id": "candidate-1",
+        "status": "new",
+        "monitor_id": 21,
+        "item_id": 12
+      }
+    ],
+    "reading_source_id": 212
+  },
+  "timeline_save_request": {
+    "schema_version": 1,
+    "collection_type": "timeline_summary",
+    "request_id": "00000003-1111-4111-8111-111111111111",
+    "device_id": "00000009-1111-4111-8111-111111111111",
+    "source": {
+      "url": "http://localhost:8098/my/",
+      "title": "合成 Moodle Dashboard"
+    },
+    "query": "Timeline",
+    "match_scope": "content",
+    "observed_at": 1700000000000,
+    "source_binding": {
+      "adapter": "moodle",
+      "origin": "http://localhost:8098",
+      "account_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "fragments": [
+      {
+        "candidate_id": "candidate-1",
+        "title": "合成实验提醒",
+        "text": "合成实验提醒：提交报告",
+        "url": "http://localhost:8098/mod/assign/view.php?id=1001",
+        "fields": {
+          "course": "网络编程",
+          "date_text": "Friday, 20 November 2026",
+          "datetime_text": "23:59"
+        },
+        "evidence": {
+          "channel": "dom",
+          "locator": "#timeline > li:nth-child(1)",
+          "text": "Friday, 20 November 2026\n合成实验提醒：提交报告"
+        },
+        "context": {
+          "frame_url": "http://localhost:8098/my/",
+          "region": "Timeline",
+          "completeness": "summary"
+        }
+      }
+    ],
+    "capture_generation": 0,
+    "reading": {
+      "version": 1,
+      "url": "http://localhost:8098/my/",
+      "query": "Timeline",
+      "match_scope": "content",
+      "representation": "timeline_summary",
+      "intent": {
+        "version": 2,
+        "query": "Timeline",
+        "kind": "auto",
+        "target": "timeline",
+        "keyword": "",
+        "fields": [],
+        "current": false,
+        "all": false,
+        "match_scope": "content"
+      },
+      "choice": "",
+      "source": "moodle",
+      "view": {},
+      "source_label": "",
+      "binding": {
+        "adapter": "moodle",
+        "origin": "http://localhost:8098",
+        "account_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  "timeline_save_response": {
+    "schema_version": 1,
+    "ok": true,
+    "request_id": "00000003-1111-4111-8111-111111111111",
+    "candidate_ids": [
+      "candidate-1"
+    ],
+    "results": [
+      {
+        "candidate_id": "collection",
+        "capture_id": "00000005-1111-4111-8111-111111111111",
+        "item_id": 13,
+        "source_id": 113,
+        "status": "new",
+        "fragment_count": 1,
+        "version": 1
+      }
+    ],
+    "reading_source_id": 213,
+    "capture_type": "timeline_summary"
+  },
+  "reading_claim_request": {
+    "device_id": "00000009-1111-4111-8111-111111111111"
+  },
+  "reading_claim_response": {
+    "schema_version": 1,
+    "ok": true,
+    "job": {
+      "id": 301,
+      "source_id": 211,
+      "device_id": "00000009-1111-4111-8111-111111111111",
+      "revision": 1,
+      "lease": "synthetic-lease-reference-only",
+      "expires_at": 1700000180,
+      "purpose": "activate",
+      "interval_s": 1800,
+      "recipe": {
+        "version": 1,
+        "url": "https://example.test/notices",
+        "query": "项目会议",
+        "match_scope": "content",
+        "intent": {
+          "version": 2,
+          "query": "项目会议",
+          "mode": "literal",
+          "match_scope": "content",
+          "kind": "auto",
+          "target": "项目会议",
+          "keyword": "",
+          "fields": [],
+          "current": false,
+          "all": false
+        },
+        "choice": "",
+        "source": "generic",
+        "view": {},
+        "source_label": "公开网页",
+        "binding": {
+          "adapter": "generic",
+          "origin": "https://example.test",
+          "account_key": "public"
+        },
+        "resident": {
+          "version": 1,
+          "session_id": "00000007-1111-4111-8111-111111111111",
+          "page_id": "00000008-1111-4111-8111-111111111111",
+          "refresh": "reload",
+          "interval_s": 1800
+        }
+      }
+    }
+  },
+  "reading_success_result": {
+    "schema_version": 1,
+    "device_id": "00000009-1111-4111-8111-111111111111",
+    "lease": "synthetic-lease-reference-only",
+    "revision": 1,
+    "status": "success",
+    "account_key": "public",
+    "snapshot": {
+      "schema_version": 1,
+      "request_id": "00000001-1111-4111-8111-111111111111",
+      "source": {
+        "url": "https://example.test/notices",
+        "title": "合成项目公告"
+      },
+      "query": "项目会议",
+      "match_scope": "content",
+      "observed_at": 1700000000000,
+      "source_binding": {
+        "kind": "public",
+        "label": "公开网页"
+      },
+      "fragments": [
+        {
+          "candidate_id": "candidate-1",
+          "title": "项目会议",
+          "text": "项目会议：周五讨论测试安排。",
+          "evidence": {
+            "channel": "dom",
+            "locator": "body > main:nth-child(1) > p:nth-child(1)",
+            "text": "项目会议：周五讨论测试安排。"
+          },
+          "context": {
+            "frame_url": "https://example.test/notices",
+            "boundary": "paragraph",
+            "completeness": "fragment",
+            "matched_by": "literal"
+          }
+        }
+      ]
+    },
+    "resident": {
+      "version": 1,
+      "session_id": "00000007-1111-4111-8111-111111111111",
+      "page_id": "00000008-1111-4111-8111-111111111111",
+      "refresh": "reload",
+      "interval_s": 1800
+    }
+  },
+  "reading_success_response": {
+    "schema_version": 1,
+    "ok": true,
+    "job_id": 301,
+    "status": "unchanged",
+    "result": "unchanged"
+  },
+  "reading_failure_result": {
+    "schema_version": 1,
+    "device_id": "00000009-1111-4111-8111-111111111111",
+    "lease": "synthetic-lease-reference-only",
+    "revision": 1,
+    "status": "render_timeout"
+  },
+  "reading_failure_response": {
+    "schema_version": 1,
+    "ok": true,
+    "job_id": 301,
+    "status": "failed",
+    "result": "render_timeout"
+  }
+}

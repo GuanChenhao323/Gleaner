@@ -2,6 +2,8 @@
 
 实现：`server/gleaner/core/api.py`、`pipeline.py`、`client/lib/core/store.dart`。
 
+网页采集接口的当前横向索引见[后端交接说明](../architecture/browser-data-handoff-v1.md)及[合成JSON报文](../architecture/browser-data-handoff-v1.examples.json)（2026-11-17／扩展0.13.1）。本文后部保留分阶段演进；当前默认专用标签页监测、三类内容请求与控制字段边界以交接说明及对应专项契约对照源码阅读。
+
 ## 1. 鉴权
 
 `POST /api/auth/login` 返回 `{token, user}`，同时设置 HttpOnly Cookie `gl_session`。
