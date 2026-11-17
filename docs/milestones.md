@@ -44,7 +44,8 @@
 - 环境：macOS（darwin 22.6.0），Python 3.12（miniconda base），SQLite；`python devtools/dev_all.py --seed` 本地启动，网关 8080。
 - 验证结果：
   - 全量测试 `pytest -q` 208 passed、3 skipped（约 116 秒）；`ruff check .`、`ruff format --check .` 通过。
-  - 状态流转（US05）：`PUT /api/items/7/state {"done":true}` → `state.todo="done"`、`status="done"`。
+  - 状态流转（US05，三类全通）：待办 `done=true` → `status="done"`；通知 `read=true` → `status="read"`；日程 `archived=true` → `status="archived"`。
+  - 保存字段（US04）：事项详情返回原文 `body`、来源 `url`／`page_url`、采集时间 `first_seen_at`，满足「结构化内容＋原文＋来源 URL＋采集时间」。
   - 字段编辑（US04）：`PATCH /api/items/7/fields {"set":{"title":…}}` → `fields.title.value` 为用户值、`fields.title.source` 为来源原值、`edited=true`、`conflict=false`。
   - 事项级去重（US06）：`POST /api/captures` 同一 `page.url`＋`locator` 连发两次 → 第一次 `status="new"`（item 17），第二次 `status="unchanged"`（仍 item 17，不重复）；换 `locator` → `status="new"`（item 18），同 URL 多条可区分。
   - 冲突场景（US04，item 19）：用户把标题改为「我自己的标题」→ `edited=true, conflict=false`；来源重新采集改标题为 v2 → `conflict=true`（`value` 保留用户值、`source` 为新来源值）→ `POST /api/items/19/fields/resolve {"field":"title","keep":"mine"}` → 保留用户值、基准 rebase、`conflict=false`；来源再改 v3 重新触发冲突 → `keep="source"` → 采用来源值、删除用户修改、`edited=false`。
