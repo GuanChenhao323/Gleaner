@@ -55,6 +55,21 @@ def test_three_types_and_fields():
     assert c.item_type == "event" and c.start_at == ts(2026, 12, 1, 10, 0)
 
 
+def test_campus_keyword_coverage():
+    """校园高频活动／待办词能正确分类（分类负责人扩充的关键词表）。"""
+    cases = [
+        ("无偿献血活动", "2026年11月20日 9:00-16:00 在体育馆门口", "event"),
+        ("爱心义卖", "本周六 10:00 在操场举行义卖", "event"),
+        ("社团纳新", "本周三 12:30 在学生活动中心", "event"),
+        ("新生注册通知", "请于2026年11月25日前完成注册", "todo"),
+        ("健康打卡提醒", "每天 8:00 前完成健康打卡", "todo"),
+        ("学费缴纳", "请于2026年12月1日前缴纳学费", "todo"),
+        ("毕业答辩安排", "答辩时间：2026年12月5日 9:00", "event"),
+    ]
+    for title, text, want in cases:
+        assert classify(title, text).item_type == want, (title, text)
+
+
 async def test_rules_do_not_create_versions_for_unchanged_items(db_url):
     """已有事项标题与正文没变时，规则新推断出的字段不产生新版本；来源明确删除截止时间仍能发现。"""
     db = await Database(db_url("cls.db")).connect()

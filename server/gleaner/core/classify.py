@@ -26,13 +26,15 @@ from .itemtypes import ITEM_TYPES
 
 EVENT_WORDS = re.compile(
     r"讲座|报告会|研讨会|座谈|宣讲|考试|期中|期末|测验|答辩|活动|比赛|竞赛|大赛|会议|培训|开幕|典礼|演出|"
-    r"音乐会|展览|招聘会|沙龙|论坛|晚会|运动会|lecture|seminar|workshop|exam|midterm|final|talk|"
-    r"meeting|conference|ceremony|webinar|competition|concert|exhibition|forum",
+    r"音乐会|展览|招聘会|沙龙|论坛|晚会|运动会|纳新|招新|迎新|献血|义卖|募捐|义诊|球赛|马拉松|夜跑|"
+    r"英语角|读书会|分享会|双选会|学位授予|研学|支教|志愿者|补考|缓考|展|lecture|seminar|workshop|exam|"
+    r"midterm|final|talk|meeting|conference|ceremony|webinar|competition|concert|exhibition|forum",
     re.I,
 )
 TODO_WORDS = re.compile(
-    r"作业|实验报告|提交|上交|报名|申请|填写|填报|缴费|交费|选课|截止|问卷|"
-    r"assignment|homework|submit|submission|deadline|due|register|registration|apply|application|survey",
+    r"作业|实验报告|提交|上交|报名|申请|填写|填报|缴费|交费|选课|截止|问卷|缴纳|注册|报到|申报|签到|打卡|"
+    r"补办|备案|assignment|homework|submit|submission|deadline|due|register|registration|apply|"
+    r"application|survey",
     re.I,
 )
 _TIME_LABEL = re.compile(r"(时间|日期|time|date|when|于)\s*[:：]?", re.I)
