@@ -70,6 +70,20 @@ def test_campus_keyword_coverage():
         assert classify(title, text).item_type == want, (title, text)
 
 
+def test_type_priority_and_notice_markers():
+    """待办动词优先于活动词；须知／公告类标题判为通知。"""
+    cases = [
+        ("周末活动报名", "本周日 9:00-12:00 志愿活动，请报名", "todo"),
+        ("学术报告", "时间：2026年11月12日 14:00-16:00，地点：A101", "event"),
+        ("辩论赛决赛", "决赛时间：2026年11月25日 19:00", "event"),
+        ("考试须知", "考试将于11月20日举行", "notice"),
+        ("选课须知", "选课系统11月16日开放", "notice"),
+        ("停电公告", "本周六全天停电", "notice"),
+    ]
+    for title, text, want in cases:
+        assert classify(title, text).item_type == want, (title, text)
+
+
 async def test_rules_do_not_create_versions_for_unchanged_items(db_url):
     """已有事项标题与正文没变时，规则新推断出的字段不产生新版本；来源明确删除截止时间仍能发现。"""
     db = await Database(db_url("cls.db")).connect()

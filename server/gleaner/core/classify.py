@@ -4,9 +4,10 @@
 
 1. 来源或插件给出的类型（``hint``）优先，例如 Moodle 作业、测验由插件判为待办。
 2. 有“截止／due”语境的日期 → 待办。
-3. 标题出现活动类关键词（讲座、考试、比赛……）且正文有带时刻的日期 → 日程，取该时间为开始时间。
+3. 标题是说明文／公告（须知、公告、公示……） → 通知。
 4. 标题出现待办类关键词（作业、报名、提交……） → 待办。
-5. 其余 → 通知。
+5. 标题出现活动类关键词（讲座、考试、比赛……）且正文有带时刻的日期 → 日程，取该时间为开始时间。
+6. 其余 → 通知。
 
 字段补全：
 - 截止时间：先找“截止／due”语境的日期；判为待办但没有语境、全文恰好只有一个日期时（例如 Moodle 作业列表
@@ -25,7 +26,7 @@ from .extract import TZ, DeadlineMatch, extract_deadline, find_deadlines
 from .itemtypes import ITEM_TYPES
 
 EVENT_WORDS = re.compile(
-    r"讲座|报告会|研讨会|座谈|宣讲|考试|期中|期末|测验|答辩|活动|比赛|竞赛|大赛|会议|培训|开幕|典礼|演出|"
+    r"讲座|报告会|研讨会|座谈|宣讲|考试|期中|期末|测验|答辩|活动|比赛|竞赛|大赛|会议|培训|开幕|典礼|演出|学术|赛|"
     r"音乐会|展览|招聘会|沙龙|论坛|晚会|运动会|纳新|招新|迎新|献血|义卖|募捐|义诊|球赛|马拉松|夜跑|"
     r"英语角|读书会|分享会|双选会|学位授予|研学|支教|志愿者|补考|缓考|展|lecture|seminar|workshop|exam|"
     r"midterm|final|talk|meeting|conference|ceremony|webinar|competition|concert|exhibition|forum",
@@ -37,6 +38,8 @@ TODO_WORDS = re.compile(
     r"application|survey",
     re.I,
 )
+# 说明文／公告类标题（须知、公告、公示）本身就是通知，不再按其中的活动词判成日程
+NOTICE_WORDS = re.compile(r"须知|公告|公示", re.I)
 _TIME_LABEL = re.compile(r"(时间|日期|time|date|when|于)\s*[:：]?", re.I)
 _RANGE_END = re.compile(r"^\s*(?:-|－|—|–|~|～|至|到|to)\s*(?P<h>\d{1,2})[:：](?P<mi>\d{2})", re.I)
 _PLACE = re.compile(
@@ -109,10 +112,12 @@ def classify(
             item_type = "event"
         elif due is not None:
             item_type = "todo"
-        elif EVENT_WORDS.search(title) and (event_at := _first_timed(cands, full)):
-            item_type = "event"
+        elif NOTICE_WORDS.search(title):
+            item_type = "notice"
         elif TODO_WORDS.search(title):
             item_type = "todo"
+        elif EVENT_WORDS.search(title) and (event_at := _first_timed(cands, full)):
+            item_type = "event"
         else:
             item_type = "notice"
 

@@ -57,7 +57,8 @@
 - 依据：分工表 D 邓燊负责「分类」；Q05／Q04 要求分类负责人用样例集评估分类质量、不足则改进规则（本次不做 LLM，按产品定义 LLM 仅在规则效果不足时才评估）。
 - 评估：自建 20 条校园样例（待办／日程／通知）跑 `classify()`，基线准确率 94%，1 条分错（「社团纳新」因正文「本周三中午」无具体时刻被判为通知）。
 - 改动：`server/gleaner/core/classify.py` 扩充 `EVENT_WORDS`／`TODO_WORDS` 校园高频词（活动：纳新、招新、献血、义卖、募捐、义诊、球赛、马拉松、夜跑、英语角、读书会、分享会、双选会、学位授予、研学、支教、志愿者、补考、缓考、展；待办：缴纳、注册、报到、申报、签到、打卡、补办、备案）。扩充后新增样例（献血、义卖、注册、打卡、答辩等）全部分对。
-- 验证（macOS，Python 3.12，SQLite）：新增 `tests/test_classify.py::test_campus_keyword_coverage`；全量 `pytest -q` 209 passed、3 skipped；`ruff check`／`ruff format --check` 通过。
+- 深挖出的三条规则缺口并修复：①「周末活动报名」这类带活动词、但语义是报名的标题，待办动词应优先于活动词 → `TODO_WORDS` 提到 `EVENT_WORDS` 之前；②「考试须知」「选课须知」「停电公告」是说明文／公告，不是日程 → 新增 `NOTICE_WORDS`（须知、公告、公示）并放在待办／活动词之前；③「健康打卡提醒」「提交作业的注意事项」里的「提醒」「注意事项」不能判成通知 → 词表只保留明确的通知词（须知、公告、公示），不收「提醒／注意事项／说明／指南」这类待办也会用的词。
+- 验证（macOS，Python 3.12，SQLite）：新增 `tests/test_classify.py::test_campus_keyword_coverage`、`test_type_priority_and_notice_markers`；全量 `pytest -q` 210 passed、3 skipped；`ruff check`／`ruff format --check` 通过。
 - 未完成：时段词（「本周三中午」「周五下午」等无具体时刻）仍不按活动时间处理，需与组长确认是否把「上午／下午／晚上／中午」也算作活动时间；Q04 的正式样例集待 R0 来源清单（Q01）建立后再做系统评估。
 
 P1/P2 的范围和含义仅引用产品定义第 3.1 节，当前不承诺排期。邮箱、发信、Lark、扫码传输等旧功能不自动进入后续产品计划。
