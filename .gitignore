@@ -33,3 +33,4 @@ Thumbs.db
 .vscode/
 # 备份文件（docker compose 的 backup 服务）
 deploy/backups/
+outputs/
