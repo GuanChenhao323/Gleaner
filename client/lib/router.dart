@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/session.dart';
-import 'features/assignments/assignments_page.dart';
 import 'features/auth/login_page.dart';
+import 'features/courses/course_detail_page.dart';
 import 'features/courses/courses_page.dart';
 import 'features/dashboard/dashboard_page.dart';
 import 'features/inbox/inbox_page.dart';
@@ -34,8 +34,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
       // 扫码加入传输会话不要求登录（手机可能还没有账号）
       if (loc.startsWith('/transfer/')) return null;
-      // 日历已并入作业页
-      if (loc == '/calendar') return loggedIn ? '/assignments?view=calendar' : '/login';
+      // 作业页已并入课程；旧日历入口落到工作台
+      if (loc == '/calendar' || loc == '/assignments' || loc.startsWith('/assignments')) {
+        return loggedIn ? '/' : '/login';
+      }
       if (!loggedIn && loc != '/login') return '/login';
       if (loggedIn && loc == '/login') return '/';
       return null;
@@ -58,14 +60,16 @@ final routerProvider = Provider<GoRouter>((ref) {
               initial: parseInboxFilter(s.uri.queryParameters['filter']),
             )),
           ),
-          GoRoute(
-            path: '/assignments',
-            pageBuilder: (_, s) => page(AssignmentsPage(
-              key: ValueKey(s.uri.queryParameters['view']),
-              initialCalendar: s.uri.queryParameters['view'] == 'calendar',
-            )),
-          ),
           GoRoute(path: '/courses', pageBuilder: (_, _) => page(const CoursesPage())),
+          // 课程名含空格/中文，不用 path 参数（避免 encode/decode 二次处理报错）
+          GoRoute(
+            path: '/courses/detail',
+            pageBuilder: (_, s) {
+              final fromExtra = s.extra is String ? s.extra as String : null;
+              final name = fromExtra ?? s.uri.queryParameters['name'] ?? '';
+              return page(CourseDetailPage(name: name));
+            },
+          ),
           GoRoute(path: '/sources', pageBuilder: (_, _) => page(const SourcesPage())),
           GoRoute(path: '/sources/:id', pageBuilder: (_, s) => page(ReadingDetailPage(id: int.parse(s.pathParameters['id']!), showChanges: s.uri.queryParameters['tab']=='changes'))),
           GoRoute(path: '/sources/:id/settings', pageBuilder: (_, s) => page(ReadingSettingsPage(id: int.parse(s.pathParameters['id']!)))),

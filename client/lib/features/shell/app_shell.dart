@@ -18,11 +18,10 @@ class Dest {
   const Dest(this.path, this.label, this.icon, this.selected);
 }
 
-/// 侧栏第一段：主功能
+/// 侧栏第一段：主功能（作业已并入课程详情）
 const destinations = [
   Dest('/', '工作台', Icons.space_dashboard_outlined, Icons.space_dashboard),
   Dest('/inbox', '收件箱', Icons.inbox_outlined, Icons.inbox),
-  Dest('/assignments', '作业', Icons.assignment_outlined, Icons.assignment),
   Dest('/courses', '课程', Icons.class_outlined, Icons.class_),
   Dest('/sources', '信息源', Icons.hub_outlined, Icons.hub),
 ];
@@ -32,6 +31,8 @@ const settingsDest = Dest('/settings', '设置', Icons.settings_outlined, Icons.
 
 const _railCollapsed = 72.0;
 const _railExpanded = 220.0;
+/// 宽度动画还没到位时先只画图标，避免标题行在窄宽度里横向溢出。
+const _railLabelsAt = 168.0;
 
 /// 自适应外壳：手机底栏；桌面侧栏默认收起（仅图标），悬停展开（Gmail 逻辑）。
 class AppShell extends ConsumerStatefulWidget {
@@ -137,48 +138,44 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
 
     final cs = Theme.of(context).colorScheme;
+    // 侧栏与主内容并排：展开时挤开内容，不再叠在上面遮住。
     return Scaffold(
-      body: Stack(children: [
-        Row(children: [
-          const SizedBox(width: _railCollapsed),
-          Expanded(child: widget.child),
-        ]),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          child: MouseRegion(
-            onEnter: (_) => setState(() => hovering = true),
-            onExit: (_) => setState(() => hovering = false),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOutCubic,
-              width: _expanded ? _railExpanded : _railCollapsed,
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerLow,
-                border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45))),
-                boxShadow: _expanded && !pinned
-                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 18, offset: const Offset(4, 0))]
-                    : null,
-              ),
-              child: _SideRail(
-                expanded: _expanded,
-                pinned: pinned,
-                selected: idx,
-                settingsSelected: _onSettings,
-                unread: unread,
-                meName: me?.name ?? '',
-                meEmail: me?.email ?? '',
-                onPin: () => setState(() => pinned = !pinned),
-                onSelect: (i) => context.go(destinations[i].path),
-                onSettings: () => context.go(settingsDest.path),
-                onCompose: () => context.push('/compose'),
-                onTransfer: () => context.push('/transfer'),
-                onAvatar: () => context.go('/settings'),
-              ),
+      body: Row(children: [
+        MouseRegion(
+          onEnter: (_) => setState(() => hovering = true),
+          onExit: (_) => setState(() => hovering = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            width: _expanded ? _railExpanded : _railCollapsed,
+            clipBehavior: Clip.hardEdge,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45))),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final showLabels = constraints.maxWidth >= _railLabelsAt;
+                return _SideRail(
+                  expanded: showLabels,
+                  pinned: pinned,
+                  selected: idx,
+                  settingsSelected: _onSettings,
+                  unread: unread,
+                  meName: me?.name ?? '',
+                  meEmail: me?.email ?? '',
+                  onPin: () => setState(() => pinned = !pinned),
+                  onSelect: (i) => context.go(destinations[i].path),
+                  onSettings: () => context.go(settingsDest.path),
+                  onCompose: () => context.push('/compose'),
+                  onTransfer: () => context.push('/transfer'),
+                  onAvatar: () => context.go('/settings'),
+                );
+              },
             ),
           ),
         ),
+        Expanded(child: widget.child),
       ]),
     );
   }
@@ -191,14 +188,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       context: context,
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: Icon(destinations[4].icon),
-            title: Text(destinations[4].label),
-            onTap: () {
-              Navigator.pop(c);
-              context.go(destinations[4].path);
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.edit_note),
             title: const Text('写邮件'),
@@ -223,7 +212,6 @@ class _AppShellState extends ConsumerState<AppShell> {
               context.go(settingsDest.path);
             },
           ),
-          const Padding(padding: EdgeInsets.all(12), child: ConnectionDot(showLabel: true)),
         ]),
       ),
     );
@@ -330,19 +318,15 @@ class _SideRail extends StatelessWidget {
         ]),
       ),
       Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-        child: Column(children: [
-          if (expanded) const ConnectionDot(showLabel: true) else const ConnectionDot(),
-          const SizedBox(height: 10),
-          Tooltip(
-            message: meEmail,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onAvatar,
-              child: Avatar(meName, size: 36),
-            ),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+        child: Tooltip(
+          message: meEmail,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onAvatar,
+            child: Avatar(meName, size: 36),
           ),
-        ]),
+        ),
       ),
     ]);
   }
@@ -420,8 +404,7 @@ class _NavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final fg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
-    final child = AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+    final child = Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
       padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0, vertical: 10),
       decoration: BoxDecoration(

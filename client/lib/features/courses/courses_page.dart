@@ -10,7 +10,7 @@ import '../../core/providers.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
-/// 课程主页（场景 6）：未完成作业、近期通知、来自官网的教师信息。
+/// 课程列表：点进详情看该课全部作业。
 class CoursesPage extends ConsumerWidget {
   const CoursesPage({super.key});
 
@@ -20,7 +20,6 @@ class CoursesPage extends ConsumerWidget {
     final w = MediaQuery.sizeOf(context).width;
     final cols = w >= 1300 ? 3 : (w >= 800 ? 2 : 1);
     return Scaffold(
-      appBar: AppBar(title: const Text('课程')),
       body: courses.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '课程信息需要联网获取', message: '$e'),
@@ -41,6 +40,8 @@ class _CourseCard extends StatelessWidget {
   final Course c;
   const _CourseCard(this.c);
 
+  void _open(BuildContext context) => context.push('/courses/detail', extra: c.name);
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
@@ -49,54 +50,63 @@ class _CourseCard extends StatelessWidget {
     final open = c.assignments.where((a) => !a.isDone && (a.deadline?.isAfter(DateTime.now()) ?? false)).toList();
     final code = c.name.split(' ').first;
     return Card(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-          decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withValues(alpha: 0.22), color.withValues(alpha: 0.06)])),
-          child: Row(children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                if (code != c.name) Text(code, style: t.textTheme.labelMedium?.copyWith(color: color, fontWeight: FontWeight.w800)),
-                Text(shortCourse(c.name), style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _open(context),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withValues(alpha: 0.22), color.withValues(alpha: 0.06)])),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (code != c.name) Text(code, style: t.textTheme.labelMedium?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                  Text(shortCourse(c.name), style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ]),
+              ),
+              Column(children: [
+                Text('${open.length}', style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: color)),
+                Text('待完成', style: t.textTheme.labelSmall),
               ]),
-            ),
-            Column(children: [
-              Text('${open.length}', style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: color)),
-              Text('待完成', style: t.textTheme.labelSmall),
             ]),
-          ]),
-        ),
-        Expanded(
-          child: ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 8), children: [
-            for (final a in open.take(3))
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                leading: const Icon(Icons.assignment_outlined, size: 20),
-                title: Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: DeadlineBadge(a.deadline!),
-                onTap: () => context.push('/item/${a.id}'),
-              ),
-            for (final n in c.notices.take(2))
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                leading: Icon(kindIcon(n.kind), size: 20),
-                title: Text(n.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(relative(n.sortTime)),
-                onTap: () => context.push('/item/${n.id}'),
-              ),
-            if (open.isEmpty && c.notices.isEmpty) Padding(padding: const EdgeInsets.all(12), child: Text('暂无待办', style: TextStyle(color: cs.onSurfaceVariant))),
-          ]),
-        ),
-        const Divider(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
-          child: c.teachers.isEmpty
-              ? Text('添加“教师信息”来源以显示老师联系方式', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant))
-              : Column(children: [for (final te in c.teachers.take(1)) _TeacherRow(te)]),
-        ),
-      ]),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                for (final a in open.take(3))
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                    leading: const Icon(Icons.assignment_outlined, size: 20),
+                    title: Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: DeadlineBadge(a.deadline!),
+                    onTap: () => context.push('/item/${a.id}'),
+                  ),
+                for (final n in c.notices.take(2))
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                    leading: Icon(kindIcon(n.kind), size: 20),
+                    title: Text(n.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(relative(n.sortTime)),
+                    onTap: () => context.push('/item/${n.id}'),
+                  ),
+                if (open.isEmpty && c.notices.isEmpty)
+                  Padding(padding: const EdgeInsets.all(12), child: Text('暂无待办', style: TextStyle(color: cs.onSurfaceVariant))),
+              ],
+            ),
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+            child: c.teachers.isEmpty
+                ? Text('添加“教师信息”来源以显示老师联系方式', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant))
+                : Column(children: [for (final te in c.teachers.take(1)) _TeacherRow(te)]),
+          ),
+        ]),
+      ),
     );
   }
 }

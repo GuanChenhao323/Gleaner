@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
-import '../core/store.dart';
 import '../theme.dart';
 
 class EmptyState extends StatelessWidget {
@@ -137,33 +135,6 @@ class ChangeBadge extends StatelessWidget {
               maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontSize: 12, fontWeight: FontWeight.w700)),
         ),
       ]),
-    );
-  }
-}
-
-class ConnectionDot extends ConsumerWidget {
-  final bool showLabel;
-  const ConnectionDot({super.key, this.showLabel = false});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final st = ref.watch(feedProvider.select((s) => (s.conn, s.pending, s.node)));
-    final (conn, pending, node) = st;
-    final color = switch (conn) { Conn.online => Brand.ok, Conn.connecting => Brand.wheat, Conn.offline => Theme.of(context).colorScheme.outline };
-    final label = switch (conn) {
-      Conn.online => '实时同步中${node != null ? ' · $node' : ''}',
-      Conn.connecting => '正在连接…',
-      Conn.offline => pending > 0 ? '离线 · $pending 个操作待同步' : '离线 · 显示缓存内容',
-    };
-    final dot = Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)]));
-    if (!showLabel) return Tooltip(message: label, child: dot);
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: conn == Conn.online ? null : () => ref.read(feedProvider.notifier).reconnectNow(),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [dot, const SizedBox(width: 8), Text(label, style: Theme.of(context).textTheme.labelMedium)]),
-      ),
     );
   }
 }

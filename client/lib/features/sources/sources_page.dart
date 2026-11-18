@@ -149,7 +149,6 @@ class SourcesPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('信息源'),
         actions: [
           IconButton(
             tooltip: '刷新列表状态（不访问来源网页）',
@@ -237,22 +236,15 @@ class SourcesPage extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
             children: [
-              Text(
-                '关注的网页，持续有据可查',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 6),
-              const Text('保存的内容、提取条件与更新状态，集中在这里管理。'),
-              const SizedBox(height: 10),
-              Text(
-                rows.isEmpty
-                    ? '保存后会记录原关键词和执行设备。'
-                    : rows.any((s) => s.deviceOnline)
-                    ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
-                    : '尚未检测到执行设备近期连接 · 保留上次成功结果',
-                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(height: 17),
+              if (rows.isNotEmpty) ...[
+                Text(
+                  rows.any((s) => s.deviceOnline)
+                      ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
+                      : '尚未检测到执行设备近期连接 · 保留上次成功结果',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 17),
+              ],
               Card(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(

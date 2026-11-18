@@ -113,8 +113,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const SizedBox(height: 28),
         ],
         Text(register ? '创建账号' : '欢迎回来', style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 6),
-        Text(register ? '一分钟完成：注册后用校园模板添加来源即可。' : '登录后继续同步你的作业、通知与日程。', style: TextStyle(color: cs.onSurfaceVariant)),
+        if (register) ...[
+          const SizedBox(height: 6),
+          Text('一分钟完成：注册后用校园模板添加来源即可。', style: TextStyle(color: cs.onSurfaceVariant)),
+        ],
         const SizedBox(height: 24),
         TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: '邮箱', prefixIcon: Icon(Icons.alternate_email))),
         if (register) ...[
@@ -214,15 +216,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     Text('拾课 Gleaner', style: t.textTheme.titleLarge?.copyWith(color: cs.onPrimary)),
                   ]),
                   const Spacer(),
-                  Text('信息发布了，\n不等于你看到了。', style: t.textTheme.displaySmall?.copyWith(color: cs.onPrimary, fontWeight: FontWeight.w800, height: 1.25)),
+                  Text('把散落的课程信息拾起来。', style: t.textTheme.displaySmall?.copyWith(color: cs.onPrimary, fontWeight: FontWeight.w800, height: 1.25)),
                   const SizedBox(height: 20),
-                  Text('Moodle 作业、学院通知、学校邮箱，拾起来、理好、放进你的日程。', style: t.textTheme.titleMedium?.copyWith(color: cs.onPrimary.withValues(alpha: 0.85))),
+                  Text('Moodle 作业、学院通知、邮件通知，寻找、整理、放进您的日程。', style: t.textTheme.titleMedium?.copyWith(color: cs.onPrimary.withValues(alpha: 0.85))),
                   const SizedBox(height: 36),
                   for (final (i, s) in [
-                    (Icons.event_note, '跨课程作业日历，截止时间被修改时自动跟随'),
-                    (Icons.bolt, '新事项秒级推送，手机收到紧急提醒'),
-                    (Icons.merge_type, '提醒邮件与课程页的同一作业自动合并'),
-                    (Icons.cloud_off, '离线也能看，联网后自动补齐'),
+                    (Icons.event_note, 'DDL修改即时推送'),
+                    (Icons.bolt, '秒级响应，手机同步提醒'),
                   ])
                     Padding(
                       padding: const EdgeInsets.only(bottom: 14),
@@ -237,7 +237,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ]),
                     ),
                   const Spacer(),
-                  Text('网络编程课程项目 · 全部协议从 socket 层自研', style: TextStyle(color: cs.onPrimary.withValues(alpha: 0.6), fontSize: 12)),
                 ]),
               ),
             ]),

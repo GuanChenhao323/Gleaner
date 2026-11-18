@@ -209,7 +209,6 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       backgroundColor: widget.embedded ? cs.surface : null,
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind)),
         actions: [
           DocumentTrashButton(item: item),
           IconButton(
