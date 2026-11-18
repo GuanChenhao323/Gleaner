@@ -118,11 +118,9 @@ class _InboxPageState extends ConsumerState<InboxPage> {
                   decoration: const InputDecoration(hintText: '搜索标题、课程、来源', prefixIcon: Icon(Icons.search), isDense: true),
                   onChanged: (v) => setState(() => q = v.trim()),
                 )
-              : Row(children: [
-                  Text(filter == InboxFilter.trash ? '回收站' : '事项'),
-                  const SizedBox(width: 10),
-                  if (filter != InboxFilter.trash && st.unread > 0) Pill('${st.unread} 未读', color: cs.primary),
-                ]),
+              : filter == InboxFilter.trash
+                  ? const Text('回收站')
+                  : (st.unread > 0 ? Pill('${st.unread} 未读', color: cs.primary) : const SizedBox.shrink()),
           actions: [
             IconButton(
               tooltip: searching ? '关闭搜索' : '搜索',

@@ -136,7 +136,7 @@ class _TransferPageState extends ConsumerState<TransferPage> {
     final cs = Theme.of(context).colorScheme;
     final server = ref.watch(sessionProvider).server;
     return Scaffold(
-      appBar: AppBar(title: const Text('扫码传输')),
+      appBar: AppBar(),
       body: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(

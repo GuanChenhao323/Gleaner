@@ -21,12 +21,11 @@ class SettingsPage extends ConsumerWidget {
     final mqtt = ref.watch(mqttProvider);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
       body: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 96), children: [
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), children: [
             Card(
               child: ListTile(
                 contentPadding: const EdgeInsets.all(16),
@@ -71,7 +70,7 @@ class SettingsPage extends ConsumerWidget {
             const SectionHeader('连接与同步'),
             Card(
               child: Column(children: [
-                const ListTile(leading: Icon(Icons.bolt_outlined), title: Text('实时推送（WebSocket）'), trailing: ConnectionDot(showLabel: true)),
+                const ListTile(leading: Icon(Icons.bolt_outlined), title: Text('实时推送（WebSocket）')),
                 ListTile(
                   leading: const Icon(Icons.notifications_active_outlined),
                   title: const Text('系统通知（MQTT）'),
@@ -288,7 +287,7 @@ class _RulesPageState extends ConsumerState<RulesPage> {
     final list = rules ?? [];
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('个性化规则'), actions: [
+      appBar: AppBar(actions: [
         TextButton(
           onPressed: rules == null
               ? null

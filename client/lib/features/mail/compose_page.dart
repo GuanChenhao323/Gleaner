@@ -91,7 +91,7 @@ class _ComposePageState extends ConsumerState<ComposePage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('写邮件'), actions: [
+      appBar: AppBar(actions: [
         IconButton(tooltip: '添加附件', onPressed: _pick, icon: const Icon(Icons.attach_file)),
         Padding(
           padding: const EdgeInsets.only(right: 12),

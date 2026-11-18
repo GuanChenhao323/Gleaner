@@ -9,13 +9,39 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import 'deadline_calendar.dart';
 
-/// 工作台：今日要事 + 本周一眼 + 异常信息源（有问题才出现）。
-class DashboardPage extends ConsumerWidget {
+/// 工作台类型筛选：全部 / 待办任务 / 日程活动 / 通知。
+enum _KindFilter { all, assignment, event, notice }
+
+bool _kindMatches(Item i, _KindFilter f) => switch (f) {
+      _KindFilter.all => true,
+      _KindFilter.assignment => i.kind == 'assignment',
+      _KindFilter.event => i.kind == 'event',
+      _KindFilter.notice => i.kind == 'notice' || i.kind == 'rss' || i.kind == 'mail',
+    };
+
+String _kindFilterLabel(_KindFilter f) => switch (f) {
+      _KindFilter.all => '全部',
+      _KindFilter.assignment => '待办任务',
+      _KindFilter.event => '日程活动',
+      _KindFilter.notice => '通知',
+    };
+
+/// 工作台：今日要事（按类型）+ 本周一眼 + 截止日历 + 异常信息源。
+class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends ConsumerState<DashboardPage> {
+  _KindFilter kindFilter = _KindFilter.all;
+  bool showCalendar = false;
+
+  @override
+  Widget build(BuildContext context) {
     final me = ref.watch(sessionProvider.select((s) => s.me));
     final feed = ref.watch(feedProvider);
     final t = Theme.of(context);
@@ -26,7 +52,7 @@ class DashboardPage extends ConsumerWidget {
     final dueWeek = assignments.where((i) => !i.isDone && i.deadline!.isAfter(now) && i.deadline!.isBefore(weekEnd)).length;
     final sources = ref.watch(sourcesProvider).asData?.value ?? const <Source>[];
     final troubled = sources.where((s) => s.status == 'failed' || s.status == 'need_login').toList();
-    final focus = _todayFocus(feed.visible, assignments);
+    final focus = _todayFocus(feed.visible, assignments).where((i) => _kindMatches(i, kindFilter)).toList();
     final wide = MediaQuery.sizeOf(context).width >= 960;
 
     return Scaffold(
@@ -49,15 +75,10 @@ class DashboardPage extends ConsumerWidget {
                 ),
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(
-                      '${dayLabel(now)} · ${now.month}月${now.day}日',
-                      style: t.textTheme.labelLarge?.copyWith(color: cs.onPrimaryContainer.withValues(alpha: 0.8)),
-                    ),
-                  ),
-                  const ConnectionDot(showLabel: true),
-                ]),
+                Text(
+                  '${dayLabel(now)} · ${now.month}月${now.day}日',
+                  style: t.textTheme.labelLarge?.copyWith(color: cs.onPrimaryContainer.withValues(alpha: 0.8)),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   '${greeting()}，${me?.name.isNotEmpty == true ? me!.name : '同学'}',
@@ -66,7 +87,7 @@ class DashboardPage extends ConsumerWidget {
                 const SizedBox(height: 14),
                 Wrap(spacing: 18, runSpacing: 8, children: [
                   _MiniStat('${feed.unread}', '未读', onCard: true, onTap: () => context.go('/inbox?filter=unread')),
-                  _MiniStat('$dueWeek', '7 天内截止', onCard: true, highlight: dueWeek > 0, onTap: () => context.go('/assignments')),
+                  _MiniStat('$dueWeek', '7 天内截止', onCard: true, highlight: dueWeek > 0, onTap: () => context.go('/courses')),
                   if (troubled.isNotEmpty)
                     _MiniStat('${troubled.length}', '信息源异常', onCard: true, highlight: true, onTap: () => context.go('/sources')),
                 ]),
@@ -83,29 +104,60 @@ class DashboardPage extends ConsumerWidget {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 96),
             sliver: SliverToBoxAdapter(
-              child: wide
-                  ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Expanded(flex: 2, child: _FocusCard(items: focus)),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(children: [
-                          const _SideCard(title: '本周', child: _WeekLoad()),
-                          if (troubled.isNotEmpty) ...[
-                            const SizedBox(height: 14),
-                            _SideCard(title: '需处理', child: _TroubledSources(troubled)),
-                          ],
-                        ]),
-                      ),
-                    ])
-                  : Column(children: [
-                      _FocusCard(items: focus),
-                      const SizedBox(height: 14),
-                      const _SideCard(title: '本周', child: _WeekLoad()),
-                      if (troubled.isNotEmpty) ...[
+              child: Column(children: [
+                wide
+                    ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(
+                          flex: 2,
+                          child: _FocusCard(
+                            items: focus,
+                            filter: kindFilter,
+                            onFilter: (f) => setState(() => kindFilter = f),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(children: [
+                            _SideCard(
+                              title: '本周',
+                              trailing: TextButton(
+                                onPressed: () => setState(() => showCalendar = !showCalendar),
+                                child: Text(showCalendar ? '收起日历' : '日历'),
+                              ),
+                              child: const _WeekLoad(),
+                            ),
+                            if (troubled.isNotEmpty) ...[
+                              const SizedBox(height: 14),
+                              _SideCard(title: '需处理', child: _TroubledSources(troubled)),
+                            ],
+                          ]),
+                        ),
+                      ])
+                    : Column(children: [
+                        _FocusCard(
+                          items: focus,
+                          filter: kindFilter,
+                          onFilter: (f) => setState(() => kindFilter = f),
+                        ),
                         const SizedBox(height: 14),
-                        _SideCard(title: '需处理', child: _TroubledSources(troubled)),
-                      ],
-                    ]),
+                        _SideCard(
+                          title: '本周',
+                          trailing: TextButton(
+                            onPressed: () => setState(() => showCalendar = !showCalendar),
+                            child: Text(showCalendar ? '收起日历' : '日历'),
+                          ),
+                          child: const _WeekLoad(),
+                        ),
+                        if (troubled.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          _SideCard(title: '需处理', child: _TroubledSources(troubled)),
+                        ],
+                      ]),
+                if (showCalendar) ...[
+                  const SizedBox(height: 14),
+                  const DeadlineCalendarCard(),
+                ],
+              ]),
             ),
           ),
         ]),
@@ -198,7 +250,9 @@ class _AlertBanner extends StatelessWidget {
 
 class _FocusCard extends StatelessWidget {
   final List<Item> items;
-  const _FocusCard({required this.items});
+  final _KindFilter filter;
+  final ValueChanged<_KindFilter> onFilter;
+  const _FocusCard({required this.items, required this.filter, required this.onFilter});
 
   @override
   Widget build(BuildContext context) {
@@ -216,10 +270,28 @@ class _FocusCard extends StatelessWidget {
               TextButton(onPressed: () => context.go('/inbox'), child: const Text('收件箱')),
             ]),
           ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
+            child: Row(children: [
+              for (final f in _KindFilter.values) ...[
+                FilterChip(
+                  label: Text(_kindFilterLabel(f)),
+                  selected: filter == f,
+                  showCheckmark: false,
+                  onSelected: (_) => onFilter(f),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ]),
+          ),
           if (items.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 20, 10, 28),
-              child: Text('今天没有要紧的', style: TextStyle(color: cs.onSurfaceVariant)),
+              child: Text(
+                filter == _KindFilter.all ? '今天没有要紧的' : '这类今天没有要紧的',
+                style: TextStyle(color: cs.onSurfaceVariant),
+              ),
             )
           else
             for (final i in items) _FocusRow(i),
@@ -237,7 +309,7 @@ class _FocusRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final accent = dueRowAccent(done: item.isDone, priority: item.priority, deadline: item.deadline);
-    final tag = item.importantChange
+    final status = item.importantChange
         ? '变更'
         : (accent == Brand.urgent
             ? '紧急'
@@ -259,15 +331,18 @@ class _FocusRow extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(color: accent ?? Brand.course(item.course), borderRadius: BorderRadius.circular(2)),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
+          Icon(kindIcon(item.kind), size: 18, color: cs.onSurfaceVariant),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: accent)),
               const SizedBox(height: 2),
               Text(
                 [
+                  kindLabel(item.kind),
                   if (item.course.isNotEmpty) shortCourse(item.course),
-                  ?tag,
+                  ?status,
                 ].join(' · '),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -285,7 +360,8 @@ class _FocusRow extends StatelessWidget {
 class _SideCard extends StatelessWidget {
   final String title;
   final Widget child;
-  const _SideCard({required this.title, required this.child});
+  final Widget? trailing;
+  const _SideCard({required this.title, required this.child, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +369,11 @@ class _SideCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          Row(children: [
+            Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+            const Spacer(),
+            ?trailing,
+          ]),
           const SizedBox(height: 12),
           child,
         ]),
@@ -322,7 +402,14 @@ class _WeekLoad extends ConsumerWidget {
               message: counts[d].isEmpty ? '没有截止' : counts[d].map((i) => i.title).join('\n'),
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
-                onTap: () => context.go('/assignments?view=calendar'),
+                onTap: () {
+                  final course = counts[d].isNotEmpty && counts[d].first.course.isNotEmpty ? counts[d].first.course : null;
+                  if (course != null) {
+                    context.push('/courses/detail', extra: course);
+                  } else {
+                    context.go('/courses');
+                  }
+                },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
