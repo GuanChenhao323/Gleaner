@@ -98,3 +98,18 @@ test('reopening after original tab closes restores preview instead of dereferenc
   const reopened=new CaptureController({browser:h.controller.browser,client:h.controller.client,forms:h.forms,view:h.view,location:{href:'chrome-extension://test/popup.html?tab=1'}});
   await reopened.init();try {assert.equal(reopened.task.state,'succeeded');assert.match(h.view.$('page').textContent,/原网页已关闭/);assert.equal(h.view.$('save').disabled,false);await reopened.save();assert.match(h.view.$('results').textContent,/新增 2/);}finally {reopened.dispose();}
 });
+
+test('opening a chosen Moodle assignment prepares a detail extraction without saving',async()=>{
+  const h=await harness(),c=candidate(11);
+  c.record_type='assignment';c.entity_id='assignment:11';c.raw.fields.subtype='assignment_link';
+  h.controller.task={url:'https://moodle.must.edu.mo/my/',result:{source:'moodle',candidates:[c]}};
+  const opened=[],browser=h.controller.browser;
+  browser.tabs.create=async options=>{opened.push(options);return {id:42};};
+  browser.tabs.get=async()=>({id:42,status:'complete',url:c.url});
+  browser.runtime={getURL:file=>'chrome-extension://test/'+file};
+  await h.controller.readAssignment(c);
+  assert.deepEqual(opened,[{url:c.url,active:false},{url:'chrome-extension://test/popup.html?tab=42'}]);
+  const form=await h.forms.load(cfg,42);
+  assert.equal(form.phase,'prepared');assert.equal(form.query,'全部作业');assert.equal(form.auto_monitor,false);
+  assert.ok(!h.messages.some(m=>m.type==='extract.save'));
+});

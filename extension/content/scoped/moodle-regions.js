@@ -26,7 +26,7 @@
           const url=dom.url(a);if(url.origin!==page.url.origin) continue;
           const owner=catalog.ownerOf(item),name=page.label(a,dom),course=owner?.title || page.label(item.querySelector('.event-name-container small'),dom);
           // A course name displayed next to an event is context, never native ownership.
-          if(selected && owner?.id!==selected.id || !required && !selected && !dom.match(name,intent.keyword || intent.target) || intent.keyword && !dom.match(name,intent.keyword)) continue;
+          if(selected && owner?.id!==selected.id || !required && !selected && !R.matchesAssignment(dom,name,intent.keyword || intent.target) || intent.keyword && !R.matchesAssignment(dom,name,intent.keyword)) continue;
           const date=this.date(item,region),dateText=date?dom.label(date):'',time=page.label(item.querySelector('small.text-right,time'),dom),original=dom.content(item);
           if(!name) throw Error('unsupported_region');
           const evidence=dom.evidence(item,original);

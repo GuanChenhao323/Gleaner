@@ -325,7 +325,7 @@ class Pipeline:
                 start_at=given.get("start_at"),
             )
             item_type = c.item_type
-            if deadline is None and c.deadline_at is not None:
+            if deadline is None and c.deadline_at is not None and not attrs.get("suppress_deadline"):
                 deadline = c.deadline_at
             given.setdefault("start_at", c.start_at)
             given.setdefault("end_at", c.end_at)

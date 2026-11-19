@@ -15,7 +15,7 @@ export class PreviewView extends DomView {
     span.append(this.document.createTextNode(text.slice(0, index)), this.node('mark', text.slice(index, index + query.length)), this.document.createTextNode(text.slice(index + query.length)));
     return span;
   }
-  render(task, {stale = false, onChoice} = {}) {
+  render(task, {stale = false, onChoice, onDetail} = {}) {
     if (!task) { this.clear(); return; }
     const key = task.id ? JSON.stringify([task.id, task.state, task.error, stale, task.result?.observed_at]) : null;
     if (key && key === this.key) return;
@@ -49,7 +49,7 @@ export class PreviewView extends DomView {
       const section = this.node('section'); section.dataset.resultGroup = group.id;
       section.setAttribute('aria-label', group.title);
       if (!generic && groups.length > 1) section.append(this.node('h3', `${group.title}（${group.candidates.length}）`, 'group-title'));
-      for (const c of group.candidates) section.append(this.candidate(c, r.intent?.query || task.query || ''));
+      for (const c of group.candidates) section.append(this.candidate(c, r.intent?.query || task.query || '', r.url, onDetail));
       root.append(section);
     }
     if ((r.warnings || []).length || r.coverage?.regions?.length) {
@@ -59,12 +59,18 @@ export class PreviewView extends DomView {
       root.append(details);
     }
   }
-  candidate(c, query) {
+  candidate(c, query, pageUrl, onDetail) {
     const card = this.node('article', '', 'result-card'), title = this.node('h3'); title.append(this.highlight(c.raw.title, query));
     card.append(title);
     const type = {web_fragment:'网页片段 · 非完整正文', course_entry:'课程概览 · 仅预览', page_section:'页面区块 · 仅预览', assignment:'作业', timeline_event:c.save_allowed?'活动摘要 · 可保存为资料':'活动摘要 · 仅预览', contact_info:'联系信息 · 仅预览'}[c.record_type];
     if (type && (c.record_type !== 'assignment' || !c.save_allowed)) card.append(this.node('p', type, 'candidate-type'));
     const excerpt = this.node('p', '', 'excerpt'); excerpt.append(this.highlight(Array.from(c.raw.text).slice(0, 240).join(''), query)); card.append(excerpt);
+    if(c.record_type==='assignment' && c.raw.fields?.subtype==='assignment_link') {
+      card.append(this.node('p','仅作业链接 · 截止时间待补充','muted'));
+      if(onDetail && pageUrl && new URL(pageUrl).pathname!=='/mod/assign/view.php')
+        card.append(this.button('读取这项作业的详情',()=>onDetail(c)));
+      else card.append(this.node('p','当前详情页未识别到说明、日期或提交状态。','muted'));
+    }
     const full = this.node('details', '', 'full-fragment'), summary = this.node('summary', '原文');
     const label = () => { summary.textContent = full.open ? '收起' : '原文'; summary.setAttribute('aria-label', `${full.open ? '收起' : '查看'}原文：${c.raw.title}`); };
     label();full.addEventListener('toggle', label);full.append(summary, this.node('pre', c.raw.text));

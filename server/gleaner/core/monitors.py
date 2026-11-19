@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..net.http import Request, Response, Router
 from ..storage.db import Database, loads
+from .extract import extract_deadline
 from .pipeline import Pipeline, owner_prefix
 
 ERRORS = {
@@ -38,6 +39,10 @@ FIELDS = {
     "weekday",
     "period",
     "datetime_text",
+    "due_text",
+    "submission_status",
+    "grading_status",
+    "time_remaining",
     "requirements",
     "department",
     "office",
@@ -381,7 +386,12 @@ class BrowserMonitorService:
                         monitor["source_id"],
                     )
                     monitor = await self.own(uid, monitor["id"])
-                counts = await self.ingest(monitor, t["raw"])
+                raw = t["raw"]
+                previous = loads(monitor["last_raw"], {})
+                if (raw["fields"].get("subtype") == "assignment_link" and monitor["item_id"]
+                        and previous.get("fields", {}).get("subtype") != "assignment_link"):
+                    raw = previous
+                counts = await self.ingest(monitor, raw)
                 iid = await self.db.fetchval(
                     "SELECT id FROM items WHERE identity_key = ?",
                     owner_prefix(uid) + f"browser:{monitor['id']}",
@@ -389,7 +399,7 @@ class BrowserMonitorService:
                 await self.db.execute(
                     "UPDATE browser_monitors SET item_id = ?, last_raw = ? WHERE id = ?",
                     iid,
-                    t["raw"],
+                    raw,
                     monitor["id"],
                 )
                 results.append(
@@ -442,6 +452,15 @@ class BrowserMonitorService:
             "suppress_deadline": kind == "event",
             "browser_monitor_id": monitor["id"],
         }
+        deadline = None
+        if kind == "assignment" and subtype in ("moodle_assignment", "assignment_link"):
+            due = fields.get("due_text", "")
+            attrs["suppress_deadline"] = True
+            if due:
+                match = extract_deadline(f"Due: {due}")
+                if match:
+                    deadline = match.at.timestamp()
+                    attrs["deadline_text"] = due
         return await self.pipeline.ingest(
             {
                 "source_id": monitor["source_id"],
@@ -454,6 +473,7 @@ class BrowserMonitorService:
                         "title": raw["title"],
                         "body": raw["text"],
                         "url": recipe["url"],
+                        "deadline_at": deadline,
                         "course": fields.get("course", ""),
                         "requirements": fields.get("requirements", ""),
                         "attrs": attrs,

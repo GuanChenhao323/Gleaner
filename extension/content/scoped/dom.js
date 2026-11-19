@@ -74,7 +74,14 @@
       const fixture = local ? document.querySelector('meta[name="campus-radar-fixture"]')?.content || '' : '';
       const source = (['moodle','student','fie'].includes(fixture)?fixture:'') || ({'moodle.must.edu.mo':'moodle','student-wmweb.must.edu.mo':'student','infoportal-web.must.edu.mo':'student','classtimetable-coes-wmweb.must.edu.mo':'student','fie.must.edu.mo':'fie'})[location.hostname] || 'generic';
       const accountNode = document.querySelector('body[data-account-id],body[data-userid],.usermenu[data-userid],.usermenu [data-userid]');
-      const account = accountNode?.getAttribute('data-account-id') || accountNode?.getAttribute('data-userid') || (() => { const a = document.querySelector('.usermenu a[href*="/user/profile.php"]'); return a ? new URL(a.getAttribute('href'),location.href).searchParams.get('id') || '' : ''; })();
+      const account = accountNode?.getAttribute('data-account-id') || accountNode?.getAttribute('data-userid') || (() => { const a = document.querySelector('.usermenu a[href*="/user/profile.php"]'); if(a) return new URL(a.getAttribute('href'),location.href).searchParams.get('id') || '';
+        if(source==='moodle') {
+          const info=document.querySelector('footer .logininfo,#page-footer .logininfo');
+          const profile=info?.querySelector('a[href*="/user/profile.php"]');
+          const url=profile && this.url(profile);
+          if(url?.origin===location.origin && url.pathname==='/user/profile.php' && /^\d+$/.test(url.searchParams.get('id') || '')) return url.searchParams.get('id');
+        }
+        return ''; })();
       const login = (source!=='generic' && /\/(login|sso|auth)(\/|\.|$)/i.test(location.pathname)) || [...document.querySelectorAll('input[type="password"]')].some(n=>this.visible(n,true));
       return {url:location.href,title:document.title,source,fixture,account:{...(source==='generic' && R.AccountControlProbe?new R.AccountControlProbe().read():{state:source==='fie'?'public':source!=='generic' && account?'known':'unknown',native:source==='fie'?'public':account})},login,frames:document.querySelectorAll('iframe').length,ready:document.readyState};
     }

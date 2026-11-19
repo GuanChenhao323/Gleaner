@@ -97,6 +97,8 @@ export class CaptureView extends DomView {
     this.$('save').disabled = !p.canSave || this.authBlocked;
     this.$('monitor-options').hidden = submitted;
     this.$('save').textContent = options.monitoring ? `保存并开启定期监测` : p.timeline ? `保存为一份活动摘要（${p.count} 条）` : p.generic ? '保存为一份网页资料' : `保存匹配结果（${p.count}）`;
+    if(p.canSave && task.result?.candidates.every(c=>c.raw.fields?.subtype==='assignment_link'))
+      this.$('save').textContent=options.monitoring?'保存作业链接并监测':'保存作业链接';
     if (p.count && !task.result.candidates.every(c => c.save_allowed)) this.$('save').textContent = this.preview.groups.previewGuidance(task.result.candidates).button;
     if(p.timeline && task.result.candidates.some(c=>c.save_reason==='account_unknown'))this.$('save').textContent='请登录原学校账号后重新提取';
     this.$('save-hint').textContent = p.oversize ? '匹配内容超过保存范围，请缩小条件；不会截断保存。'

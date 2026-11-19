@@ -177,9 +177,24 @@ test('full native breadcrumb title resolves course names when link text is only 
   assert.equal(result(p,'测试课程的作业').candidates.length,1);
 });
 
-test('attachment-only assignment previews loaded names/links without downloading or claiming complete text',()=>{
-  const p=rendered('<main><h2>Lab10</h2><a href="/pluginfile.php/1/mod_assign/introattachment/0/demo.docx?forcedownload=1">demo.docx</a><p>个人提交状态不能提取</p></main>','https://moodle.must.edu.mo/mod/assign/view.php?id=1101');
-  const c=result(p,'Lab10').candidates[0];assert.match(c.raw.text,/demo.docx/);assert.equal(c.save_reason,'attachments_only');assert.equal(c.save_allowed,false);assert.equal(c.target,null);assert.ok(!c.raw.text.includes('个人提交状态'));
+test('detail keeps the labelled due date, own submission summary and attachment link',()=>{
+  const p=rendered(`<main><h2>Lab11</h2><div class="activity-dates">
+    <div><strong>Opened:</strong> Thursday, 19 November 2026, 12:00 AM</div>
+    <div><strong>Due:</strong> Thursday, 31 December 2026, 12:00 AM</div></div>
+    <table><tr><th>Submission status</th><td>No attempt</td></tr><tr><th>Grading status</th><td>Not graded</td></tr>
+    <tr><th>Time remaining</th><td>41 days 5 hours</td></tr><tr><th>Submission comments</th><td>private comment</td></tr></table>
+    <a href="/pluginfile.php/1/mod_assign/introattachment/0/demo.docx">demo.docx</a></main>`,
+    'https://moodle.must.edu.mo/mod/assign/view.php?id=1101');
+  p.document.body.setAttribute('data-userid','7');
+  assert.equal(result(p,'Lab 1').candidates.length,0);
+  const c=result(p,'Lab 11').candidates[0];
+  assert.equal(c.save_allowed,true);
+  assert.equal(c.raw.fields.due_text,'Thursday, 31 December 2026, 12:00 AM');
+  assert.equal(c.raw.fields.submission_status,'No attempt');
+  assert.equal(c.raw.fields.grading_status,'Not graded');
+  assert.equal(c.raw.fields.time_remaining,'41 days 5 hours');
+  assert.match(c.raw.text,/未读取正文.*demo.docx/);
+  assert.doesNotMatch(c.raw.text,/private comment|19 November/);
 });
 
 test('Moodle adapter does not expand into unrelated authenticated route types',()=>{

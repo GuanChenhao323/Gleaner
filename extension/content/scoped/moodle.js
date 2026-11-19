@@ -26,7 +26,11 @@
       if (intent.kind==='auto' && selected && !intent.keyword && !page.assignmentRoute) records.push(this.courses.extract(page,selected));
       records.push(...this.assignments.extract(page,catalog,intent,selected));
       const timeline=page.assignmentRoute?{records:[],coverage:[]}:this.timeline.extract(page,catalog,intent,selected);
-      records.push(...timeline.records);
+      const activityIds=new Set(records.filter(r=>r.record_type==='assignment').map(r=>r.entity_id));
+      records.push(...timeline.records.filter(r=>{
+        const url=new URL(r.url);
+        return url.pathname!=='/mod/assign/view.php' || !activityIds.has('assignment:'+url.searchParams.get('id'));
+      }));
       if (intent.kind==='auto' && !page.assignmentRoute) records.push(...this.sections.extract(page,intent,selected));
       if (selected && !records.length) navigation.push({title:selected.title,url:selected.url});
       return {records,navigation,coverage:{course_index:catalog.stats,regions:[{id:'main',title:'课程／活动内容',status:records.some(r=>r.record_type!=='timeline_event')?'matched':'no_match'},...timeline.coverage]},outcome:outcome(records.length?'matched':navigation.length?'navigation_required':'no_match'),warnings:[

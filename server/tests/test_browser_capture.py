@@ -501,3 +501,31 @@ async def test_person_field_projection_cannot_overwrite_full_profile(service):
         await db.fetchval("SELECT body FROM items WHERE id = ?", full["item_id"]) == "完整个人资料"
     )
     assert (await svc.claim(1, {"device_id": "device-a"}))["job"] is None
+
+
+async def test_moodle_link_enriched_with_due_and_status_without_duplicate(service):
+    from datetime import datetime
+
+    from gleaner.core.extract import TZ
+
+    svc, db, _ = service
+    req = batch("list", ("assignment:1101",))
+    target = req["targets"][0]
+    req["binding"]["adapter"] = "moodle"
+    target["recipe"]["adapter"] = "moodle"
+    link = {"title": "Lab11", "text": "Lab11", "fields": {"subtype": "assignment_link"}}
+    target["raw"] = link
+    iid = (await svc.capture(1, req))["results"][0]["item_id"]
+    req["request_id"] = "detail"
+    due = "Thursday, 31 December 2026, 12:00 AM"
+    target["raw"] = {"title": "Lab11", "text": "提交状态：No attempt", "fields": {
+        "subtype": "moodle_assignment", "due_text": due, "submission_status": "No attempt",
+    }}
+    assert (await svc.capture(1, req))["results"][0]["item_id"] == iid
+    req["request_id"] = "list-again"
+    target["raw"] = link
+    assert (await svc.capture(1, req))["results"][0]["item_id"] == iid
+    row = await db.fetchone("SELECT deadline_at, body, item_type FROM items WHERE id=?", iid)
+    assert row["deadline_at"] == datetime(2026, 12, 31, tzinfo=TZ).timestamp()
+    assert "No attempt" in row["body"]
+    assert row["item_type"] == "todo"

@@ -191,6 +191,36 @@ export class CaptureController {
       this.render();
     }
   }
+  async readAssignment(candidate) {
+    if (this.busy() || this.openingDetail || !this.task?.result?.candidates.includes(candidate)) return;
+    const url=new URL(candidate.url);
+    if(this.task.result.source!=='moodle' || url.origin!==new URL(this.task.url).origin ||
+       url.pathname!=='/mod/assign/view.php' || candidate.entity_id!=='assignment:'+url.searchParams.get('id')) throw Error('route_mismatch');
+    this.openingDetail=true;
+    try {
+      await this.openAssignmentTab(url.href);
+    } finally { this.openingDetail=false; }
+  }
+  async openAssignmentTab(url) {
+    const tab=await this.browser.tabs.create({url,active:false});
+    const form={url,tabId:tab.id,phase:'prepared',query:'全部作业',match_scope:'content',taskId:crypto.randomUUID(),auto_monitor:false};
+    await this.forms.write(this.cfg,form);
+    const end=Date.now()+15000;
+    while(Date.now()<end) {
+      const loaded=await this.browser.tabs.get(tab.id);
+      if(loaded.status==='complete' && loaded.url===form.url) {
+        await this.browser.tabs.create({url:this.browser.runtime.getURL('popup.html')+'?tab='+tab.id});
+        return;
+      }
+      if(loaded.status==='complete' && loaded.url && loaded.url!=='about:blank' && loaded.url!==form.url) {
+        await this.browser.tabs.update(tab.id,{active:true});
+        return;
+      }
+      await new Promise(resolve=>setTimeout(resolve,150));
+    }
+    await this.browser.tabs.update(tab.id,{active:true});
+    throw Error('render_timeout');
+  }
   capture(choice) {
     if (this.busy()) return;
     if (!this.form) throw Error('worker_unavailable');
@@ -347,7 +377,7 @@ export class CaptureController {
   renderTask(task) {
     const stale = task.query !== this.view.$('query').value.trim() || (task.intent?.match_scope || task.result?.intent?.match_scope || 'content') !== (this.view.$('match-scope').value || 'content');
     const displayTask = !task.submission && this.uncertainSave ? {...task, submission: {request_id: task.id}} : task;
-    this.view.task(displayTask, {stale, monitoring:this.view.$('auto-monitor').checked, saving: this.busy(), onChoice: id => this.guard(() => this.capture(id))()});
+    this.view.task(displayTask, {stale, monitoring:this.view.$('auto-monitor').checked, saving: this.busy(), onDetail: c => this.guard(() => this.readAssignment(c))(), onChoice: id => this.guard(() => this.capture(id))()});
     const receipt = this.view.receipt(this.entry, this.cfg, Boolean(task.submission || this.uncertainSave));
     if(receipt.rejected)this.view.$('save-hint').textContent='本次提交已被拒绝，处理原因后请重新提取；查询不会再次提交。';
     this.view.$('refresh').hidden = !task.submission && !this.uncertainSave;

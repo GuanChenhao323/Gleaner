@@ -51,9 +51,11 @@ test('ambiguous course asks for scope before bodies; native choice is revalidate
   assert.throws(()=>p.read('网络编程的作业','999'),/invalid_choice/);
 });
 
-test('course entrances and activity summaries stay preview-only, without automatic navigation',()=>{
+test('known assignment links are saveable without automatic navigation; course entrances remain navigation',()=>{
   const p=rendered(courses({inline:false}));const r=extract(p,'网络编程的作业');
-  assert.equal(r.candidates.length,2);assert.ok(r.candidates.every(c=>c.save_reason==='detail_required'));
+  assert.equal(r.candidates.length,2);assert.ok(r.candidates.every(c=>c.save_reason==='account_unknown'));
+  p.document.body.setAttribute('data-userid','7');
+  assert.ok(extract(p,'网络编程的作业').candidates.every(c=>c.save_allowed && c.completeness==='summary' && c.raw.fields.subtype==='assignment_link'));
   const entrance=rendered('<main><a href="/course/view.php?id=101">网络编程</a></main>');
   const s=entrance.read('网络编程的作业');assert.equal(s.records.length,0);assert.equal(s.navigation.length,1);
 });

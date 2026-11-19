@@ -9,7 +9,12 @@ export class CandidateFactory {
     title = clean(title); text = clean(text); url = safeUrl(url, this.snapshot.url);
     if (!title || title.length > 300 || !text || text.length > 20000 || !url || !evidence) return null;
     const privatePage = this.adapter !== 'fie';
-    const reason = ['navigation_only','section_preview_only','attachments_only','timeline_preview_only','contact_preview_only'].includes(previewReason)?previewReason:!entity ? 'identity_unknown' : missing.length ? 'fields_missing' : !complete ? 'detail_required'
+    const activity = new URL(url);
+    const assignmentLink = this.adapter === 'moodle' && recordType === 'assignment' &&
+      fields.subtype === 'assignment_link' && activity.origin === new URL(this.snapshot.url).origin &&
+      activity.pathname === '/mod/assign/view.php' && /^\d+$/.test(activity.searchParams.get('id') || '') &&
+      entity === 'assignment:' + activity.searchParams.get('id');
+    const reason = ['navigation_only','section_preview_only','attachments_only','timeline_preview_only','contact_preview_only'].includes(previewReason)?previewReason:!entity ? 'identity_unknown' : missing.length ? 'fields_missing' : !complete && !assignmentLink ? 'detail_required'
       : privatePage && this.snapshot.account.state !== 'known' ? 'account_unknown' : '';
     const view = { route: new URL(url).hash, query: new URL(url).search, ...context };
     return { entity_id: entity, record_type:recordType, ...(presentation?{presentation}:{}), raw: { title, text, fields }, url, evidence: [evidence],
