@@ -9,12 +9,14 @@ import '../../core/store.dart';
 import '../../widgets/common.dart';
 
 String typeLabel(String t) => switch (t) {
+      'reference' => '资料',
       'todo' => '待办',
       'event' => '日程',
       _ => '通知',
     };
 
 IconData typeIcon(String t) => switch (t) {
+      'reference' => Icons.bookmark_outline,
       'todo' => Icons.task_alt,
       'event' => Icons.event,
       _ => Icons.campaign_outlined,
@@ -285,6 +287,7 @@ Future<void> showEditFields(BuildContext context, WidgetRef ref, Item item) asyn
                   segments: const [
                     ButtonSegment(value: 'todo', label: Text('待办'), icon: Icon(Icons.task_alt)),
                     ButtonSegment(value: 'event', label: Text('日程'), icon: Icon(Icons.event)),
+                    ButtonSegment(value: 'reference', label: Text('资料')),
                     ButtonSegment(value: 'notice', label: Text('通知'), icon: Icon(Icons.campaign_outlined)),
                   ],
                   selected: {type},

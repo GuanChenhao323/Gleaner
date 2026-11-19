@@ -157,6 +157,12 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (user.id !== cfg.uid || current.uid !== cfg.uid || current.server !== cfg.server) throw Error('backend_account_changed');
       return { state: 'connected', uid: user.id, email: user.email };
     }
+    if (m.type==='intent.save') {
+      if(m.owner?.uid!==cfg.uid || m.owner?.server!==cfg.server)throw Error('backend_account_changed');
+      const {activity,...capture}=m.capture;
+      if(activity)capture.activity={id:activity.id,detail:activity.detail,account:await accountKey('moodle',activity.principal)};
+      return request(cfg,'/api/v1/intent-captures',capture);
+    }
     if (m.type==='extract.start')return extraction.handle(cfg,{...m,capture_generation:await contexts.sync(cfg,{offline:true})});
     if (m.type==='extract.save')await contexts.sync(cfg,{offline:true});
     if (m.type?.startsWith('extract.')) return extraction.handle(cfg, m);

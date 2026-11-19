@@ -276,7 +276,7 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             tooltip: '更改类型，当前为${typeLabel(item.type)}',
             onSelected: (type) => _changeType(item, type),
             itemBuilder: (_) => [
-              for (final type in ['todo', 'event', 'notice'])
+              for (final type in ['todo', 'event', 'notice', 'reference'])
                 CheckedPopupMenuItem(value: type, checked: item.type == type, child: Text(typeLabel(type))),
             ],
             child: Padding(
