@@ -9,6 +9,7 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../auth/login_page.dart';
 
 class Dest {
   final String path;
@@ -48,14 +49,6 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool hovering = false;
 
   bool get _expanded => pinned || hovering;
-
-  @override
-  void initState() {
-    super.initState();
-    ref.read(mqttProvider);
-    ref.read(systemNotifierProvider);
-    _sub = ref.read(feedProvider.notifier).events.listen(_onEvent);
-  }
 
   @override
   void dispose() {
@@ -100,20 +93,52 @@ class _AppShellState extends ConsumerState<AppShell> {
     return 0;
   }
 
+  Future<void> _account({String? action}) async {
+    if (!ref.read(sessionProvider).loggedIn) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => LoginDialog(onClose: () => Navigator.pop(dialogContext)),
+      );
+      if (!mounted || !ref.read(sessionProvider).loggedIn || action == null) return;
+    }
+    if (action == null) {
+      context.go(settingsDest.path);
+    } else {
+      context.push(action);
+    }
+  }
+
   bool get _onSettings => widget.location.startsWith(settingsDest.path);
 
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     final idx = _index();
-    final unread = ref.watch(feedProvider.select((s) => s.unread));
+    final signedIn = ref.watch(sessionProvider.select((s) => s.loggedIn));
+    if (signedIn) {
+      ref.watch(mqttProvider);
+      ref.watch(systemNotifierProvider);
+      final events = ref.watch(feedProvider.notifier).events;
+      _sub ??= events.listen(_onEvent);
+    } else {
+      _sub?.cancel();
+      _sub = null;
+    }
+    final unread = signedIn ? ref.watch(feedProvider.select((s) => s.unread)) : 0;
+    final current = _onSettings ? settingsDest : destinations[idx];
+    final body = signedIn ? widget.child : _GuestSection(current);
     final me = ref.watch(sessionProvider.select((s) => s.me));
 
     if (w < 600) {
       const primary = [0, 1, 2, 3];
       final sel = primary.contains(idx) ? primary.indexOf(idx) : 4;
       return Scaffold(
-        body: widget.child,
+        appBar: signedIn ? null : AppBar(
+          leading: const Center(child: GleanerLogo(size: 32)),
+          title: Text(current.label),
+          actions: [IconButton(tooltip: '登录或注册', onPressed: _account, icon: const Icon(Icons.account_circle_outlined))],
+        ),
+        body: body,
         bottomNavigationBar: NavigationBar(
           selectedIndex: sel,
           onDestinationSelected: (i) {
@@ -165,15 +190,15 @@ class _AppShellState extends ConsumerState<AppShell> {
                   onPin: () => setState(() => pinned = !pinned),
                   onSelect: (i) => context.go(destinations[i].path),
                   onSettings: () => context.go(settingsDest.path),
-                  onCompose: () => context.push('/compose'),
-                  onTransfer: () => context.push('/transfer'),
-                  onAvatar: () => context.go('/settings'),
+                  onCompose: () => _account(action: '/compose'),
+                  onTransfer: () => _account(action: '/transfer'),
+                  onAvatar: _account,
                 );
               },
             ),
           ),
         ),
-        Expanded(child: widget.child),
+        Expanded(child: body),
       ]),
     );
   }
@@ -186,12 +211,18 @@ class _AppShellState extends ConsumerState<AppShell> {
       context: context,
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (ref.read(sessionProvider).loggedIn)
+            ListTile(
+              leading: const Icon(Icons.account_circle_outlined),
+              title: const Text('我的账号'),
+              onTap: () { Navigator.pop(c); _account(); },
+            ),
           ListTile(
             leading: const Icon(Icons.edit_note),
             title: const Text('写邮件'),
             onTap: () {
               Navigator.pop(c);
-              context.push('/compose');
+              _account(action: '/compose');
             },
           ),
           ListTile(
@@ -199,7 +230,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             title: const Text('扫码传输'),
             onTap: () {
               Navigator.pop(c);
-              context.push('/transfer');
+              _account(action: '/transfer');
             },
           ),
           ListTile(
@@ -213,6 +244,50 @@ class _AppShellState extends ConsumerState<AppShell> {
         ]),
       ),
     );
+  }
+}
+
+class _GuestSection extends StatelessWidget {
+  final Dest section;
+  const _GuestSection(this.section);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final description = switch (section.path) {
+      '/inbox' => '登录后，在这里查看作业、通知和页面更新。',
+      '/courses' => '登录后，在这里按课程查看作业和截止日期。',
+      '/sources' => '登录后，可在这里管理订阅的校园网页和 Moodle 信息源。',
+      '/settings' => '登录后，可在这里管理个人资料和提醒设置。',
+      _ => '登录后，在这里查看今日待办和本周截止事项。',
+    };
+    return SafeArea(child: ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        if (MediaQuery.sizeOf(context).width >= 600)
+          Text(section.label, style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 24),
+        Card(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(section.icon, color: theme.colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(description, style: theme.textTheme.titleMedium),
+            if (section.path == '/') ...[
+              const Divider(height: 32),
+              for (final dest in destinations.skip(1))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(dest.icon),
+                  title: Text(dest.label),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.go(dest.path),
+                ),
+            ],
+          ]),
+        )),
+      ],
+    ));
   }
 }
 
@@ -263,7 +338,7 @@ class _SideRail extends StatelessWidget {
               tooltip: pinned ? '收起侧栏' : '固定侧栏',
               onPressed: onPin,
               padding: EdgeInsets.zero,
-              icon: _PinMorphIcon(pinned: pinned, color: IconTheme.of(context).color ?? cs.onSurface),
+              icon: expanded ? _PinMorphIcon(pinned: pinned, color: IconTheme.of(context).color ?? cs.onSurface) : const GleanerLogo(size: 32),
             ),
           ),
           if (expanded) ...[
@@ -318,11 +393,11 @@ class _SideRail extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
         child: Tooltip(
-          message: meEmail,
+          message: meEmail.isEmpty ? '登录或注册' : meEmail,
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: onAvatar,
-            child: Avatar(meName, size: 36),
+            child: meEmail.isEmpty ? const Icon(Icons.account_circle_outlined, size: 36) : Avatar(meName, size: 36),
           ),
         ),
       ),

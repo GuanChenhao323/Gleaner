@@ -10,6 +10,7 @@ import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'item_card.dart';
+import 'label_editor.dart';
 import 'item_detail.dart';
 
 /// `null` = 全部（默认，不占筛选项）。待办／日程／通知是三类事项（产品定义 2.3 节）；
@@ -98,18 +99,8 @@ class _InboxPageState extends ConsumerState<InboxPage> {
   bool searching = false;
 
   Future<void> _createLabel() async {
-    final result = await showDialog<({String name, String color})>(
-      context: context,
-      builder: (ctx) => const _CreateLabelDialog(),
-    );
-    if (result == null || result.name.isEmpty || !mounted) return;
-    try {
-      await ref.read(apiProvider).createLabel(result.name, color: result.color);
-      ref.invalidate(labelsProvider);
-      if (mounted) toast(context, '已创建「${result.name}」');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message);
-    }
+    final label = await createInboxLabel(context, ref);
+    if (mounted && label != null) toast(context, '已创建「${label.name}」');
   }
 
   Future<void> _deleteLabel(UserLabel label) async {
@@ -222,8 +213,7 @@ class _InboxPageState extends ConsumerState<InboxPage> {
                         onSelected: () => setState(() {
                           labelId = null;
                           filter = filter == f ? null : f;
-                          final t = _typeOf(filter);
-                          status = t == null ? null : typeStatuses[t]!.first.$1;
+                          status = null;
                         }),
                       ),
                       const SizedBox(width: 8),
@@ -392,86 +382,6 @@ class _FilterChip extends StatelessWidget {
         color: selected ? color : (emphasize ? color : null),
       ),
       onSelected: (_) => onSelected(),
-    );
-  }
-}
-
-class _CreateLabelDialog extends StatefulWidget {
-  const _CreateLabelDialog();
-
-  @override
-  State<_CreateLabelDialog> createState() => _CreateLabelDialogState();
-}
-
-class _CreateLabelDialogState extends State<_CreateLabelDialog> {
-  final _name = TextEditingController();
-  String _color = Brand.labelPalette.first;
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _name.text.trim();
-    if (name.isEmpty) return;
-    Navigator.pop(context, (name: name, color: _color));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('新建标签'),
-      content: SizedBox(
-        width: 320,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _name,
-              autofocus: true,
-              maxLength: 40,
-              decoration: const InputDecoration(hintText: '例如：收藏、作业、社团'),
-              onSubmitted: (_) => _submit(),
-            ),
-            const SizedBox(height: 8),
-            Text('颜色', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final hex in Brand.labelPalette)
-                  InkWell(
-                    onTap: () => setState(() => _color = hex),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Brand.labelColor(hex),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _color == hex ? Brand.ink : Colors.transparent,
-                          width: 2,
-                        ),
-                      ),
-                      child: _color == hex
-                          ? const Icon(Icons.check, size: 16, color: Colors.white)
-                          : null,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(onPressed: _submit, child: const Text('创建')),
-      ],
     );
   }
 }

@@ -6,16 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
 import '../../core/session.dart';
-import '../../theme.dart';
 import '../../widgets/common.dart';
 
-class LoginPage extends ConsumerStatefulWidget {
-  const LoginPage({super.key});
+class LoginDialog extends ConsumerStatefulWidget {
+  final VoidCallback onClose;
+  const LoginDialog({super.key, required this.onClose});
   @override
-  ConsumerState<LoginPage> createState() => _LoginPageState();
+  ConsumerState<LoginDialog> createState() => _LoginDialogState();
 }
 
-class _LoginPageState extends ConsumerState<LoginPage> {
+class _LoginDialogState extends ConsumerState<LoginDialog> {
   bool register = false;
   bool busy = false;
   bool agree = true;
@@ -34,6 +34,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   void dispose() {
     _countdown?.cancel();
+    for (final field in [email, pw, name, grade, major, code, server]) {
+      field.dispose();
+    }
     super.dispose();
   }
 
@@ -49,6 +52,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       toast(context, '验证码已发送到 ${email.text.trim()}，10 分钟内有效');
       _startCountdown((r['resend_after'] ?? 60) as int);
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => error = e.message);
       if (e.status == 429) _startCountdown(60);
     } finally {
@@ -70,6 +74,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _submit() async {
+    if (busy || (register && !agree)) return;
     setState(() {
       busy = true;
       error = null;
@@ -88,8 +93,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               'agree_privacy': agree,
             })
           : await api.login(email.text.trim(), pw.text);
+      if (!mounted) return;
       await ref.read(sessionProvider.notifier).signedIn(r);
+      if (mounted) widget.onClose();
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => error = e.message);
     } finally {
       if (mounted) setState(() => busy = false);
@@ -100,23 +108,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final cs = t.colorScheme;
-    final wide = MediaQuery.sizeOf(context).width >= 900;
     final form = ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (!wide) ...[
-          const Center(child: GleanerLogo(size: 64)),
-          const SizedBox(height: 16),
-          Center(child: Text('拾课', style: t.textTheme.headlineMedium)),
-          const SizedBox(height: 4),
-          Center(child: Text('把散落各处的课程信息拾起来', style: TextStyle(color: cs.onSurfaceVariant))),
-          const SizedBox(height: 28),
-        ],
-        Text(register ? '创建账号' : '欢迎回来', style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-        if (register) ...[
-          const SizedBox(height: 6),
-          Text('一分钟完成：注册后用校园模板添加来源即可。', style: TextStyle(color: cs.onSurfaceVariant)),
-        ],
+        Row(children: [
+          const GleanerLogo(size: 32),
+          const SizedBox(width: 12),
+          Expanded(child: Text(register ? '创建账号' : '登录', style: t.textTheme.headlineSmall)),
+          IconButton(tooltip: '关闭', onPressed: widget.onClose, icon: const Icon(Icons.close)),
+        ]),
         const SizedBox(height: 24),
         TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: '邮箱', prefixIcon: Icon(Icons.alternate_email))),
         if (register) ...[
@@ -194,56 +194,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       ]),
     );
 
-    if (!wide) {
-      return Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: form))));
-    }
-    return Scaffold(
-      body: Row(children: [
-        Expanded(
-          flex: 5,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, Colors.black, 0.35)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
-            ),
-            child: Stack(children: [
-              Positioned(right: -80, bottom: -80, child: Opacity(opacity: 0.12, child: GleanerLogo(size: 420))),
-              Padding(
-                padding: const EdgeInsets.all(56),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    const GleanerLogo(size: 48),
-                    const SizedBox(width: 14),
-                    Text('拾课 Gleaner', style: t.textTheme.titleLarge?.copyWith(color: cs.onPrimary)),
-                  ]),
-                  const Spacer(),
-                  Text('把散落的课程信息拾起来。', style: t.textTheme.displaySmall?.copyWith(color: cs.onPrimary, fontWeight: FontWeight.w800, height: 1.25)),
-                  const SizedBox(height: 20),
-                  Text('Moodle 作业、学院通知、邮件通知，寻找、整理、放进您的日程。', style: t.textTheme.titleMedium?.copyWith(color: cs.onPrimary.withValues(alpha: 0.85))),
-                  const SizedBox(height: 36),
-                  for (final (i, s) in [
-                    (Icons.event_note, 'DDL修改即时推送'),
-                    (Icons.bolt, '秒级响应，手机同步提醒'),
-                  ])
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Row(children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: Brand.wheat.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
-                          child: Icon(i, color: Brand.wheat, size: 20),
-                        ),
-                        const SizedBox(width: 14),
-                        Text(s, style: TextStyle(color: cs.onPrimary, fontSize: 15)),
-                      ]),
-                    ),
-                  const Spacer(),
-                ]),
-              ),
-            ]),
-          ),
-        ),
-        Expanded(flex: 4, child: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(40), child: form))),
-      ]),
-    );
+    final content = SingleChildScrollView(padding: const EdgeInsets.all(24), child: form);
+    return Dialog(child: content);
   }
 }

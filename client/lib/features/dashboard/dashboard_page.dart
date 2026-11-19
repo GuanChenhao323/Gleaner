@@ -9,35 +9,46 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../inbox/item_workbench.dart' show typeIcon, typeLabel;
 import 'deadline_calendar.dart';
 
-enum _KindFilter { all, assignment, event, notice }
+enum _TypeFilter { all, todo, event, notice }
 
-bool _kindMatches(Item i, _KindFilter f) => switch (f) {
-      _KindFilter.all => true,
-      _KindFilter.assignment => i.kind == 'assignment',
-      _KindFilter.event => i.kind == 'event',
-      _KindFilter.notice => i.kind == 'notice' || i.kind == 'rss' || i.kind == 'mail',
+bool _typeMatches(Item i, _TypeFilter f) => switch (f) {
+      _TypeFilter.all => true,
+      _TypeFilter.todo => i.type == 'todo' && !i.isDone,
+      _TypeFilter.event => i.type == 'event',
+      _TypeFilter.notice => i.type == 'notice',
     };
 
-String _kindFilterLabel(_KindFilter f) => switch (f) {
-      _KindFilter.all => '全部',
-      _KindFilter.assignment => '待办任务',
-      _KindFilter.event => '日程活动',
-      _KindFilter.notice => '通知',
+String _typeFilterLabel(_TypeFilter f) => switch (f) {
+      _TypeFilter.all => '全部',
+      _TypeFilter.todo => '待办任务',
+      _TypeFilter.event => '日程活动',
+      _TypeFilter.notice => '通知',
     };
 
 /// 工作台：今日要事 + 本周一眼 + 异常信息源。
 class DashboardPage extends ConsumerStatefulWidget {
-  const DashboardPage({super.key});
+  final String? initialType;
+  final int? focusItemId;
+  const DashboardPage({super.key, this.initialType, this.focusItemId});
 
   @override
   ConsumerState<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends ConsumerState<DashboardPage> {
-  _KindFilter kindFilter = _KindFilter.all;
+  late _TypeFilter typeFilter = _TypeFilter.values.firstWhere((f) => f.name == widget.initialType, orElse: () => _TypeFilter.all);
   bool showCalendar = false;
+  int focusLimit = 8;
+
+  void _selectFilter(_TypeFilter filter) {
+    setState(() {
+      typeFilter = filter;
+      focusLimit = 8;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +62,19 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     final dueWeek = assignments.where((i) => !i.isDone && i.deadline!.isAfter(now) && i.deadline!.isBefore(weekEnd)).length;
     final sources = ref.watch(sourcesProvider).asData?.value ?? const <Source>[];
     final troubled = sources.where((s) => s.status == 'failed' || s.status == 'need_login').toList();
-    final focus = _todayFocus(feed.visible, assignments).where((i) => _kindMatches(i, kindFilter)).toList();
+    final focus = _todayFocus(feed.visible, assignments, typeFilter);
+    final target = feed.items[widget.focusItemId];
+    if (target != null && typeFilter.name == widget.initialType && focus.remove(target)) {
+      focus.insert(0, target);
+    }
+    final focusCard = _FocusCard(
+      items: focus.take(focusLimit).toList(),
+      filter: typeFilter,
+      onFilter: _selectFilter,
+      onMore: typeFilter != _TypeFilter.all && focus.length > focusLimit
+          ? () => setState(() => focusLimit += 8)
+          : null,
+    );
     final wide = MediaQuery.sizeOf(context).width >= 960;
 
     return Scaffold(
@@ -108,11 +131,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                     ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Expanded(
                           flex: 2,
-                          child: _FocusCard(
-                            items: focus,
-                            filter: kindFilter,
-                            onFilter: (f) => setState(() => kindFilter = f),
-                          ),
+                          child: focusCard,
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -133,11 +152,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                         ),
                       ])
                     : Column(children: [
-                        _FocusCard(
-                          items: focus,
-                          filter: kindFilter,
-                          onFilter: (f) => setState(() => kindFilter = f),
-                        ),
+                        focusCard,
                         const SizedBox(height: 14),
                         _SideCard(
                           title: '本周',
@@ -165,16 +180,15 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   }
 }
 
-/// 今日要事：24h 截止 > 重要变更 > 紧急未读 > 今日待办，去重后最多 8 条。
-List<Item> _todayFocus(List<Item> visible, List<Item> deadlines) {
+/// 今日要事：24h 截止 > 重要变更 > 紧急未读 > 今日待办，按最终事项类型筛选后由视图分页。
+List<Item> _todayFocus(List<Item> visible, List<Item> deadlines, _TypeFilter filter) {
   final now = DateTime.now();
   final seen = <int>{};
   final out = <Item>[];
 
   void add(Iterable<Item> src) {
     for (final i in src) {
-      if (seen.add(i.id)) out.add(i);
-      if (out.length >= 8) return;
+      if (_typeMatches(i, filter) && seen.add(i.id)) out.add(i);
     }
   }
 
@@ -185,8 +199,9 @@ List<Item> _todayFocus(List<Item> visible, List<Item> deadlines) {
   }));
   add(visible.where((i) => i.importantChange && !i.isDone));
   add(visible.where((i) => !i.state.read && (i.priority == 'urgent' || i.importantChange)));
-  add(visible.where((i) => !i.isDone && (i.state.todo == 'todo' || i.state.todo == 'doing')));
+  add(visible.where((i) => !i.isDone && (i.type == 'todo' || i.state.todo == 'todo' || i.state.todo == 'doing')));
   add(deadlines.where((i) => !i.isDone && i.deadline != null && i.deadline!.isAfter(now)).take(4));
+  if (filter != _TypeFilter.all) add(visible);
   return out;
 }
 
@@ -249,9 +264,10 @@ class _AlertBanner extends StatelessWidget {
 
 class _FocusCard extends StatelessWidget {
   final List<Item> items;
-  final _KindFilter filter;
-  final ValueChanged<_KindFilter> onFilter;
-  const _FocusCard({required this.items, required this.filter, required this.onFilter});
+  final _TypeFilter filter;
+  final ValueChanged<_TypeFilter> onFilter;
+  final VoidCallback? onMore;
+  const _FocusCard({required this.items, required this.filter, required this.onFilter, this.onMore});
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +280,7 @@ class _FocusCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: Row(children: [
-              Text('今天要事', style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+              Text(filter == _TypeFilter.all ? '今天要事' : _typeFilterLabel(filter), style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
               TextButton(onPressed: () => context.go('/inbox'), child: const Text('收件箱')),
             ]),
@@ -273,9 +289,9 @@ class _FocusCard extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
             child: Row(children: [
-              for (final f in _KindFilter.values) ...[
+              for (final f in _TypeFilter.values) ...[
                 FilterChip(
-                  label: Text(_kindFilterLabel(f)),
+                  label: Text(_typeFilterLabel(f)),
                   selected: filter == f,
                   showCheckmark: false,
                   onSelected: (_) => onFilter(f),
@@ -288,12 +304,13 @@ class _FocusCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 20, 10, 28),
               child: Text(
-                filter == _KindFilter.all ? '今天没有要紧的' : '这类今天没有要紧的',
+                filter == _TypeFilter.all ? '今天没有要紧的' : '暂无${_typeFilterLabel(filter)}',
                 style: TextStyle(color: cs.onSurfaceVariant),
               ),
             )
           else
             for (final i in items) _FocusRow(i),
+          if (onMore != null) TextButton(onPressed: onMore, child: const Text('显示更多')),
         ]),
       ),
     );
@@ -312,7 +329,7 @@ class _FocusRow extends StatelessWidget {
         ? '变更'
         : (item.priority == 'urgent' || accent == Brand.dueCritical
             ? '紧急'
-            : (!item.state.read ? '未读' : (item.state.todo == 'todo' || item.state.todo == 'doing' ? '待办' : null)));
+            : (!item.state.read ? '未读' : null));
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => context.push('/item/${item.id}'),
@@ -331,7 +348,7 @@ class _FocusRow extends StatelessWidget {
             decoration: BoxDecoration(color: accent ?? cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(width: 10),
-          Icon(kindIcon(item.kind), size: 18, color: cs.onSurfaceVariant),
+          Icon(typeIcon(item.type), size: 18, color: cs.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -339,7 +356,7 @@ class _FocusRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 [
-                  kindLabel(item.kind),
+                  typeLabel(item.type),
                   if (item.course.isNotEmpty) shortCourse(item.course),
                   ?status,
                 ].join(' · '),

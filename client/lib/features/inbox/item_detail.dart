@@ -16,6 +16,7 @@ import '../../widgets/common.dart';
 import '../sources/browser_monitors.dart';
 import '../sources/reading_source.dart';
 import 'item_load_failure.dart';
+import 'label_editor.dart';
 import 'item_workbench.dart';
 import 'source_changes.dart';
 import 'web_capture_details.dart';
@@ -32,6 +33,7 @@ class ItemDetail extends ConsumerStatefulWidget {
 class _ItemDetailState extends ConsumerState<ItemDetail> {
   Object? _loadError;
   bool _detailLoading = true;
+  bool _savingType = false;
   @override
   void initState() {
     super.initState();
@@ -55,6 +57,30 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
       if (mounted) setState(() => _loadError = e);
     } finally {
       if (mounted) setState(() => _detailLoading = false);
+    }
+  }
+
+  Future<void> _changeType(Item item, String type) async {
+    if (_savingType || type == item.type) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+    setState(() => _savingType = true);
+    try {
+      await ref.read(feedProvider.notifier).editFields(item, set: {'type': type});
+      if (messenger.mounted) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('已改为${typeLabel(type)}'),
+            action: item.state.hidden || (type == 'todo' && item.isDone)
+                ? null
+                : SnackBarAction(label: '去工作台', onPressed: () => router.go('/?type=$type&item=${item.id}')),
+          ));
+      }
+    } catch (error) {
+      if (mounted) toast(context, error is ApiException ? error.message : '修改类型失败，请重试');
+    } finally {
+      if (mounted) setState(() => _savingType = false);
     }
   }
 
@@ -237,9 +263,30 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
           IconButton(
             tooltip: '标签',
             icon: const Icon(Icons.label_outline),
-            onPressed: () => _editLabels(context, ref, item),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              isScrollControlled: true,
+              builder: (_) => ItemLabelEditor(item: item),
+            ),
           ),
           IconButton(tooltip: '标为未读', icon: const Icon(Icons.mark_email_unread_outlined), onPressed: () => store.setState(item, read: false)),
+          PopupMenuButton<String>(
+            enabled: !_savingType,
+            tooltip: '更改类型，当前为${typeLabel(item.type)}',
+            onSelected: (type) => _changeType(item, type),
+            itemBuilder: (_) => [
+              for (final type in ['todo', 'event', 'notice'])
+                CheckedPopupMenuItem(value: type, checked: item.type == type, child: Text(typeLabel(type))),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(typeLabel(item.type)),
+                const Icon(Icons.arrow_drop_down, size: 18),
+              ]),
+            ),
+          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -257,66 +304,6 @@ List<Widget> _itemLabelPills(WidgetRef ref, Item item) {
       if (byId[id] != null)
         Pill(byId[id]!.name, color: Brand.labelColor(byId[id]!.color), icon: Icons.label_outline),
   ];
-}
-
-Future<void> _editLabels(BuildContext context, WidgetRef ref, Item item) async {
-  final labels = await ref.read(labelsProvider.future);
-  if (!context.mounted) return;
-  if (labels.isEmpty) {
-    toast(context, '还没有标签，请先在收件箱新建');
-    return;
-  }
-  final selected = item.labelIds.toSet();
-  final ok = await showModalBottomSheet<bool>(
-    context: context,
-    showDragHandle: true,
-    builder: (ctx) {
-      return StatefulBuilder(builder: (ctx, setLocal) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('给事项打标签', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              for (final label in labels)
-                CheckboxListTile(
-                  value: selected.contains(label.id),
-                  title: Text(label.name),
-                  secondary: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Brand.labelColor(label.color),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  onChanged: (v) => setLocal(() {
-                    if (v == true) {
-                      selected.add(label.id);
-                    } else {
-                      selected.remove(label.id);
-                    }
-                  }),
-                ),
-              const SizedBox(height: 8),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('保存'),
-              ),
-            ]),
-          ),
-        );
-      });
-    },
-  );
-  if (ok != true || !context.mounted) return;
-  try {
-    await ref.read(feedProvider.notifier).setItemLabels(item, selected.toList()..sort());
-    if (context.mounted) toast(context, '标签已更新');
-  } on ApiException catch (e) {
-    if (context.mounted) toast(context, e.message);
-  }
 }
 
 class _DeadlineCard extends StatelessWidget {

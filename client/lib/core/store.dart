@@ -83,6 +83,7 @@ class FeedStore extends Notifier<FeedState> {
   int _backoff = 1;
   int _pendingAck = 0;
   bool _disposed = false;
+  int _sessionGeneration = 0;
   final _uuid = const Uuid();
   final Set<int> _erasedIds = {};
   Future<void>? _erasureSync;
@@ -92,8 +93,16 @@ class FeedStore extends Notifier<FeedState> {
 
   @override
   FeedState build() {
+    _disposed = false;
+    final generation = ++_sessionGeneration;
+    _erasedIds.clear();
+    _erasureSync = null;
+    _backoff = 1;
+    _pendingAck = 0;
     ref.onDispose(() {
       _disposed = true;
+      _ackTimer?.cancel();
+      _ackTimer = null;
       _reconnect?.cancel();
       _syncDebounce?.cancel();
       _erasureTimer?.cancel();
@@ -107,21 +116,26 @@ class FeedStore extends Notifier<FeedState> {
           debugPrint('erasure reconciliation failed: $e');
         });
       });
-      Future.microtask(_bootstrap);
+      Future.microtask(() => _bootstrap(generation));
     }
     return const FeedState();
   }
 
-  Future<void> _bootstrap() async {
+  bool _current(int generation) => !_disposed && generation == _sessionGeneration;
+
+  Future<void> _bootstrap(int generation) async {
+    if (!_current(generation)) return;
     // 1) 本地缓存：离线时照常浏览
     try {
       final cached = await _db.loadItems();
       final cur = int.tryParse(await _db.getKv('cursor') ?? '') ?? 0;
       final pend = (await _db.pending()).length;
+      if (!_current(generation)) return;
       state = state.copyWith(items: {for (final j in cached) j['id'] as int: Item.fromJson(j)}, cursor: cur, pending: pend, loading: cached.isEmpty);
     } catch (e) {
       debugPrint('cache load failed: $e');
     }
+    if (!_current(generation)) return;
     // 2) 网络：首次全量拉取；之后由 WebSocket hello 带 last_seq 补发
     try {
       if (state.cursor == 0 || state.items.isEmpty) {
@@ -131,7 +145,7 @@ class FeedStore extends Notifier<FeedState> {
       }
     } finally {
       // 本地缓存不可用（例如浏览器禁止 Worker / IndexedDB）时也要建立实时连接
-      _connect();
+      if (_current(generation)) _connect();
     }
   }
 
@@ -169,8 +183,10 @@ class FeedStore extends Notifier<FeedState> {
   }
 
   Future<void> refreshAll() async {
+    final generation = _sessionGeneration;
     try {
       await reconcileErasure();
+      if (!_current(generation)) return;
       final all = <int, Item>{};
       String? cursor;
       int syncCursor = state.cursor;
@@ -178,6 +194,7 @@ class FeedStore extends Notifier<FeedState> {
         cursor = null;
         for (var page = 0; page < 6; page++) {
           final f = await _api.feed(cursor: cursor, limit: 100, filter: filter);
+          if (!_current(generation)) return;
           for (final j in (f['items'] as List)) {
             final it = Item.fromJson(Map<String, dynamic>.from(j as Map));
             all[it.id] = it;
@@ -195,8 +212,12 @@ class FeedStore extends Notifier<FeedState> {
         await _db.setKv('cursor', '$syncCursor');
       });
     } on ApiException catch (e) {
+      if (!_current(generation)) return;
       state = state.copyWith(loading: false, error: e.message);
-      if (e.status == 401) await ref.read(sessionProvider.notifier).signOut();
+      if (e.status == 401) {
+        await clearLocal();
+        if (_current(generation)) await ref.read(sessionProvider.notifier).signOut();
+      }
     }
   }
 
@@ -333,10 +354,12 @@ class FeedStore extends Notifier<FeedState> {
 
   /// GET /api/sync?cursor=：取回 cursor 之后的全部投递。
   Future<void> syncNow() async {
+    final generation = _sessionGeneration;
     try {
       var more = true;
       while (more) {
         final r = await _api.sync(state.cursor);
+        if (!_current(generation)) return;
         if (r['reset'] == true) {
           await refreshAll();
           return;

@@ -173,54 +173,15 @@ class Avatar extends StatelessWidget {
   }
 }
 
-/// 品牌标志：一束麦穗。
+/// 应用品牌标志。
 class GleanerLogo extends StatelessWidget {
   final double size;
   const GleanerLogo({super.key, this.size = 40});
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.3),
-        gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, Colors.black, 0.25)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
-      ),
-      child: CustomPaint(painter: _WheatPainter(Brand.wheat)),
-    );
-  }
-}
-
-class _WheatPainter extends CustomPainter {
-  final Color color;
-  _WheatPainter(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final stem = Paint()
-      ..color = color
-      ..strokeWidth = w * 0.06
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    final grain = Paint()..color = color;
-    final cx = w * 0.5;
-    canvas.drawLine(Offset(cx, w * 0.82), Offset(cx, w * 0.22), stem);
-    for (var i = 0; i < 4; i++) {
-      final y = w * (0.28 + i * 0.13);
-      for (final dir in [-1.0, 1.0]) {
-        canvas.save();
-        canvas.translate(cx + dir * w * 0.09, y);
-        canvas.rotate(dir * 0.6);
-        canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: w * 0.12, height: w * 0.22), grain);
-        canvas.restore();
-      }
-    }
-    canvas.drawOval(Rect.fromCenter(center: Offset(cx, w * 0.17), width: w * 0.1, height: w * 0.18), grain);
-  }
-
-  @override
-  bool shouldRepaint(covariant _WheatPainter old) => old.color != color;
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.2),
+        child: Image.asset('assets/logo.png', width: size, height: size, semanticLabel: '拾课'),
+      );
 }
 
 void toast(BuildContext context, String msg, {bool error = false}) {
