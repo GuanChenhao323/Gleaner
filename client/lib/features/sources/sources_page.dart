@@ -8,6 +8,7 @@ import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
 import 'package:go_router/go_router.dart';
@@ -38,32 +39,33 @@ class SourcesPage extends ConsumerWidget {
     WidgetRef ref,
     ReadingSource source,
   ) async {
+    final l10n = AppLocalizations.of(context);
     bool trashItems = false;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, update) => AlertDialog(
-          title: const Text('删除信息源？'),
+          title: Text(l10n.deleteSourceTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('停止此来源的手动和定期检查。默认保留已保存资料、备注及历史版本。可从“已删除来源”手动恢复；旧任务不会自动恢复。'),
+              Text(l10n.deleteSourceBody),
               CheckboxListTile(
                 value: trashItems,
                 onChanged: (v) => update(() => trashItems = v ?? false),
-                title: const Text('同时将关联资料移入个人回收站'),
-                subtitle: const Text('也会在引用这些资料的其他来源中隐藏；可从收件箱回收站恢复。'),
+                title: Text(l10n.deleteSourceAlsoTrash),
+                subtitle: Text(l10n.deleteSourceAlsoTrashHint),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(c, false),
-              child: const Text('取消'),
+              child: Text(l10n.actionCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(c, true),
-              child: const Text('删除来源'),
+              child: Text(l10n.deleteSourceAction),
             ),
           ],
         ),
@@ -78,7 +80,7 @@ class SourcesPage extends ConsumerWidget {
       ref.invalidate(sourcesProvider);
       ref.invalidate(legacyCapturesProvider);
       ref.invalidate(deletedReadingSourcesProvider);
-    }, trashItems ? '来源已删除，关联资料已移入回收站。' : '来源已删除，资料与历史保留。');
+    }, trashItems ? l10n.sourceDeletedTrash : l10n.sourceDeletedKeep);
   }
 
   Future<void> _purge(
@@ -99,7 +101,7 @@ class SourcesPage extends ConsumerWidget {
       );
       if (confirmed != true || !context.mounted) return;
       if (!identical(repo, ref.read(readingRepositoryProvider))) {
-        throw StateError("工作台账号已变化，请重新确认。");
+        throw StateError(AppLocalizations.of(context).accountChangedConfirm);
       }
       final result = await repo.purge(plan);
       if (!identical(repo, ref.read(readingRepositoryProvider))) return;
@@ -119,11 +121,12 @@ class SourcesPage extends ConsumerWidget {
       ref.invalidate(legacyCapturesProvider);
       await ref.read(readingSourcesProvider.notifier).refresh();
       if (context.mounted) {
+        final loc = AppLocalizations.of(context);
         toast(
           context,
           cleanupError == null
-              ? '来源、关联资料与历史已彻底删除。请重新提取后保存。'
-              : '服务器已彻底删除；本机缓存清理待重试：$cleanupError',
+              ? loc.sourcePurgedOk
+              : loc.sourcePurgedPartial(cleanupError),
           error: cleanupError != null,
         );
       }
@@ -132,6 +135,7 @@ class SourcesPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final deleted = ref.watch(deletedReadingSourcesProvider);
     final data = ref.watch(readingSourcesProvider),
         legacy = ref.watch(sourcesProvider),
@@ -140,7 +144,7 @@ class SourcesPage extends ConsumerWidget {
       ref.read(readingSourcesProvider.notifier).refresh().catchError((
         Object e,
       ) {
-        if (context.mounted) toast(context, '状态刷新失败：$e', error: true);
+        if (context.mounted) toast(context, l10n.statusRefreshFailed('$e'), error: true);
       });
       ref.invalidate(sourcesProvider);
       ref.invalidate(legacyCapturesProvider);
@@ -151,7 +155,7 @@ class SourcesPage extends ConsumerWidget {
       appBar: AppBar(
         actions: [
           IconButton(
-            tooltip: '刷新列表状态（不访问来源网页）',
+            tooltip: l10n.refreshSourceListTooltip,
             icon: const Icon(Icons.refresh),
             onPressed: refresh,
           ),
@@ -170,18 +174,20 @@ class SourcesPage extends ConsumerWidget {
                 ),
               ),
               icon: const Icon(Icons.add),
-              label: const Text('从网页采集'),
+              label: Text(l10n.captureFromWeb),
             ),
           ),
         ],
       ),
       body: data.when(
+        skipLoadingOnReload: true,
+        skipLoadingOnRefresh: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => EmptyState(
           icon: Icons.cloud_off,
-          title: '无法读取信息源',
+          title: l10n.cannotReadSources,
           message: '$e',
-          action: OutlinedButton(onPressed: refresh, child: const Text('重试')),
+          action: OutlinedButton(onPressed: refresh, child: Text(l10n.retry)),
         ),
         data: (rows) {
           final linked = rows
@@ -219,7 +225,7 @@ class SourcesPage extends ConsumerWidget {
                   onCheck: () => _act(
                     context,
                     () => controller.check(s, 'check'),
-                    '检查已排队；结果确认后更新状态。',
+                    l10n.checkQueued,
                   ),
                   onSettings: () => context.push('/sources/${s.id}/settings'),
                   onDetails: () => context.push('/sources/${s.id}${s.result=='changed'?'?tab=changes':''}'),
@@ -228,7 +234,7 @@ class SourcesPage extends ConsumerWidget {
                     context,
                     () =>
                         controller.configure(s, s.settings(paused: !s.paused)),
-                    s.paused ? '定期检查已恢复。' : '定期检查已暂停，仍可手动检查。',
+                    s.paused ? l10n.periodicResumed : l10n.periodicPaused,
                   ),
                   onOpen: () => launchUrl(Uri.parse(s.url)),
                   onDelete: () => _remove(context, ref, s),
@@ -239,8 +245,8 @@ class SourcesPage extends ConsumerWidget {
               if (rows.isNotEmpty) ...[
                 Text(
                   rows.any((s) => s.deviceOnline)
-                      ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
-                      : '尚未检测到执行设备近期连接 · 保留上次成功结果',
+                      ? l10n.chromeConnectedHint
+                      : l10n.chromeDisconnectedHint,
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.5),
                 ),
                 const SizedBox(height: 20),
@@ -257,18 +263,18 @@ class SourcesPage extends ConsumerWidget {
                       spacing: 20,
                       runSpacing: 18,
                       children: [
-                        metric('${groups.length}', '已保存页面'),
+                        metric('${groups.length}', l10n.savedPages),
                         metric(
                           '${rows.where((s) => s.periodic).length}',
-                          '定期规则',
+                          l10n.periodicRules,
                         ),
                         metric(
                           '${rows.where((s) => !['not_executed', 'verified', 'unchanged', 'changed', 'starting', 'user_busy'].contains(s.result) || s.capability == 'account_unknown').length}',
-                          '需要处理',
+                          l10n.needsAttention,
                         ),
                         metric(
                           '${rows.where((s) => s.result == 'changed').length}',
-                          '本次发现变化',
+                          l10n.changesFound,
                         ),
                       ],
                     ),
@@ -276,13 +282,13 @@ class SourcesPage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 32),
-              Text('我的信息源', style: Theme.of(context).textTheme.titleMedium),
+              Text(l10n.mySources, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 16),
               if (rows.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 36),
                   child: Text(
-                    '还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。',
+                    l10n.noReadingSources,
                     style: TextStyle(color: cs.onSurfaceVariant, height: 1.55),
                   ),
                 ),
@@ -296,7 +302,7 @@ class SourcesPage extends ConsumerWidget {
                     onCheck: () => _act(
                       context,
                       () => controller.check(group.first, 'check'),
-                      '整页检查已排队；同页规则共享刷新。',
+                      l10n.pageCheckQueued,
                     ),
                     onPause: () => _act(
                       context,
@@ -306,7 +312,7 @@ class SourcesPage extends ConsumerWidget {
                           paused: !group.any((s) => s.paused),
                         ),
                       ),
-                      '整页监测计划已更新。',
+                      l10n.pagePlanUpdated,
                     ),
                   )
                 else
@@ -316,18 +322,18 @@ class SourcesPage extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(0, 20, 0, 28),
                 child: Text(
-                  '专用监测标签页需要保持打开；可以关闭工作台页面。请保持Chrome、扩展和本地服务运行，检查可能延后。',
+                  l10n.monitorTabHint,
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.55),
                 ),
               ),
               deleted.when(
                 loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('已删除来源暂不可用：$e'),
+                error: (e, _) => Text(l10n.deletedSourcesUnavailable('$e')),
                 data: (values) => ExpansionTile(
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 8),
-                  title: Text('已删除来源（${values.length}）'),
-                  subtitle: const Text('恢复后保持暂停；彻底删除会永久清除关联资料与历史。'),
+                  title: Text(l10n.deletedSourcesTitle(values.length)),
+                  subtitle: Text(l10n.deletedSourcesSubtitle),
                   children: [
                     for (final value in values)
                       ListTile(
@@ -335,20 +341,20 @@ class SourcesPage extends ConsumerWidget {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('检查已停止 · 资料与历史按原选择保留'),
+                            Text(l10n.checkStoppedKept),
                             Wrap(
                               spacing: 12,
                               children: [
                                 TextButton.icon(
                                   icon: const Icon(Icons.restore),
-                                  label: const Text('恢复来源'),
+                                  label: Text(l10n.restoreSourceAction),
                                   onPressed: () => _act(
                                     context,
                                     () => controller.restore(
                                       value['id'] as int,
                                       value['revision'] as int,
                                     ),
-                                    '来源已恢复并暂停；请重新测试重读。',
+                                    l10n.sourceRestoredPaused,
                                   ),
                                 ),
                                 TextButton.icon(
@@ -356,7 +362,7 @@ class SourcesPage extends ConsumerWidget {
                                     foregroundColor: cs.error,
                                   ),
                                   icon: const Icon(Icons.delete_forever),
-                                  label: const Text('彻底删除'),
+                                  label: Text(l10n.purgeForever),
                                   onPressed: () => _purge(context, ref, value),
                                 ),
                               ],
@@ -374,23 +380,23 @@ class SourcesPage extends ConsumerWidget {
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 8),
-                  title: const Text('旧资料与演示订阅'),
-                  subtitle: const Text('保留已有数据；缺少原条件时请打开原网页重新采集。'),
+                  title: Text(l10n.legacyDemoTitle),
+                  subtitle: Text(l10n.legacyDemoSubtitle),
                   children: [
-                    if (captures.hasError) Text('旧资料读取失败：${captures.error}'),
+                    if (captures.hasError) Text(l10n.legacyCapturesFailed('${captures.error}')),
                     for (final r in oldCaptures)
                       Card(
                         child: ListTile(
                           leading: const Icon(Icons.inventory_2_outlined),
                           title: Text('${r['title']}'),
-                          subtitle: Text('${r['url']}\n旧采集资料 · 未自动迁入条件监测'),
+                          subtitle: Text('${r['url']}\n${l10n.legacyCaptureSubtitle}'),
                           onTap: () => context.push('/item/${r['item_id']}'),
                         ),
                       ),
                     for (final s in oldSources) _SourceCard(s),
                     TextButton(
                       onPressed: () => showAddSource(context, ref),
-                      child: const Text('管理旧模板／演示来源'),
+                      child: Text(l10n.manageLegacySources),
                     ),
                   ],
                 ),
@@ -438,9 +444,9 @@ class _SourceCard extends ConsumerWidget {
                 Row(children: [
                   Flexible(child: Text(s.name, style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
                   const SizedBox(width: 8),
-                  if (s.shared) Pill('公共', color: cs.outline),
-                  if (s.viaAgent) Pill('本地代理', color: cs.tertiary, icon: Icons.computer),
-                  if (s.muted) Pill('已静音', color: cs.outline, icon: Icons.notifications_off),
+                  if (s.shared) Pill('Shared', color: cs.outline),
+                  if (s.viaAgent) Pill('Local agent', color: cs.tertiary, icon: Icons.computer),
+                  if (s.muted) Pill('Muted', color: cs.outline, icon: Icons.notifications_off),
                 ]),
                 const SizedBox(height: 2),
                 Text(s.endpoint, maxLines: 1, overflow: TextOverflow.ellipsis, style: t.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -451,7 +457,7 @@ class _SourceCard extends ConsumerWidget {
                 try {
                   if (v == 'refresh') {
                     final r = await api.refreshSource(s.id);
-                    if (context.mounted) toast(context, r['checking'] == false ? (r['message'] ?? '已排队，稍后检查').toString() : '已加入检查队列');
+                    if (context.mounted) toast(context, r['checking'] == false ? (r['message'] ?? 'Queued; will check shortly').toString() : 'Added to check queue');
                   } else if (v == 'login') {
                     if (context.mounted) await showLogin(context, ref, s);
                   } else if (v == 'mute') {
@@ -462,9 +468,9 @@ class _SourceCard extends ConsumerWidget {
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (c) => AlertDialog(
-                        title: Text('取消订阅「${s.name}」？'),
-                        content: Text(s.shared ? '公共来源仍会为其他同学保留。' : '该来源及其登录会话会被删除。'),
-                        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('删除'))],
+                        title: Text('Unsubscribe “${s.name}”?'),
+                        content: Text(s.shared ? 'Shared sources remain for other students.' : 'This source and its login session will be deleted.'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete'))],
                       ),
                     );
                     if (ok == true) await api.removeSource(s.id);
@@ -475,21 +481,21 @@ class _SourceCard extends ConsumerWidget {
                 ref.invalidate(sourcesProvider);
               },
               itemBuilder: (_) => [
-                const PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.sync), title: Text('立即检查'))),
-                if (s.type == 'moodle' || s.isMail) PopupMenuItem(value: 'login', child: ListTile(leading: const Icon(Icons.login), title: Text(s.hasLogin ? '重新登录' : '登录'))),
-                PopupMenuItem(value: 'mute', child: ListTile(leading: Icon(s.muted ? Icons.notifications : Icons.notifications_off_outlined), title: Text(s.muted ? '取消静音' : '静音'))),
-                const PopupMenuItem(value: 'weight', child: ListTile(leading: Icon(Icons.tune), title: Text('调整重要程度'))),
-                const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline), title: Text('取消订阅'))),
+                const PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.sync), title: Text('Check now'))),
+                if (s.type == 'moodle' || s.isMail) PopupMenuItem(value: 'login', child: ListTile(leading: const Icon(Icons.login), title: Text(s.hasLogin ? 'Sign in again' : 'Sign in'))),
+                PopupMenuItem(value: 'mute', child: ListTile(leading: Icon(s.muted ? Icons.notifications : Icons.notifications_off_outlined), title: Text(s.muted ? 'Unmute' : 'Mute'))),
+                const PopupMenuItem(value: 'weight', child: ListTile(leading: Icon(Icons.tune), title: Text('Adjust importance'))),
+                const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline), title: Text('Unsubscribe'))),
               ],
             ),
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
             SourceStatusPill(s),
-            _meta(context, Icons.check_circle_outline, '最后成功：${relative(tsToDate(s.lastSuccessAt))}'),
-            _meta(context, Icons.update, '最后检查：${relative(tsToDate(s.lastCheckedAt))}'),
-            _meta(context, Icons.inventory_2_outlined, '${s.itemCount} 条事项'),
-            if (s.savedRatio != null) _meta(context, Icons.savings_outlined, '304 命中 ${(s.savedRatio! * 100).round()}%'),
+            _meta(context, Icons.check_circle_outline, 'Last success: ${relative(tsToDate(s.lastSuccessAt), context)}'),
+            _meta(context, Icons.update, 'Last check: ${relative(tsToDate(s.lastCheckedAt), context)}'),
+            _meta(context, Icons.inventory_2_outlined, '${s.itemCount} items'),
+            if (s.savedRatio != null) _meta(context, Icons.savings_outlined, '304 hits ${(s.savedRatio! * 100).round()}%'),
           ]),
           if (s.needsLogin) ...[
             const SizedBox(height: 12),
@@ -499,13 +505,13 @@ class _SourceCard extends ConsumerWidget {
               child: Row(children: [
                 Icon(Icons.lock_clock, color: cs.onTertiaryContainer),
                 const SizedBox(width: 10),
-                Expanded(child: Text(s.hasLogin ? '登录会话已失效，暂停检查以免反复请求。' : '登录一次即可开始检查；平台只保存会话，不保存统一认证密码。', style: TextStyle(color: cs.onTertiaryContainer))),
-                FilledButton.tonal(onPressed: () => showLogin(context, ref, s), child: Text(s.hasLogin ? '重新登录' : '登录')),
+                Expanded(child: Text(s.hasLogin ? 'Session expired; checks paused to avoid repeated requests.' : 'Sign in once to start checks; only the session is stored, not the SSO password.', style: TextStyle(color: cs.onTertiaryContainer))),
+                FilledButton.tonal(onPressed: () => showLogin(context, ref, s), child: Text(s.hasLogin ? 'Sign in again' : 'Sign in')),
               ]),
             ),
           ] else if (s.status == 'failed' && (s.lastError ?? '').isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text('最近错误：${s.lastError}', style: TextStyle(color: cs.error, fontSize: 12)),
+            Text('Latest error: ${s.lastError}', style: TextStyle(color: cs.error, fontSize: 12)),
           ],
         ]),
       ),
@@ -527,12 +533,12 @@ class _SourceCard extends ConsumerWidget {
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, set) => AlertDialog(
-          title: const Text('重要程度'),
+          title: const Text('Importance'),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('权重越高，这个来源的事项越容易被判为紧急并推送到手机。'),
+            const Text('Higher weight makes items from this source more likely to be urgent and pushed.'),
             Slider(value: v, divisions: 10, label: v.toStringAsFixed(1), onChanged: (x) => set(() => v = x)),
           ]),
-          actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('保存'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save'))],
         ),
       ),
     );
@@ -546,7 +552,7 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
   final smtpHost = TextEditingController();
   final smtpPort = TextEditingController(text: '587');
   final key = TextEditingController();
-  // Moodle 默认用安全密钥：学校多为统一认证（CAS / SSO），账号密码换不到 token
+  // Moodle 默认用Security key：学校多为统一认证（CAS / SSO），Username & password换不到 token
   final isMoodle = s.type == 'moodle';
   var useKey = isMoodle;
   var busy = false;
@@ -555,15 +561,15 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
     context: context,
     builder: (c) => StatefulBuilder(
       builder: (c, set) => AlertDialog(
-        title: Text('登录「${s.name}」'),
+        title: Text('Sign in to “${s.name}」'),
         content: SizedBox(
           width: 380,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (isMoodle) ...[
               SegmentedButton<bool>(
                 segments: const [
-                  ButtonSegment(value: true, label: Text('粘贴安全密钥'), icon: Icon(Icons.key_outlined)),
-                  ButtonSegment(value: false, label: Text('账号密码'), icon: Icon(Icons.password)),
+                  ButtonSegment(value: true, label: Text('Paste security key'), icon: Icon(Icons.key_outlined)),
+                  ButtonSegment(value: false, label: Text('Username & password'), icon: Icon(Icons.password)),
                 ],
                 selected: {useKey},
                 onSelectionChanged: busy
@@ -577,13 +583,13 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
             ],
             Text(
               useKey
-                  ? '学校使用统一认证时用这种方式，拾课不会接触你的统一认证密码：\n'
-                      '1. 在浏览器登录 Moodle，打开“偏好设置 → 安全密钥”；\n'
-                      '2. 复制“Moodle mobile web service”那一行的密钥，粘贴到下面。\n'
-                      '密钥以 AES-GCM 加密保存；在 Moodle 里重置密钥即可随时撤销。'
+                  ? 'Use this when the school uses SSO—拾课 never sees your SSO password:\n'
+                      '1. Sign in to Moodle in the browser, open Preferences → Security keys;\n'
+                      '2. Copy the Moodle mobile web service key and paste it below.\n'
+                      'The key is stored with AES-GCM; reset it in Moodle to revoke anytime.'
                   : s.isMail
-                      ? '使用邮箱的“应用专用密码”。口令会以 AES-GCM 加密保存，用于 IMAP/SMTP 连接。'
-                      : '账号密码只用于这一次登录，平台只加密保存登录后得到的会话，不保存密码。',
+                      ? 'Use an email app password. It is stored with AES-GCM for IMAP/SMTP.'
+                      : 'Username/password are used only for this login; only the resulting session is encrypted and stored.',
               style: TextStyle(color: Theme.of(c).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
@@ -591,24 +597,24 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
               OutlinedButton.icon(
                 onPressed: () => launchUrl(Uri.parse(s.endpoint).resolve('/user/managetoken.php')),
                 icon: const Icon(Icons.open_in_new),
-                label: const Text('打开 Moodle 安全密钥页面'),
+                label: const Text('Open Moodle security-key page'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: key,
                 autocorrect: false,
                 enableSuggestions: false,
-                decoration: const InputDecoration(labelText: '安全密钥', hintText: '32 位字母数字', prefixIcon: Icon(Icons.key_outlined)),
+                decoration: const InputDecoration(labelText: 'Security key', hintText: '32-character alphanumeric', prefixIcon: Icon(Icons.key_outlined)),
               ),
             ] else ...[
-              TextField(controller: user, decoration: InputDecoration(labelText: s.isMail ? '邮箱地址' : '学号 / 用户名', prefixIcon: const Icon(Icons.person_outline))),
+              TextField(controller: user, decoration: InputDecoration(labelText: s.isMail ? 'Email address' : 'Student ID / username', prefixIcon: const Icon(Icons.person_outline))),
               const SizedBox(height: 12),
               TextField(
                 controller: pw,
                 obscureText: true,
                 decoration: InputDecoration(
-                  labelText: s.isMail ? '应用专用密码（不是邮箱登录密码）' : '密码',
-                  helperText: s.isMail ? '在邮箱网页版的“设置 → 账户安全”中生成' : null,
+                  labelText: s.isMail ? 'App password (not the mailbox login password)' : 'Password',
+                  helperText: s.isMail ? 'Create it under Settings → Account security on the webmail site' : null,
                   prefixIcon: const Icon(Icons.lock_outline),
                 ),
               ),
@@ -616,16 +622,16 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
             if (s.isMail) ...[
               const SizedBox(height: 12),
               Row(children: [
-                Expanded(flex: 3, child: TextField(controller: smtpHost, decoration: const InputDecoration(labelText: 'SMTP 服务器（发信用，可选）'))),
+                Expanded(flex: 3, child: TextField(controller: smtpHost, decoration: const InputDecoration(labelText: 'SMTP server (for sending, optional)'))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: smtpPort, decoration: const InputDecoration(labelText: '端口'))),
+                Expanded(child: TextField(controller: smtpPort, decoration: const InputDecoration(labelText: 'Port'))),
               ]),
             ],
             if (err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(err!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
           ]),
         ),
         actions: [
-          TextButton(onPressed: busy ? null : () => Navigator.pop(c), child: const Text('取消')),
+          TextButton(onPressed: busy ? null : () => Navigator.pop(c), child: const Text('Cancel')),
           FilledButton(
             onPressed: busy
                 ? null
@@ -647,17 +653,17 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
                       if (r['ok'] == true) {
                         ref.invalidate(sourcesProvider);
                         if (c.mounted) Navigator.pop(c);
-                        if (context.mounted) toast(context, '登录成功，正在首次检查…');
+                        if (context.mounted) toast(context, 'Signed in; running first check…');
                         return;
                       }
-                      set(() => err = (r['error'] ?? '登录失败').toString());
+                      set(() => err = (r['error'] ?? 'Sign-in failed').toString());
                     } on ApiException catch (e) {
                       set(() => err = e.message);
                     } finally {
                       set(() => busy = false);
                     }
                   },
-            child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(useKey ? '保存密钥' : '登录'),
+            child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(useKey ? 'Save key' : 'Sign in'),
           ),
         ],
       ),
@@ -701,9 +707,9 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
     final t = Theme.of(context);
     final cs = t.colorScheme;
     return ListView(controller: widget.scroll, padding: const EdgeInsets.fromLTRB(20, 0, 20, 32), children: [
-      Text('添加来源', style: t.textTheme.titleLarge),
+      Text('Add source', style: t.textTheme.titleLarge),
       const SizedBox(height: 4),
-      Text('校园模板已经配好了网页规则，点一下即可。', style: TextStyle(color: cs.onSurfaceVariant)),
+      Text('Campus templates already include page rules—tap to add.', style: TextStyle(color: cs.onSurfaceVariant)),
       const SizedBox(height: 16),
       tpl.when(
         loading: () => const LinearProgressIndicator(),
@@ -724,35 +730,35 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
         ),
       ),
       const SizedBox(height: 24),
-      Text('自定义网址', style: t.textTheme.titleMedium),
+      Text('Custom URL', style: t.textTheme.titleMedium),
       const SizedBox(height: 4),
-      Text('任意通知列表页或 RSS。可以用 CSS 选择器限定“关注区域”，只监测页面的一部分。', style: TextStyle(color: cs.onSurfaceVariant)),
+      Text('Any notice list page or RSS. Optionally limit the watch region with a CSS selector.', style: TextStyle(color: cs.onSurfaceVariant)),
       const SizedBox(height: 12),
       SegmentedButton<String>(
-        segments: const [ButtonSegment(value: 'web', label: Text('网页'), icon: Icon(Icons.public)), ButtonSegment(value: 'rss', label: Text('RSS'), icon: Icon(Icons.rss_feed))],
+        segments: const [ButtonSegment(value: 'web', label: Text('Web'), icon: Icon(Icons.public)), ButtonSegment(value: 'rss', label: Text('RSS'), icon: Icon(Icons.rss_feed))],
         selected: {type},
         onSelectionChanged: (v) => setState(() => type = v.first),
       ),
       const SizedBox(height: 12),
-      TextField(controller: url, decoration: const InputDecoration(labelText: '网址', hintText: 'https://cs.example.edu/news/', prefixIcon: Icon(Icons.link))),
+      TextField(controller: url, decoration: const InputDecoration(labelText: 'URL', hintText: 'https://cs.example.edu/news/', prefixIcon: Icon(Icons.link))),
       const SizedBox(height: 10),
-      TextField(controller: name, decoration: const InputDecoration(labelText: '名称（可选）', prefixIcon: Icon(Icons.label_outline))),
+      TextField(controller: name, decoration: const InputDecoration(labelText: 'Name (optional)', prefixIcon: Icon(Icons.label_outline))),
       if (type == 'web') ...[
         const SizedBox(height: 10),
-        TextField(controller: region, decoration: const InputDecoration(labelText: '关注区域（CSS 选择器，可选）', hintText: '#main .news-list', prefixIcon: Icon(Icons.crop_free))),
+        TextField(controller: region, decoration: const InputDecoration(labelText: 'Watch region (CSS selector, optional)', hintText: '#main .news-list', prefixIcon: Icon(Icons.crop_free))),
       ],
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         value: viaAgent,
         onChanged: (v) => setState(() => viaAgent = v),
-        title: const Text('只能在校园网内访问'),
-        subtitle: const Text('由你电脑上的本地采集代理采集后上传'),
+        title: const Text('Campus network only'),
+        subtitle: const Text('Collected by the local agent on your computer, then uploaded'),
       ),
       const SizedBox(height: 8),
       Row(children: [
-        OutlinedButton.icon(onPressed: busy ? null : _preview, icon: const Icon(Icons.preview_outlined), label: const Text('预览')),
+        OutlinedButton.icon(onPressed: busy ? null : _preview, icon: const Icon(Icons.preview_outlined), label: const Text('Preview')),
         const SizedBox(width: 12),
-        FilledButton.icon(onPressed: busy ? null : _addCustom, icon: const Icon(Icons.add), label: const Text('添加')),
+        FilledButton.icon(onPressed: busy ? null : _addCustom, icon: const Icon(Icons.add), label: const Text('Add')),
         if (busy) const Padding(padding: EdgeInsets.only(left: 16), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
       ]),
       if (preview != null) ...[
@@ -762,7 +768,7 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
             padding: const EdgeInsets.all(14),
             child: preview!['ok'] == true
                 ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('识别到 ${preview!['count']} 条，前几条：', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text('Found ${preview!['count']} items; first few:', style: const TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     for (final it in (preview!['items'] as List).take(5))
                       Padding(
@@ -771,11 +777,11 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
                           const Icon(Icons.subdirectory_arrow_right, size: 16),
                           const SizedBox(width: 6),
                           Expanded(child: Text((it as Map)['title'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          if (it['deadline_at'] != null) Pill('有截止时间', color: cs.tertiary),
+                          if (it['deadline_at'] != null) Pill('Has deadline', color: cs.tertiary),
                         ]),
                       ),
                   ])
-                : Text('预览失败：${preview!['error']}', style: TextStyle(color: cs.error)),
+                : Text('Preview failed: ${preview!['error']}', style: TextStyle(color: cs.error)),
           ),
         ),
       ],
@@ -810,7 +816,7 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
       await ref.read(apiProvider).addSource(_customBody());
       if (mounted) {
         Navigator.pop(context);
-        toast(context, '已添加，稍后会完成首次检查');
+        toast(context, 'Added; first check will run shortly');
       }
     } on ApiException catch (e) {
       if (mounted) toast(context, e.message, error: true);
@@ -831,7 +837,7 @@ class _AddSourceSheetState extends ConsumerState<_AddSourceSheet> {
         final s = list.firstWhere((s) => s.id == (r['source'] as Map)['id']);
         if (mounted) await showLogin(context, ref, s);
       } else {
-        toast(context, '已添加「${x.name}」');
+        toast(context, 'Added “${x.name}」');
         ref.read(feedProvider.notifier).refreshAll();
       }
     } on ApiException catch (e) {

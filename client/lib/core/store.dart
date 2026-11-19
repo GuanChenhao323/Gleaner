@@ -157,7 +157,7 @@ class FeedStore extends Notifier<FeedState> {
     final context = await api.captureContext(), generation = context['generation'];
     if (_disposed || !identical(api, _api)) return;
     if (generation is! int || context['item_ids'] is! List) {
-      throw const FormatException('采集代次响应异常');
+      throw const FormatException('Capture generation response invalid');
     }
     final key = 'capture_generation:${session.server}|${session.me?.id ?? 'current'}';
     if (await _db.getKv(key) == '$generation') return;
@@ -169,7 +169,7 @@ class FeedStore extends Notifier<FeedState> {
       await _db.retainItems(keep);
       await _db.setKv(key, '$generation');
     });
-    if (!cleared) throw StateError('本地缓存清理失败，请重新连接后重试。');
+    if (!cleared) throw StateError('Local cache cleanup failed. Reconnect and retry.');
   }
 
   Future<void> forgetPermanently(List<int> ids, int generation) async {
@@ -177,7 +177,7 @@ class FeedStore extends Notifier<FeedState> {
     final next = {...state.items}..removeWhere((id, _) => ids.contains(id));
     state = state.copyWith(items: next);
     final cleared = await _cache(() => _db.forgetItems(ids));
-    if (!cleared) throw StateError('本地缓存清理失败，请重新连接后重试。');
+    if (!cleared) throw StateError('Local cache cleanup failed. Reconnect and retry.');
     await reconcileErasure();
     await refreshAll();
   }
@@ -288,15 +288,19 @@ class FeedStore extends Notifier<FeedState> {
       case 'state':
         _applyState(m);
       case 'source_status':
-        _events.add(AppEvent('source_status', m['status'] == 'need_login' ? '「${m['name']}」需要重新登录' : '「${m['name']}」检查失败',
-            m['status'] == 'need_login' ? '登录会话已失效，请到“来源”重新登录' : (m['error'] ?? '').toString(),
-            priority: 'urgent', data: m));
+        _events.add(AppEvent(
+          'source_status',
+          m['status'] == 'need_login' ? '“${m['name']}” needs sign-in again' : '“${m['name']}” check failed',
+          m['status'] == 'need_login' ? 'Session expired. Sign in again under Sources.' : (m['error'] ?? '').toString(),
+          priority: 'urgent',
+          data: m,
+        ));
         _advance(m);
       case 'digest':
         final d = Map<String, dynamic>.from(m['digest'] as Map);
-        _events.add(AppEvent('digest', '今日摘要', '过去 24 小时 ${d['new_count']} 条新事项，${(d['upcoming'] as List).length} 项即将截止', data: d));
+        _events.add(AppEvent('digest', 'Daily digest', 'Past 24 hours: ${d['new_count']} new items, ${(d['upcoming'] as List).length} due soon', data: d));
       case 'transfer':
-        _events.add(AppEvent('transfer', '扫码传输', (m['status'] ?? '').toString(), data: m));
+        _events.add(AppEvent('transfer', 'Scan transfer', (m['status'] ?? '').toString(), data: m));
       case 'resync_hint':
         _scheduleSync();
       case 'item_updated':
@@ -321,7 +325,7 @@ class FeedStore extends Notifier<FeedState> {
       _cache(() => _db.saveItems([it.toJson()]));
       final live = m['replay'] != true && m['silent'] != true;
       if (live && (m['priority'] == 'urgent' || m['type'] == 'reminder' || m['important'] == true)) {
-        final title = m['type'] == 'reminder' ? '截止提醒' : m['type'] == 'change' ? '重要变更' : '新事项';
+        final title = m['type'] == 'reminder' ? 'Deadline reminder' : m['type'] == 'change' ? 'Important change' : 'New item';
         _events.add(AppEvent(m['type'] as String, '$title · ${it.title}', (m['note'] ?? m['text'] ?? it.summary).toString(), itemId: id, priority: 'urgent'));
       } else if (live && m['priority'] == 'normal') {
         _events.add(AppEvent(m['type'] as String, it.title, (m['note'] ?? it.summary).toString(), itemId: id));
@@ -456,7 +460,7 @@ class FeedStore extends Notifier<FeedState> {
     final api = _api;
     final repository = ref.read(documentLifecycleRepositoryProvider);
     final next = await repository.setTrashed(item.id, trashed);
-    if (_disposed || !identical(api, _api)) throw StateError('工作台账号已变化，请重新确认。');
+    if (_disposed || !identical(api, _api)) throw StateError('Desk account changed. Please confirm again.');
     final current = state.items[item.id] ?? item;
     final value = current.withState(ItemState.fromJson(next));
     state = state.copyWith(items: {...state.items, item.id: value});
@@ -510,7 +514,7 @@ class FeedStore extends Notifier<FeedState> {
     return merged;
   }
 
-  /// 按类型切换处理状态：待办完成／未完成、日程归档／取消归档、通知已读／未读。
+  /// 按类型切换处理状态：待办完成／未完成、日程归档／Cancel归档、通知已读／未读。
   Future<void> toggleStatus(Item item) => switch (item.type) {
         'todo' => setState(item, todo: item.isDone ? 'todo' : 'done'),
         'event' => setState(item, archived: !item.state.archived),
@@ -524,7 +528,7 @@ class FeedStore extends Notifier<FeedState> {
     _cache(() => _db.saveItems([merged.toJson()]));
   }
 
-  /// 修改字段（需要在线）：与来源版本分开保存，来源更新不会覆盖。
+  /// 修改字段（需要在线）：与来源版本分开Save，来源更新不会覆盖。
   Future<void> editFields(Item item, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
       _put(await _api.patchFields(item.id, set: set, reset: reset));
 

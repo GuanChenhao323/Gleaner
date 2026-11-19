@@ -5,9 +5,21 @@ import 'package:go_router/go_router.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
-const deadlineGroupOrder = ['已过截止', '今天', '明天', '本周', '下周', '之后', '未设截止时间'];
+const deadlineGroupOrder = ['overdue', 'today', 'tomorrow', 'thisWeek', 'nextWeek', 'later', 'noDeadline'];
+
+String deadlineGroupLabel(String key, AppLocalizations l10n) => switch (key) {
+      'overdue' => l10n.groupOverdue,
+      'today' => l10n.today,
+      'tomorrow' => l10n.tomorrow,
+      'thisWeek' => l10n.deskThisWeek,
+      'nextWeek' => l10n.groupNextWeek,
+      'later' => l10n.groupLater,
+      'noDeadline' => l10n.groupNoDeadline,
+      _ => key,
+    };
 
 ({Map<String, List<Item>> groups, List<Item> done}) groupAssignmentsByDeadline(List<Item> list, {DateTime? now}) {
   final n = now ?? DateTime.now();
@@ -22,20 +34,20 @@ const deadlineGroupOrder = ['已过截止', '今天', '明天', '本周', '下�
     final d = a.deadline;
     final String key;
     if (d == null) {
-      key = '未设截止时间';
+      key = 'noDeadline';
     } else if (d.isBefore(n)) {
-      key = '已过截止';
+      key = 'overdue';
     } else {
       final delta = DateTime(d.year, d.month, d.day).difference(today).inDays;
       key = delta == 0
-          ? '今天'
+          ? 'today'
           : delta == 1
-              ? '明天'
+              ? 'tomorrow'
               : delta < 7 - (today.weekday - 1)
-                  ? '本周'
+                  ? 'thisWeek'
                   : delta < 14 - (today.weekday - 1)
-                      ? '下周'
-                      : '之后';
+                      ? 'nextWeek'
+                      : 'later';
     }
     groups.putIfAbsent(key, () => []).add(a);
   }
@@ -49,6 +61,7 @@ class AssignmentTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     final accent = dueRowAccent(done: a.isDone, priority: a.priority, deadline: a.deadline);
     return Padding(
@@ -83,8 +96,8 @@ class AssignmentTile extends ConsumerWidget {
                     const SizedBox(height: 6),
                     Wrap(spacing: 10, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
                       if (showCourse) CourseTag(a.course, muted: true),
-                      if (a.deadline != null) Text(absolute(a.deadline!), style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-                      if (a.attachments.isNotEmpty) Pill('${a.attachments.length} 个附件', color: cs.outline, icon: Icons.attach_file),
+                      if (a.deadline != null) Text(absolute(a.deadline!, context), style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                      if (a.attachments.isNotEmpty) Pill(l10n.attachmentsCount(a.attachments.length), color: cs.outline, icon: Icons.attach_file),
                       if (a.importantChange && a.changeNote.isNotEmpty) ChangeBadge(a.changeNote),
                     ]),
                   ]),

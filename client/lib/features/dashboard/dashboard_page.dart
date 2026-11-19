@@ -7,6 +7,7 @@ import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../inbox/item_workbench.dart' show typeIcon, typeLabel;
@@ -21,11 +22,11 @@ bool _typeMatches(Item i, _TypeFilter f) => switch (f) {
       _TypeFilter.notice => i.type == 'notice',
     };
 
-String _typeFilterLabel(_TypeFilter f) => switch (f) {
-      _TypeFilter.all => '全部',
-      _TypeFilter.todo => '待办任务',
-      _TypeFilter.event => '日程活动',
-      _TypeFilter.notice => '通知',
+String _typeFilterLabel(_TypeFilter f, AppLocalizations l10n) => switch (f) {
+      _TypeFilter.all => l10n.filterAll,
+      _TypeFilter.todo => l10n.filterTodoTasks,
+      _TypeFilter.event => l10n.filterEvents,
+      _TypeFilter.notice => l10n.filterNotices,
     };
 
 /// 工作台：今日要事 + 本周一眼 + 异常信息源。
@@ -52,6 +53,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final me = ref.watch(sessionProvider.select((s) => s.me));
     final feed = ref.watch(feedProvider);
     final t = Theme.of(context);
@@ -98,20 +100,20 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(
-                  '${dayLabel(now)} · ${now.month}月${now.day}日',
+                  '${dayLabel(now, context)} · ${l10n.monthDay(now.month, now.day)}',
                   style: t.textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${greeting()}，${me?.name.isNotEmpty == true ? me!.name : '同学'}',
+                  '${greeting(context)}，${me?.name.isNotEmpty == true ? me!.name : l10n.classmate}',
                   style: t.textTheme.headlineMedium?.copyWith(color: cs.onSurface),
                 ),
                 const SizedBox(height: 14),
                 Wrap(spacing: 18, runSpacing: 8, children: [
-                  _MiniStat('${feed.unread}', '未读', onCard: true, onTap: () => context.go('/inbox?filter=unread')),
-                  _MiniStat('$dueWeek', '7 天内截止', onCard: true, highlight: dueWeek > 0, onTap: () => context.go('/courses')),
+                  _MiniStat('${feed.unread}', l10n.inboxUnread, onCard: true, onTap: () => context.go('/inbox?filter=unread')),
+                  _MiniStat('$dueWeek', l10n.deskDueIn7Days, onCard: true, highlight: dueWeek > 0, onTap: () => context.go('/courses')),
                   if (troubled.isNotEmpty)
-                    _MiniStat('${troubled.length}', '信息源异常', onCard: true, highlight: true, onTap: () => context.go('/sources')),
+                    _MiniStat('${troubled.length}', l10n.deskSourceIssues, onCard: true, highlight: true, onTap: () => context.go('/sources')),
                 ]),
               ]),
             ),
@@ -137,16 +139,16 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                         Expanded(
                           child: Column(children: [
                             _SideCard(
-                              title: '本周',
+                              title: l10n.deskThisWeek,
                               trailing: TextButton(
                                 onPressed: () => setState(() => showCalendar = !showCalendar),
-                                child: Text(showCalendar ? '收起日历' : '日历'),
+                                child: Text(showCalendar ? l10n.deskHideCalendar : l10n.deskCalendar),
                               ),
                               child: const _WeekLoad(),
                             ),
                             if (troubled.isNotEmpty) ...[
                               const SizedBox(height: 14),
-                              _SideCard(title: '需处理', child: _TroubledSources(troubled)),
+                              _SideCard(title: l10n.deskNeedsAttention, child: _TroubledSources(troubled)),
                             ],
                           ]),
                         ),
@@ -155,16 +157,16 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                         focusCard,
                         const SizedBox(height: 14),
                         _SideCard(
-                          title: '本周',
+                          title: l10n.deskThisWeek,
                           trailing: TextButton(
                             onPressed: () => setState(() => showCalendar = !showCalendar),
-                            child: Text(showCalendar ? '收起日历' : '日历'),
+                            child: Text(showCalendar ? l10n.deskHideCalendar : l10n.deskCalendar),
                           ),
                           child: const _WeekLoad(),
                         ),
                         if (troubled.isNotEmpty) ...[
                           const SizedBox(height: 14),
-                          _SideCard(title: '需处理', child: _TroubledSources(troubled)),
+                          _SideCard(title: l10n.deskNeedsAttention, child: _TroubledSources(troubled)),
                         ],
                       ]),
                 if (showCalendar) ...[
@@ -238,9 +240,12 @@ class _AlertBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     final first = troubled.first;
-    final text = first.status == 'need_login' ? '「${first.name}」需要重新登录' : '「${first.name}」检查失败';
+    final text = first.status == 'need_login'
+        ? l10n.sourceNeedLoginNamed(first.name)
+        : l10n.sourceCheckFailedNamed(first.name);
     return Material(
       color: Brand.urgent.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(14),
@@ -253,7 +258,7 @@ class _AlertBanner extends StatelessWidget {
             const Icon(Icons.report_gmailerrorred, color: Brand.urgent, size: 20),
             const SizedBox(width: 10),
             Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600))),
-            if (troubled.length > 1) Text('等 ${troubled.length} 项', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+            if (troubled.length > 1) Text(l10n.andMoreItems(troubled.length), style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
             const Icon(Icons.chevron_right, size: 20),
           ]),
         ),
@@ -271,6 +276,7 @@ class _FocusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final t = Theme.of(context);
     final cs = t.colorScheme;
     return Card(
@@ -280,9 +286,9 @@ class _FocusCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: Row(children: [
-              Text(filter == _TypeFilter.all ? '今天要事' : _typeFilterLabel(filter), style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+              Text(filter == _TypeFilter.all ? l10n.deskTodayFocus : _typeFilterLabel(filter, l10n), style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
-              TextButton(onPressed: () => context.go('/inbox'), child: const Text('收件箱')),
+              TextButton(onPressed: () => context.go('/inbox'), child: Text(l10n.deskInboxLink)),
             ]),
           ),
           SingleChildScrollView(
@@ -291,7 +297,7 @@ class _FocusCard extends StatelessWidget {
             child: Row(children: [
               for (final f in _TypeFilter.values) ...[
                 FilterChip(
-                  label: Text(_typeFilterLabel(f)),
+                  label: Text(_typeFilterLabel(f, l10n)),
                   selected: filter == f,
                   showCheckmark: false,
                   onSelected: (_) => onFilter(f),
@@ -304,13 +310,13 @@ class _FocusCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 20, 10, 28),
               child: Text(
-                filter == _TypeFilter.all ? '今天没有要紧的' : '暂无${_typeFilterLabel(filter)}',
+                filter == _TypeFilter.all ? l10n.deskEmptyToday : l10n.deskEmptyFilter(_typeFilterLabel(filter, l10n)),
                 style: TextStyle(color: cs.onSurfaceVariant),
               ),
             )
           else
             for (final i in items) _FocusRow(i),
-          if (onMore != null) TextButton(onPressed: onMore, child: const Text('显示更多')),
+          if (onMore != null) TextButton(onPressed: onMore, child: Text(l10n.deskShowMore)),
         ]),
       ),
     );
@@ -323,13 +329,14 @@ class _FocusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     final accent = dueRowAccent(done: item.isDone, priority: item.priority, deadline: item.deadline);
     final status = item.importantChange
-        ? '变更'
+        ? l10n.statusChanged
         : (item.priority == 'urgent' || accent == Brand.dueCritical
-            ? '紧急'
-            : (!item.state.read ? '未读' : null));
+            ? l10n.statusUrgent
+            : (!item.state.read ? l10n.unreadStatus : null));
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => context.push('/item/${item.id}'),
@@ -356,7 +363,7 @@ class _FocusRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 [
-                  typeLabel(item.type),
+                  typeLabel(item.type, context),
                   if (item.course.isNotEmpty) shortCourse(item.course),
                   ?status,
                 ].join(' · '),
@@ -415,7 +422,7 @@ class _WeekLoad extends ConsumerWidget {
         for (var d = 0; d < 7; d++)
           Expanded(
             child: Tooltip(
-              message: counts[d].isEmpty ? '没有截止' : counts[d].map((i) => i.title).join('\n'),
+              message: counts[d].isEmpty ? AppLocalizations.of(context).noDeadlines : counts[d].map((i) => i.title).join('\n'),
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
                 onTap: () {
@@ -443,7 +450,7 @@ class _WeekLoad extends ConsumerWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      d == 0 ? '今' : weekday(days[d]),
+                      d == 0 ? AppLocalizations.of(context).todayShort : weekday(days[d], context),
                       style: TextStyle(fontSize: 11, color: d == 0 ? cs.primary : cs.onSurfaceVariant, fontWeight: d == 0 ? FontWeight.w700 : null),
                     ),
                   ]),

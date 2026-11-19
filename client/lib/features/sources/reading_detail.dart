@@ -46,22 +46,22 @@ class ReadingDetailPage extends ConsumerWidget {
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('来源与资料')),
+        appBar: AppBar(title: const Text('Source & docs')),
         body: Center(child: Text('$e')),
       ),
       data: (rows) {
         final source = rows.where((s) => s.id == id).firstOrNull;
         if (source == null) {
-          return const Scaffold(body: Center(child: Text('来源不存在，或不属于当前账号。')));
+          return const Scaffold(body: Center(child: Text('Source not found, or not owned by this account.')));
         }
         return DefaultTabController(
           length: 3,
           initialIndex: showChanges ? 1 : 0,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('来源与资料'),
+              title: const Text('Source & docs'),
               leading: IconButton(
-                tooltip: '返回信息源',
+                tooltip: 'Back to sources',
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => context.go('/sources'),
               ),
@@ -75,13 +75,13 @@ class ReadingDetailPage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        source.title,
+                        source.title(context),
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 5),
-                      Text('${source.identity} · ${source.status}'),
+                      Text('${source.identity(context)} · ${source.statusLabel(context)}'),
                       const SizedBox(height: 7),
-                      Text(source.scope),
+                      Text(source.scope(context)),
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 9,
@@ -90,12 +90,12 @@ class ReadingDetailPage extends ConsumerWidget {
                           OutlinedButton.icon(
                             onPressed: () => launchUrl(Uri.parse(source.url)),
                             icon: const Icon(Icons.open_in_new, size: 16),
-                            label: const Text('打开原网页'),
+                            label: const Text('Open original page'),
                           ),
                           OutlinedButton(
                             onPressed: () =>
                                 context.push('/sources/$id/settings'),
-                            child: const Text('检查设置'),
+                            child: const Text('Check settings'),
                           ),
                           if (source.verified)
                             FilledButton(
@@ -109,7 +109,7 @@ class ReadingDetailPage extends ConsumerWidget {
                                             )
                                             .check(source, 'check');
                                         if (context.mounted) {
-                                          toast(context, '检查已排队，等待浏览器执行。');
+                                          toast(context, 'Check queued; waiting for the browser.');
                                         }
                                       } catch (e) {
                                         if (context.mounted) {
@@ -117,7 +117,7 @@ class ReadingDetailPage extends ConsumerWidget {
                                         }
                                       }
                                     },
-                              child: const Text('立即检查'),
+                              child: const Text('Check now'),
                             ),
                         ],
                       ),
@@ -126,9 +126,9 @@ class ReadingDetailPage extends ConsumerWidget {
                 ),
                 const TabBar(
                   tabs: [
-                    Tab(text: '已保存内容'),
-                    Tab(text: '变化记录'),
-                    Tab(text: '检查日志'),
+                    Tab(text: 'Saved content'),
+                    Tab(text: 'Change history'),
+                    Tab(text: 'Check log'),
                   ],
                 ),
                 Expanded(
@@ -137,9 +137,9 @@ class ReadingDetailPage extends ConsumerWidget {
                       ListView(
                         padding: const EdgeInsets.all(24),
                         children: [
-                          Text('原关键词：${source.query}'),
+                          Text('Original query: ${source.query}'),
                           const SizedBox(height: 6),
-                          Text('原始网页：${source.url}'),
+                          Text('Original page: ${source.url}'),
                           const SizedBox(height: 16),
                           for (final item in source.items)
                             _SavedItem(id: item['id'] as int),
@@ -148,7 +148,7 @@ class ReadingDetailPage extends ConsumerWidget {
                       ListView(
                         padding: const EdgeInsets.all(24),
                         children: [
-                          const Text('来源版本与个人修改分开保留。检查无变化或失败不会新增内容版本。'),
+                          const Text('Source versions and personal edits are kept separately. Unchanged or failed checks do not add content versions.'),
                           const SizedBox(height: 15),
                           for (final item in source.items)
                             _ItemVersions(
@@ -178,12 +178,12 @@ class _SavedItem extends ConsumerWidget {
       .watch(_itemProvider(id))
       .when(
         loading: () => const LinearProgressIndicator(),
-        error: (e, _) => Text('资料读取失败：$e'),
+        error: (e, _) => Text('Could not read docs: $e'),
         data: (item) => Card(
           child: ExpansionTile(
             initiallyExpanded: true,
             title: Text(item.title),
-            subtitle: Text('来源版本 v${item.version}'),
+            subtitle: Text('Source version v${item.version}'),
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -202,11 +202,11 @@ class _SavedItem extends ConsumerWidget {
                     if (item.state.note.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 15),
-                        child: Text('我的备注（已保留）：${item.state.note}'),
+                        child: Text('My notes (kept): ${item.state.note}'),
                       ),
                     TextButton(
                       onPressed: () => context.push('/item/$id'),
-                      child: const Text('打开事项管理'),
+                      child: const Text('Open item workspace'),
                     ),
                   ],
                 ),
@@ -226,7 +226,7 @@ class _ItemVersions extends ConsumerWidget {
       .watch(_versionsProvider(id))
       .when(
         loading: () => const LinearProgressIndicator(),
-        error: (e, _) => Text('版本读取失败：$e'),
+        error: (e, _) => Text('Could not read versions: $e'),
         data: (versions) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -236,16 +236,16 @@ class _ItemVersions extends ConsumerWidget {
                 child: ExpansionTile(
                   title: Text(
                     'v${version.version} · ${version.version == 1
-                        ? '首次保存'
+                        ? 'First save'
                         : version.note.isEmpty
-                        ? '来源内容更新'
+                        ? 'Source content updated'
                         : version.note}',
                   ),
                   children: [
                     if (version.changed.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(14),
-                        child: Text('初始内容基线。'),
+                        child: Text('Initial content baseline.'),
                       )
                     else
                       SourceChanges(version.changed),

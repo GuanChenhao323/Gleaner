@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
-import '../../core/store.dart';
 import '../../core/session.dart';
+import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../sources/reading_source.dart';
 
 /// Owns action feedback only; the repository owns response validation.
@@ -20,6 +21,7 @@ class _DocumentTrashButtonState extends ConsumerState<DocumentTrashButton> {
   Future<void> act(bool trashed) async {
     if (busy) return;
     final item = widget.item;
+    final l10n = AppLocalizations.of(context);
     final container = ProviderScope.containerOf(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     final api = container.read(apiProvider);
@@ -30,14 +32,14 @@ class _DocumentTrashButtonState extends ConsumerState<DocumentTrashButton> {
       if (!messenger.mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(trashed ? '已移入回收站，资料与历史保留。' : '已恢复资料；来源检查保持暂停。'),
+          content: Text(trashed ? l10n.movedToTrash : l10n.restoredItem),
           action: trashed
               ? SnackBarAction(
-                  label: '撤销',
+                  label: l10n.undo,
                   onPressed: () async {
                     try {
                       if (!identical(api, container.read(apiProvider))) {
-                        throw StateError('工作台账号已变化');
+                        throw StateError(l10n.accountChanged);
                       }
                       await container
                           .read(feedProvider.notifier)
@@ -45,7 +47,7 @@ class _DocumentTrashButtonState extends ConsumerState<DocumentTrashButton> {
                       container.invalidate(readingSourcesProvider);
                     } catch (e) {
                       messenger.showSnackBar(
-                        SnackBar(content: Text('恢复未完成：$e')),
+                        SnackBar(content: Text(l10n.restoreIncomplete('$e'))),
                       );
                     }
                   },
@@ -56,7 +58,7 @@ class _DocumentTrashButtonState extends ConsumerState<DocumentTrashButton> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('操作未确认：$e')));
+            .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).actionUnconfirmed('$e'))));
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -64,13 +66,16 @@ class _DocumentTrashButtonState extends ConsumerState<DocumentTrashButton> {
   }
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: widget.item.state.hidden ? '恢复到收件箱' : '移入回收站',
-    onPressed: busy ? null : () => act(!widget.item.state.hidden),
-    icon: Icon(
-      widget.item.state.hidden
-          ? Icons.restore_from_trash_outlined
-          : Icons.delete_outline,
-    ),
-  );
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return IconButton(
+      tooltip: widget.item.state.hidden ? l10n.restoreToInbox : l10n.moveToTrash,
+      onPressed: busy ? null : () => act(!widget.item.state.hidden),
+      icon: Icon(
+        widget.item.state.hidden
+            ? Icons.restore_from_trash_outlined
+            : Icons.delete_outline,
+      ),
+    );
+  }
 }

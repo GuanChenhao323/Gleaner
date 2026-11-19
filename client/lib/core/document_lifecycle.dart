@@ -23,7 +23,7 @@ class ApiDocumentLifecycleRepository implements DocumentLifecycleRepository {
         result['stale'] == true ||
         state is! Map ||
         state['hidden'] != trashed) {
-      throw ApiException(502, 'invalid_response', '资料操作未获确认，请刷新核对后重试。');
+      throw ApiException(502, 'invalid_response', 'Document action was not confirmed. Refresh and retry.');
     }
     return Map<String, dynamic>.from(state);
   }

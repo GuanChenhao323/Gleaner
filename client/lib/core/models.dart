@@ -86,7 +86,7 @@ class Attachment {
   final int? size;
   const Attachment(this.name, this.url, this.size);
   factory Attachment.fromJson(Map<String, dynamic> j) =>
-      Attachment((j['name'] ?? '附件') as String, (j['url'] ?? '') as String, (j['size'] as num?)?.toInt());
+      Attachment((j['name'] ?? 'Attachment') as String, (j['url'] ?? '') as String, (j['size'] as num?)?.toInt());
 }
 
 class Item {

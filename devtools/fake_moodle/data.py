@@ -1,4 +1,4 @@
-"""fake_moodle 的种子数据：3 门课、若干作业、学院通知、教师信息。时间相对“现在”生成，保证演示时总有近期截止的作业。"""
+"""fake_moodle seed data: 3 courses, assignments, college notices, teachers. Times are relative to now so demos always have near-term deadlines."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class Assignment:
     name: str
     intro: str
     due: float
-    requirements: str = "在线提交 PDF 文件"
+    requirements: str = "Submit a PDF online"
     attachments: list[Attachment] = field(default_factory=list)
     modified: float = field(default_factory=time.time)
     visible: bool = True
@@ -43,7 +43,7 @@ class Notice:
     title: str
     body: str
     published: float
-    category: str = "教务"
+    category: str = "Academic"
     attachments: list[Attachment] = field(default_factory=list)
 
 
@@ -68,109 +68,119 @@ def _at(days: float, hour: int = 23, minute: int = 59) -> float:
 
 def seed() -> dict[str, object]:
     courses = [
-        Course(101, "CS3105", "网络编程", "王建国"),
-        Course(102, "CS3201", "操作系统", "李敏"),
-        Course(103, "MA2004", "概率论与数理统计", "陈思远"),
+        Course(101, "CS3105", "Network Programming", "Jianguo Wang"),
+        Course(102, "CS3201", "Operating Systems", "Min Li"),
+        Course(103, "MA2004", "Probability and Statistics", "Siyuan Chen"),
     ]
     assigns = [
         Assignment(
             1001,
             101,
-            "实验一：基于 socket 的 HTTP 服务器",
-            "实现一个支持 keep-alive 与 chunked 的 HTTP/1.1 服务器，并用 curl 和浏览器测试。",
+            "Lab 1: Socket HTTP server",
+            "Build an HTTP/1.1 server with keep-alive and chunked transfer; test with curl and a browser.",
             _at(3),
-            "提交源代码压缩包与实验报告 PDF",
-            [Attachment("实验一指导书.pdf", b"%PDF-1.4 lab1 v1")],
+            "Submit source archive and lab report PDF",
+            [Attachment("lab1-guide.pdf", b"%PDF-1.4 lab1 v1")],
         ),
         Assignment(
             1002,
             101,
-            "实验二：WebSocket 聊天室",
-            "基于 RFC 6455 实现握手与帧编解码，完成多人聊天室。",
+            "Lab 2: WebSocket chat room",
+            "Implement RFC 6455 handshake and frames; finish a multi-user chat room.",
             _at(10),
-            "提交 Git 仓库链接",
-            [Attachment("实验二指导书.pdf", b"%PDF-1.4 lab2")],
+            "Submit Git repository URL",
+            [Attachment("lab2-guide.pdf", b"%PDF-1.4 lab2")],
         ),
         Assignment(
             1003,
             101,
-            "课程大作业开题报告",
-            "每组提交一份 3–5 页开题报告，说明选题、分工与进度计划。",
+            "Course project proposal",
+            "Each team submits a 3–5 page proposal covering topic, roles, and schedule.",
             _at(6, 12, 0),
-            "每组一份 PDF，文件名：组号-开题报告.pdf",
+            "One PDF per team; filename: team-id-proposal.pdf",
         ),
         Assignment(
             1101,
             102,
-            "作业 3：进程调度模拟",
-            "用任意语言实现 FCFS、SJF、RR 三种调度算法并比较平均等待时间。",
+            "Assignment 3: Process scheduling simulation",
+            "Implement FCFS, SJF, and RR in any language and compare average waiting time.",
             _at(4),
-            "提交代码与结果截图",
+            "Submit code and result screenshots",
         ),
-        Assignment(1102, 102, "期中复习题", "完成第 1–5 章复习题，不计分。", _at(12)),
+        Assignment(1102, 102, "Midterm review problems", "Complete review problems for chapters 1–5 (ungraded).", _at(12)),
         Assignment(
             1201,
             103,
-            "第 7 周习题",
-            "教材习题 4.1–4.12（奇数题）。",
+            "Week 7 exercises",
+            "Textbook exercises 4.1–4.12 (odd numbers).",
             _at(2, 18, 0),
-            "拍照上传，纸质版课上交",
+            "Upload photos; hand in paper copy in class",
         ),
         Assignment(
-            1202, 103, "小测验准备", "下周三课上小测验，范围：随机变量及其分布。", _at(8, 10, 0)
+            1202,
+            103,
+            "Quiz prep",
+            "In-class quiz next Wednesday; scope: random variables and their distributions.",
+            _at(8, 10, 0),
         ),
     ]
     notices = [
         Notice(
             1,
-            "关于2026年秋季学期期中考试安排的通知",
-            "各位同学：本学期期中考试将于11月9日至11月13日进行，具体考场安排请登录教务系统查询。面向全体本科生。地点：各教学楼。",
+            "Fall 2026 midterm exam schedule",
+            "Midterms run Nov 9–13. Check the academic system for rooms. For all undergraduates.",
             time.time() - 2 * DAY,
-            "教务",
+            "Academic",
         ),
         Notice(
             2,
-            "计算机学院2026年“互联网+”创新创业大赛报名通知",
-            "面向计算机学院全体本科生，报名截止时间为11月15日23:59，请以团队形式报名。地点：学院楼 305。",
+            "CS College 2026 Internet+ Innovation Competition signup",
+            "Open to all CS undergraduates. Deadline Nov 15 23:59. Register as a team. Room 305, College building.",
             time.time() - 1 * DAY,
-            "竞赛",
+            "Contest",
         ),
         Notice(
             3,
-            "图书馆数据库试用通知",
-            "图书馆新增 IEEE Xplore 试用权限，试用期至12月31日。",
+            "Library database trial notice",
+            "IEEE Xplore trial access is available through Dec 31.",
             time.time() - 3 * DAY,
-            "服务",
+            "Service",
         ),
         Notice(
             4,
-            "2024级研究生学术讲座：分布式系统中的一致性",
-            "本周五下午3点在学术报告厅举行，面向研究生，欢迎感兴趣的本科生参加。",
+            "Graduate lecture: Consistency in distributed systems",
+            "Friday 3pm in the lecture hall. For graduate students; undergrads welcome.",
             time.time() - 0.5 * DAY,
-            "讲座",
+            "Lecture",
         ),
     ]
     teachers = [
         Teacher(
             1,
-            "王建国",
-            "副教授",
-            "计算机楼 A512",
+            "Jianguo Wang",
+            "Associate Professor",
+            "CS Building A512",
             "010-6278-1234",
             "wangjg@school.edu",
-            ["网络编程"],
+            ["Network Programming"],
         ),
         Teacher(
-            2, "李敏", "教授", "计算机楼 B208", "010-6278-2234", "limin@school.edu", ["操作系统"]
+            2,
+            "Min Li",
+            "Professor",
+            "CS Building B208",
+            "010-6278-2234",
+            "limin@school.edu",
+            ["Operating Systems"],
         ),
         Teacher(
             3,
-            "陈思远",
-            "讲师",
-            "理学楼 316",
+            "Siyuan Chen",
+            "Lecturer",
+            "Science Building 316",
             "010-6278-3234",
             "chensy@school.edu",
-            ["概率论与数理统计"],
+            ["Probability and Statistics"],
         ),
     ]
     return {"courses": courses, "assignments": assigns, "notices": notices, "teachers": teachers}

@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../lib/core/session.dart';
-import '../lib/main.dart';
-import '../lib/router.dart';
+import 'package:gleaner/core/session.dart';
+import 'package:gleaner/main.dart';
+import 'package:gleaner/router.dart';
 
 void main() {
   for (final width in [390.0, 1100.0]) {
@@ -21,7 +21,7 @@ void main() {
         child: const GleanerApp(),
       ));
       await tester.pumpAndSettle();
-      expect(find.text('登录后，在这里查看今日待办和本周截止事项。'), findsOneWidget);
+      expect(find.text('Sign in to see today’s tasks and deadlines this week.'), findsOneWidget);
       final router = ProviderScope.containerOf(tester.element(find.byType(GleanerApp))).read(routerProvider);
       for (final entry in ['/login', '/item/42']) {
         router.go(entry);
@@ -29,17 +29,17 @@ void main() {
         expect(router.routeInformationProvider.value.uri.path, '/');
         expect(find.byType(Dialog), findsNothing);
       }
-      await tester.tap(find.widgetWithText(ListTile, '课程'));
+      await tester.tap(find.widgetWithText(ListTile, 'Courses'));
       await tester.pumpAndSettle();
-      expect(find.text('登录后，在这里按课程查看作业和截止日期。'), findsOneWidget);
-      await tester.tap(find.byTooltip('登录或注册'));
+      expect(find.text('Sign in to browse assignments and deadlines by course.'), findsOneWidget);
+      await tester.tap(find.byTooltip('Sign in or register'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('还没有账号？注册'));
+      await tester.tap(find.text('No account yet? Register'));
       await tester.pumpAndSettle();
-      expect(find.text('邮箱验证码'), findsOneWidget);
-      await tester.tap(find.byTooltip('关闭'));
+      expect(find.text('Email code'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
-      expect(find.text('登录后，在这里按课程查看作业和截止日期。'), findsOneWidget);
+      expect(find.text('Sign in to browse assignments and deadlines by course.'), findsOneWidget);
     });
   }
 }

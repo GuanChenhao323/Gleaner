@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api.dart';
 import '../../core/session.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
 const _chunk = 512 * 1024;
@@ -64,7 +65,10 @@ class _TransferPageState extends ConsumerState<TransferPage> {
 
   Future<void> _join(String c) async {
     try {
-      final r = await api.transferJoin(c.toUpperCase(), kIsWeb ? '浏览器' : defaultTargetPlatform.name);
+      final r = await api.transferJoin(
+        c.toUpperCase(),
+        kIsWeb ? AppLocalizations.of(context).deviceBrowser : defaultTargetPlatform.name,
+      );
       setState(() {
         code = r['code'] as String;
         token = r['token'] as String;
@@ -116,10 +120,12 @@ class _TransferPageState extends ConsumerState<TransferPage> {
         final r = await api.transferChunk(code!, token, fid, data.sublist(offset, end), offset, data.length);
         offset = r['received'] as int;
         retries = 0;
-        if (r['status'] == 'corrupt' && mounted) toast(context, '「$name」校验失败，请重新发送', error: true);
+        if (r['status'] == 'corrupt' && mounted) {
+          toast(context, AppLocalizations.of(context).transferCorrupt(name), error: true);
+        }
       } on ApiException catch (_) {
         if (++retries > 8) {
-          if (mounted) toast(context, '网络中断，「$name」已暂停', error: true);
+          if (mounted) toast(context, AppLocalizations.of(context).transferPaused(name), error: true);
           return;
         }
         await Future<void>.delayed(Duration(seconds: retries));
@@ -134,6 +140,7 @@ class _TransferPageState extends ConsumerState<TransferPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
     final server = ref.watch(sessionProvider).server;
     return Scaffold(
       appBar: AppBar(),
@@ -147,18 +154,18 @@ class _TransferPageState extends ConsumerState<TransferPage> {
                 child: Padding(
                   padding: const EdgeInsets.all(28),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    FilledButton.icon(onPressed: _create, icon: const Icon(Icons.qr_code_2), label: const Text('生成二维码')),
+                    FilledButton.icon(onPressed: _create, icon: const Icon(Icons.qr_code_2), label: Text(l10n.generateQr)),
                     const SizedBox(height: 28),
-                    Text('或输入配对码', style: TextStyle(color: cs.onSurfaceVariant)),
+                    Text(l10n.orEnterPairCode, style: TextStyle(color: cs.onSurfaceVariant)),
                     const SizedBox(height: 12),
                     Row(children: [
-                      Expanded(child: TextField(controller: codeCtl, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(hintText: '6 位配对码'))),
+                      Expanded(child: TextField(controller: codeCtl, textCapitalization: TextCapitalization.characters, decoration: InputDecoration(hintText: l10n.pairCodeHint))),
                       const SizedBox(width: 10),
-                      FilledButton(onPressed: () => _join(codeCtl.text.trim()), child: const Text('加入')),
+                      FilledButton(onPressed: () => _join(codeCtl.text.trim()), child: Text(l10n.joinPair)),
                     ]),
                     if (!kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS) ...[
                       const SizedBox(height: 12),
-                      OutlinedButton.icon(onPressed: () => _scan(context), icon: const Icon(Icons.qr_code_scanner), label: const Text('扫描二维码')),
+                      OutlinedButton.icon(onPressed: () => _scan(context), icon: const Icon(Icons.qr_code_scanner), label: Text(l10n.scanQr)),
                     ],
                   ]),
                 ),
@@ -177,21 +184,21 @@ class _TransferPageState extends ConsumerState<TransferPage> {
                       const SizedBox(height: 16),
                       SelectableText(code!, style: Theme.of(context).textTheme.headlineMedium?.copyWith(letterSpacing: 6, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 10),
-                      Text('配对码 30 分钟内有效', style: TextStyle(color: cs.onSurfaceVariant)),
+                      Text(l10n.pairCodeTtl, style: TextStyle(color: cs.onSurfaceVariant)),
                     ] else ...[
                       Icon(Icons.devices, size: 56, color: cs.primary),
                       const SizedBox(height: 8),
                       SelectableText(code!, style: Theme.of(context).textTheme.headlineMedium?.copyWith(letterSpacing: 6, fontWeight: FontWeight.w800)),
                     ],
                     const SizedBox(height: 12),
-                    Pill(status == 'paired' ? '已配对' : '等待配对…', color: status == 'paired' ? Colors.green : cs.outline, icon: status == 'paired' ? Icons.link : Icons.hourglass_top),
+                    Pill(status == 'paired' ? l10n.paired : l10n.waitingPair, color: status == 'paired' ? Colors.green : cs.outline, icon: status == 'paired' ? Icons.link : Icons.hourglass_top),
                     const SizedBox(height: 20),
-                    FilledButton.icon(onPressed: _send, icon: const Icon(Icons.upload_file), label: const Text('发送文件')),
+                    FilledButton.icon(onPressed: _send, icon: const Icon(Icons.upload_file), label: Text(l10n.sendFile)),
                   ]),
                 ),
               ),
-              SectionHeader('文件', trailing: '${files.length}'),
-              if (files.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text('还没有文件', style: TextStyle(color: cs.onSurfaceVariant))),
+              SectionHeader(l10n.filesHeader, trailing: '${files.length}'),
+              if (files.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(l10n.noFilesYet, style: TextStyle(color: cs.onSurfaceVariant))),
               for (final f in files)
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),

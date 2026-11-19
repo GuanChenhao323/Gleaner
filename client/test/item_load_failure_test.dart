@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:gleaner/core/api.dart';
 import 'package:gleaner/features/inbox/item_load_failure.dart';
+import 'package:gleaner/l10n/app_localizations.dart';
 
 void main() {
   testWidgets(
@@ -11,9 +13,16 @@ void main() {
       var sources = 0;
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ItemLoadFailure(
-              error: ApiException(404, 'not_found', '事项不存在'),
+              error: ApiException(404, 'not_found', 'not_found'),
               email: 'sample@example.test',
               onRetry: () => retry++,
               onSources: () => sources++,
@@ -21,11 +30,11 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('工作台与插件使用同一 Campus Radar 邮箱'), findsOneWidget);
+      expect(find.textContaining('same 拾课 Gleaner account'), findsOneWidget);
       expect(find.textContaining('sample@example.test'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      await tester.tap(find.text('重试'));
-      await tester.tap(find.text('返回信息源'));
+      await tester.tap(find.text('Retry'));
+      await tester.tap(find.text('Back to sources'));
       expect(retry, 1);
       expect(sources, 1);
     },

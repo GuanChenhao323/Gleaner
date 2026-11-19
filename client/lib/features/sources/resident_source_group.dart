@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
+import '../../l10n/app_localizations.dart';
 import 'reading_source.dart';
 
 /// A page owns one refresh plan; rules keep their own content and histories.
@@ -38,17 +39,18 @@ class ResidentSourceGroup extends StatelessWidget {
           ].contains(s.result) || s.executionState == 'expired',
         )
         .firstOrNull;
+    final l10n = AppLocalizations.of(context);
     final status = !online
-        ? '等待本机Chrome执行'
+        ? l10n.rsWaitLocalChrome
         : active
-        ? '正在启动／检查'
+        ? l10n.rsStartingCheck
         : issue != null
-        ? issue.status
+        ? issue.statusLabel(context)
         : paused
-        ? (rules.every((s) => s.paused) ? '定期监测已暂停' : '部分规则已暂停')
+        ? (rules.every((s) => s.paused) ? l10n.rsPeriodicPaused : l10n.rsPartialPaused)
         : verified
-        ? (scheduled ? '定期监测中' : '仅手动检查')
-        : '等待首次刷新';
+        ? (scheduled ? l10n.rsPeriodicOn : l10n.rsManualOnly)
+        : l10n.rsAwaitFirstRefresh;
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -65,7 +67,7 @@ class ResidentSourceGroup extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${Uri.parse(first.url).host} · 专用监测页',
+                        '${Uri.parse(first.url).host} · ${l10n.rsDedicatedMonitor}',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
@@ -96,18 +98,18 @@ class ResidentSourceGroup extends StatelessWidget {
                   ),
                 ),
                 if (rules.any((s) => s.items.isNotEmpty))
-                  const Text('资料已保存'),
+                  const Text('Docs saved'),
                 Text(
-                  '${rules.length} 条规则 · ${rules.every((s) => s.mode == 'manual') ? '仅手动检查' : '每${first.interval ~/ 60}分钟刷新一次'}',
+                  '${rules.length} rules · ${rules.every((s) => s.mode == 'manual') ? 'Manual check only' : 'every ${first.interval ~/ 60} min'}',
                 ),
                 if (first.effectiveInterval != first.interval)
                   Text(
-                    '本地夹具测试：每${first.effectiveInterval}秒',
+                    'Local fixture test: every ${first.effectiveInterval}s',
                     style: TextStyle(color: cs.error),
                   ),
-                const Text('同站点单会话 · 资料仅自己可见'),
+                const Text('Single-site session · docs private to you'),
                 if (rules.any((s) => s.result == 'changed'))
-                  const Text('发现来源变化 · 展开规则查看差异'),
+                  const Text('Source changed · expand rules to see diffs'),
               ],
             ),
             const SizedBox(height: 9),
@@ -116,11 +118,11 @@ class ResidentSourceGroup extends StatelessWidget {
               runSpacing: 6,
               children: [
                 Text(
-                  '最后成功：${successes.length == rules.length ? relative(tsToDate(successes.first.toDouble())) : '等待全部规则首次成功'}',
+                  'Last success: ${successes.length == rules.length ? relative(tsToDate(successes.first.toDouble()), context) : 'Waiting for first success on all rules'}',
                   style: const TextStyle(fontSize: 12),
                 ),
                 Text(
-                  '下次计划：${scheduled && next.isNotEmpty && next.first > 0 ? relative(tsToDate(next.first.toDouble())) : '待启动或恢复'}',
+                  'Next scheduled: ${scheduled && next.isNotEmpty && next.first > 0 ? relative(tsToDate(next.first.toDouble()), context) : 'Waiting to start or resume'}',
                   style: const TextStyle(fontSize: 12),
                 ),
               ],
@@ -141,29 +143,29 @@ class ResidentSourceGroup extends StatelessWidget {
               children: [
                 FilledButton.tonal(
                   onPressed: onSettings,
-                  child: Text(verified ? '监测设置' : '启动／重新绑定'),
+                  child: Text(verified ? 'Monitor settings' : 'Start / rebind'),
                 ),
                 if (verified)
                   TextButton.icon(
                     onPressed: active ? null : onCheck,
                     icon: const Icon(Icons.refresh, size: 17),
-                    label: const Text('立即检查全部规则'),
+                    label: const Text('Check all rules now'),
                   ),
                 if (rules.any((s) => s.mode == 'periodic') &&
                     (verified || !paused))
                   TextButton(
                     onPressed: onPause,
-                    child: Text(paused ? '恢复定期' : '暂停定期'),
+                    child: Text(paused ? 'Resume periodic' : 'Pause periodic'),
                   ),
               ],
             ),
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: Text('规则、资料与执行日志（${rules.length}）'),
+              title: Text('Rules, docs & logs (${rules.length})'),
               children: [for (final s in rules) ruleCard(s)],
             ),
             Text(
-              '请保留专用监测标签页；检测到编辑会延后刷新。工作台网页可以关闭，本地服务需保持运行。',
+              'Keep the dedicated monitor tab open; edits defer refresh. Desk page can close; local service must stay running.',
               style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
             ),
           ],

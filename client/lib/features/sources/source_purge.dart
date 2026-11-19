@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
+
 /// A server-signed impact snapshot. UI cannot choose arbitrary item IDs to erase.
 class SourcePurgePlan {
   final Map<String, dynamic> plan;
@@ -18,7 +20,7 @@ class SourcePurgePlan {
         plan['items'] is! List ||
         plan['affected'] is! List ||
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(token)) {
-      throw const FormatException('永久删除范围响应异常');
+      throw const FormatException('Permanent delete scope response invalid');
     }
     for (final item in plan['items'] as List) {
       if (item is! Map ||
@@ -26,7 +28,7 @@ class SourcePurgePlan {
           item['id'] <= 0 ||
           item['version'] is! int ||
           item['version'] <= 0) {
-        throw const FormatException('删除资料清单异常');
+        throw const FormatException('Delete item list invalid');
       }
     }
     if (sourceId <= 0 ||
@@ -34,7 +36,7 @@ class SourcePurgePlan {
         versions < 0 ||
         checks < 0 ||
         itemIds.toSet().length != itemIds.length) {
-      throw const FormatException('永久删除范围响应异常');
+      throw const FormatException('Permanent delete scope response invalid');
     }
     for (final rule in plan['affected'] as List) {
       if (rule is! Map ||
@@ -44,7 +46,7 @@ class SourcePurgePlan {
           rule['revision'] <= 0 ||
           rule['remaining'] is! int ||
           rule['remaining'] < 0) {
-        throw const FormatException('关联规则清单异常');
+        throw const FormatException('Affected rules list invalid');
       }
     }
   }
@@ -87,8 +89,9 @@ class _SourcePurgeDialogState extends State<SourcePurgeDialog> {
   @override
   Widget build(BuildContext context) {
     final p = widget.plan;
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('彻底删除「${widget.title}」？'),
+      title: Text(l10n.purgeTitle(widget.title)),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(
@@ -96,24 +99,18 @@ class _SourcePurgeDialogState extends State<SourcePurgeDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '将永久删除此来源、${p.itemIds.length} 份关联资料、${p.versions} 个历史版本及 ${p.checks} 条检查记录。包括收件箱和回收站中的关联资料、个人备注与状态。',
-              ),
+              Text(l10n.purgeBody(p.itemIds.length, p.versions, p.checks)),
               const SizedBox(height: 12),
-              if (p.removedRules > 0)
-                Text('另有 ${p.removedRules} 条规则只引用这些资料，将一并移除。'),
-              if (p.pausedRules > 0)
-                Text('另有 ${p.pausedRules} 条规则包含这些资料，将暂停并要求重新提取；其余资料保留。'),
-              const Text(
-                '该账号之前未完成的采集预览将统一失效，需要重新提取。其他已保存资料保留。插件离线时，旧缓存会在重新连接后清理。',
-              ),
+              if (p.removedRules > 0) Text(l10n.purgeRemovedRules(p.removedRules)),
+              if (p.pausedRules > 0) Text(l10n.purgePausedRules(p.pausedRules)),
+              Text(l10n.purgePreviewInvalidate),
               const SizedBox(height: 12),
-              const Text('此操作不可恢复。之后可以重新采集同一网页和条件，作为新资料保存。'),
+              Text(l10n.purgeIrreversible),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: accepted,
                 onChanged: (v) => setState(() => accepted = v ?? false),
-                title: const Text('我确认永久删除上述资料和历史版本'),
+                title: Text(l10n.purgeConfirmCheck),
               ),
             ],
           ),
@@ -122,14 +119,14 @@ class _SourcePurgeDialogState extends State<SourcePurgeDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
+          child: Text(l10n.actionCancel),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
           onPressed: accepted ? () => Navigator.pop(context, true) : null,
-          child: const Text('确认彻底删除'),
+          child: Text(l10n.purgeForever),
         ),
       ],
     );

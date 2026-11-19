@@ -36,19 +36,19 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
     final data = ref.watch(readingSourcesProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('来源检查设置'),
+        title: const Text('Source check settings'),
         leading: IconButton(
-          tooltip: '返回信息源',
+          tooltip: 'Back to sources',
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/sources'),
         ),
       ),
       body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('无法读取来源：$e')),
+        error: (e, _) => Center(child: Text('Could not read source: $e')),
         data: (rows) {
           final s = rows.where((s) => s.id == widget.id).firstOrNull;
-          if (s == null) return const Center(child: Text('来源不存在，或不属于当前工作台账号。'));
+          if (s == null) return const Center(child: Text('Source not found, or not owned by this desk account.'));
           final controller = ref.read(readingSourcesProvider.notifier),
               cs = Theme.of(context).colorScheme;
           final selected = mode ?? s.mode, period = interval ?? s.interval;
@@ -72,21 +72,21 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
           return ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              Text(s.title, style: Theme.of(context).textTheme.headlineSmall),
+              Text(s.title(context), style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 5),
               const Text(
-                '保留原资料、关键词和历史。请在本机Chrome登录原站，并保留唯一的原网页作为专用监测页。重新登录后，先刷新原页确认内容可见，再重新绑定。',
+                'Keeps docs, keywords, and history. Sign in on the school site in local Chrome and keep one original page as the dedicated monitor tab. After re-login, refresh the page to confirm content, then rebind.',
               ),
-              heading('01 · 检查内容'),
-              fact('来源网页', s.url),
-              fact('原关键词', s.query),
-              fact('原站登录要求', s.loginRequirement),
-              fact('资料可见范围', '仅自己可见'),
-              fact('匹配范围', s.scope),
-              fact('关联资料', '${s.matchCount} 条匹配 · ${s.items.length} 份资料'),
-              heading('02 · 来源会话与后台重读'),
+              heading('01 · What is checked'),
+              fact('Source page', s.url),
+              fact('Original query', s.query),
+              fact('Original-site login', s.loginRequirement(context)),
+              fact('Visibility', 'Only me'),
+              fact('Match scope', s.scope(context)),
+              fact('Linked docs', '${s.matchCount}  matches · ${s.items.length}  docs'),
+              heading('02 · Source session & background reread'),
               if (s.result == 'documents_purged')
-                const Text('部分关联资料已经彻底删除。请先在原网页重新提取并保存，确认新的采集范围。'),
+                const Text('Some linked docs were permanently deleted. Recapture and save from the original page to confirm the new scope.'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -94,22 +94,22 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        s.identity,
+                        s.identity(context),
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         s.isPublic
-                            ? '公开来源依据你的声明；测试验证当次页面能否重新读取。'
-                            : '复用专用标签页的Chrome会话，每次实际刷新后读取；不复制Cookie到工作台。',
+                            ? 'Public source per your declaration; the test verifies this page can be reread.'
+                            : 'Reuses the dedicated tab’s Chrome session and reads after a real refresh; cookies are not copied to the desk.',
                       ),
                       const SizedBox(height: 9),
-                      Text(s.status, style: TextStyle(color: cs.primary)),
+                      Text(s.statusLabel(context), style: TextStyle(color: cs.primary)),
                       if (s.capability == 'account_unknown')
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
-                            '可以明确绑定当前原页会话进行单账号监测；无需为了识别邮箱而停留在手动模式。未识别到账号不代表已经认证，已知账号切换仍会暂停。',
+                            'You can bind the current page session for single-account monitoring; no need to stay manual just to detect email. Unknown account ≠ authenticated; known account switches still pause.',
                           ),
                         ),
                       const SizedBox(height: 12),
@@ -120,7 +120,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                           OutlinedButton.icon(
                             onPressed: () => launchUrl(Uri.parse(s.url)),
                             icon: const Icon(Icons.open_in_new),
-                            label: Text(s.isPublic ? '打开原网页' : '去原站登录'),
+                            label: Text(s.isPublic ? 'Open original page' : 'Sign in on school site'),
                           ),
                           FilledButton.icon(
                             onPressed:
@@ -130,15 +130,15 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                                 ? null
                                 : () => act(
                                     () => controller.activate(s, period),
-                                    '正在绑定原网页并启动自动监测；首次实际刷新完成后显示成功时间。',
+                                    'Binding the original page and starting auto-monitor; success time appears after the first real refresh.',
                                   ),
                             icon: const Icon(Icons.play_arrow),
                             label: Text(
                               s.active
-                                  ? '等待执行'
+                                  ? 'Waiting to run'
                                   : s.resident
-                                  ? '重新绑定监测页并启动'
-                                  : '绑定原页并开启定期监测',
+                                  ? 'Rebind monitor page and start'
+                                  : 'Bind page and enable periodic monitoring',
                             ),
                           ),
                           if (!s.resident && s.capability != 'account_unknown')
@@ -147,20 +147,20 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                                   ? null
                                   : () => act(
                                       () => controller.check(s, 'verify'),
-                                      '重读测试已排队；请保持 Chrome 与扩展运行。',
+                                      'Reread test queued; keep Chrome and the extension running.',
                                     ),
                               child: Text(
                                 s.active
-                                    ? '等待浏览器执行'
+                                    ? 'Waiting for browser'
                                     : s.verified
-                                    ? '重新测试重读'
-                                    : '授权并测试重读',
+                                    ? 'Retest reread'
+                                    : 'Authorize and test reread',
                               ),
                             ),
                         ],
                       ),
                       if (s.result == 'permission_denied')
-                        const Text('请在原网站打开插件并点击提取，允许访问后，再回到这里测试。'),
+                        const Text('Open the extension on the school site, extract, allow access, then return here to test.'),
                     ],
                   ),
                 ),
@@ -168,20 +168,20 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
               if (!s.deviceOnline)
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
-                  child: Text('尚未检测到执行设备近期连接；排队不代表已执行。'),
+                  child: Text('No recent executor connection; queued ≠ executed.'),
                 ),
-              heading('03 · 检查方式'),
+              heading('03 · Check mode'),
               if (s.resident)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 12),
-                  child: Text('周期、暂停和立即检查作用于此监测页的全部规则；删除只影响所选规则。'),
+                  child: Text('Interval, pause, and check-now apply to all rules on this monitor page; delete only affects the selected rule.'),
                 ),
               DropdownButtonFormField<String>(
                 initialValue: selected,
-                decoration: const InputDecoration(labelText: '检查方式'),
+                decoration: const InputDecoration(labelText: 'Check mode'),
                 items: const [
-                  DropdownMenuItem(value: 'manual', child: Text('仅手动检查')),
-                  DropdownMenuItem(value: 'periodic', child: Text('定期检查')),
+                  DropdownMenuItem(value: 'manual', child: Text('Manual check only')),
+                  DropdownMenuItem(value: 'periodic', child: Text('Periodic checks')),
                 ],
                 onChanged: !s.verified || busy
                     ? null
@@ -192,11 +192,11 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                   padding: const EdgeInsets.only(top: 15),
                   child: DropdownButtonFormField<int>(
                     initialValue: period,
-                    decoration: const InputDecoration(labelText: '检查周期'),
+                    decoration: const InputDecoration(labelText: 'Check interval'),
                     items: const [
-                      DropdownMenuItem(value: 1800, child: Text('每 30 分钟')),
-                      DropdownMenuItem(value: 3600, child: Text('每 1 小时')),
-                      DropdownMenuItem(value: 7200, child: Text('每 2 小时')),
+                      DropdownMenuItem(value: 1800, child: Text('Every 30 minutes')),
+                      DropdownMenuItem(value: 3600, child: Text('Every 1 hour')),
+                      DropdownMenuItem(value: 7200, child: Text('Every 2 hours')),
                     ],
                     onChanged: !s.verified || busy
                         ? null
@@ -205,7 +205,7 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                 ),
               const SizedBox(height: 13),
               const Text(
-                '专用监测页需要保持打开；可以关闭工作台页面。编辑时延后刷新，登录失效或标签关闭时暂停。Chrome、扩展与本地服务需保持运行；失败不覆盖成功资料。',
+                'Keep the dedicated monitor page open; desk can close. Edits defer refresh; login expiry or closed tab pauses. Keep Chrome, extension, and local service running; failures do not overwrite successful docs.',
               ),
               const SizedBox(height: 24),
               Wrap(
@@ -224,9 +224,9 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                                 paused: false,
                               ),
                             ),
-                            selected == 'periodic' ? '定期检查已启用。' : '手动检查设置已保存。',
+                            selected == 'periodic' ? 'Periodic checks enabled.' : 'Manual check settings saved.',
                           ),
-                    child: Text(selected == 'periodic' ? '启用定期检查' : '保存检查设置'),
+                    child: Text(selected == 'periodic' ? 'Enable periodic checks' : 'Save check settings'),
                   ),
                   if (s.verified)
                     OutlinedButton(
@@ -234,23 +234,23 @@ class _ReadingSettingsState extends ConsumerState<ReadingSettingsPage> {
                           ? null
                           : () => act(
                               () => controller.check(s, 'check'),
-                              '检查请求已排队，结果确认后更新状态。',
+                              'Check queued; status updates after confirmation.',
                             ),
-                      child: const Text('立即检查'),
+                      child: const Text('Check now'),
                     ),
                   TextButton(
                     onPressed: () => context.push('/sources/${s.id}/checks'),
-                    child: const Text('检查日志'),
+                    child: const Text('Check log'),
                   ),
                 ],
               ),
-              heading('已保存资料'),
+              heading('Saved docs'),
               for (final item in s.items)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.article_outlined),
                   title: Text('${item['title']}'),
-                  subtitle: Text('v${item['version']} · 可查看原文与版本差异'),
+                  subtitle: Text('v${item['version']} · view original & version diffs'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/item/${item['id']}'),
                 ),
@@ -269,10 +269,10 @@ class ReadingChecksPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('来源检查日志'),
+        title: const Text('Source check log'),
         actions: [
           IconButton(
-            tooltip: '刷新日志',
+            tooltip: 'Refresh log',
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(readingChecksProvider(id)),
           ),
@@ -291,13 +291,13 @@ class ReadingChecksBody extends ConsumerWidget {
       .watch(readingChecksProvider(id))
       .when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('日志读取失败：$e')),
+        error: (e, _) => Center(child: Text('Could not read log: $e')),
         data: (rows) => ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const Text('验证不更新成功检查时间；失败和未匹配不会覆盖已保存内容。'),
+            const Text('Verification does not update last-success time; failures and non-matches do not overwrite saved content.'),
             const SizedBox(height: 15),
-            if (rows.isEmpty) const Text('尚未执行来源检查。'),
+            if (rows.isEmpty) const Text('No source checks yet.'),
             for (final r in rows)
               Card(
                 child: ListTile(
@@ -309,14 +309,14 @@ class ReadingChecksBody extends ConsumerWidget {
                         ? Icons.check_circle_outline
                         : Icons.error_outline,
                   ),
-                  title: Text(readingResultLabel('${r['result']}')),
+                  title: Text(readingResultLabel('${r['result']}', context)),
                   subtitle: Text(
                     '${r['purpose'] == 'verify'
-                        ? '重读验证'
+                        ? 'Reread verification'
                         : r['purpose'] == 'activate'
-                        ? '首次刷新／绑定'
-                        : '来源检查'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()))}'
-                    '${r['result'] == 'result_rejected' ? '\n拒绝原因：${(r['detail'] as Map?)?['error'] ?? '未知'}；已有资料保留，请重新启动监测。' : ''}',
+                        ? 'First refresh / bind'
+                        : 'Source check'} · ${relative(tsToDate((r['checked_at'] as num).toDouble()), context)}'
+                    '${r['result'] == 'result_rejected' ? '\nRejected: ${(r['detail'] as Map?)?['error'] ?? 'unknown'}; saved docs kept—restart monitoring.' : ''}',
                   ),
                 ),
               ),

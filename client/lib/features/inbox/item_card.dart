@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
@@ -17,6 +18,7 @@ class ItemCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final t = Theme.of(context);
     final cs = t.colorScheme;
     final unread = !item.state.read;
@@ -27,8 +29,8 @@ class ItemCard extends ConsumerWidget {
         : (unread ? cs.surfaceContainerLow : cs.surface);
     final meta = [
       if (item.course.isNotEmpty) shortCourse(item.course),
-      item.source?.name ?? kindLabel(item.kind),
-      relative(item.sortTime),
+      item.source?.name ?? kindLabel(item.kind, context),
+      relative(item.sortTime, context),
     ].join(' · ');
     final card = Material(
       color: base,
@@ -89,7 +91,7 @@ class ItemCard extends ConsumerWidget {
                 DocumentTrashButton(item: item),
                 IconButton(
                   visualDensity: VisualDensity.compact,
-                  tooltip: item.state.starred ? '取消收藏' : '收藏',
+                  tooltip: item.state.starred ? l10n.unstar : l10n.star,
                   icon: Icon(
                     item.state.starred ? Icons.star_rounded : Icons.star_outline_rounded,
                     color: item.state.starred ? Brand.wheat : cs.outline,
@@ -113,8 +115,8 @@ class ItemCard extends ConsumerWidget {
         }
         return false;
       },
-      background: _swipeBg(context, Icons.mark_email_read_outlined, item.state.read ? '标为未读' : '标为已读', Alignment.centerLeft, cs.primaryContainer),
-      secondaryBackground: _swipeBg(context, Icons.playlist_add_check, item.state.todo == 'todo' ? '移出待办' : '加入待办', Alignment.centerRight, cs.tertiaryContainer),
+      background: _swipeBg(context, Icons.mark_email_read_outlined, item.state.read ? l10n.markUnreadShort : l10n.markReadShort, Alignment.centerLeft, cs.primaryContainer),
+      secondaryBackground: _swipeBg(context, Icons.playlist_add_check, item.state.todo == 'todo' ? l10n.removeTodo : l10n.addTodo, Alignment.centerRight, cs.tertiaryContainer),
       child: card,
     );
   }

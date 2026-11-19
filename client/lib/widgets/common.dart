@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
+import '../l10n/app_localizations.dart';
 import '../theme.dart';
 
 class EmptyState extends StatelessWidget {
@@ -113,9 +114,10 @@ class DeadlineBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (done) return Pill('已完成', color: Brand.ok, icon: Icons.check);
+    final l10n = AppLocalizations.of(context);
+    if (done) return Pill(l10n.completed, color: Brand.ok, icon: Icons.check);
     final u = urgencyOf(due);
-    return Pill(countdown(due), color: urgencyColor(context, u), icon: Icons.schedule, filled: u == Urgency.critical);
+    return Pill(countdown(due, context), color: urgencyColor(context, u), icon: Icons.schedule, filled: u == Urgency.critical);
   }
 }
 
@@ -134,7 +136,7 @@ class ChangeBadge extends StatelessWidget {
         Icon(Icons.auto_awesome, size: 14, color: cs.onTertiaryContainer),
         const SizedBox(width: 4),
         Flexible(
-          child: Text(note,
+          child: Text(localizeChangeNote(note, context),
               maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontSize: 12, fontWeight: FontWeight.w700)),
         ),
       ]),
@@ -159,7 +161,7 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ch = name.isEmpty ? '拾' : name.characters.first;
+    final ch = name.isEmpty ? AppLocalizations.of(context).brandFallback : name.characters.first;
     return Container(
       width: size,
       height: size,
@@ -180,7 +182,7 @@ class GleanerLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ClipRRect(
         borderRadius: BorderRadius.circular(size * 0.2),
-        child: Image.asset('assets/logo.png', width: size, height: size, semanticLabel: '拾课'),
+        child: Image.asset('assets/logo.png', width: size, height: size, semanticLabel: AppLocalizations.of(context).appTitle),
       );
 }
 

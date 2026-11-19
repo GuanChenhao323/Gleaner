@@ -70,10 +70,10 @@ async def seed(gateway: str, mail: object) -> None:
         body = {
             "email": "demo@gleaner.test",
             "password": "demo12345",
-            "name": "小林",
-            "grade": "2024级",
-            "major": "计算机",
-            "courses": ["网络编程", "操作系统"],
+            "name": "Xiaolin",
+            "grade": "Class of 2024",
+            "major": "Computer Science",
+            "courses": ["Network Programming", "Operating Systems"],
             "agree_privacy": True,
         }
         r = await c.post(f"{gateway}/api/auth/code", json_body={"email": body["email"]})

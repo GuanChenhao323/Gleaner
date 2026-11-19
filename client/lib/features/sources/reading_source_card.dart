@@ -85,12 +85,12 @@ class ReadingSourceCard extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
-                            s.title,
+                            s.title(context),
                             style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            s.loginRequirement,
+                            s.loginRequirement(context),
                             style: TextStyle(
                               fontSize: 12,
                               color: cs.onSurfaceVariant,
@@ -119,7 +119,7 @@ class ReadingSourceCard extends StatelessWidget {
               runSpacing: 7,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Text('提取条件', style: TextStyle(fontSize: 12)),
+                const Text('Extract conditions', style: TextStyle(fontSize: 12)),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 9,
@@ -135,7 +135,7 @@ class ReadingSourceCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  s.scope,
+                  s.scope(context),
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
                 ),
               ],
@@ -146,7 +146,7 @@ class ReadingSourceCard extends StatelessWidget {
               runSpacing: 9,
               children: [
                 Text(
-                  s.status,
+                  s.statusLabel(context),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -154,24 +154,24 @@ class ReadingSourceCard extends StatelessWidget {
                   ),
                 ),
                 if (s.items.isNotEmpty)
-                  meta(Icons.task_alt, '资料已保存'),
-                meta(Icons.person_outline, s.identity),
-                meta(Icons.lock_outline, '资料仅自己可见'),
+                  meta(Icons.task_alt, 'Docs saved'),
+                meta(Icons.person_outline, s.identity(context)),
+                meta(Icons.lock_outline, 'Docs private to you'),
                 meta(
                   Icons.check_circle_outline,
-                  '最后成功：${relative(tsToDate(s.lastSuccess?.toDouble()))}',
+                  'Last success: ${relative(tsToDate(s.lastSuccess?.toDouble()), context)}',
                 ),
                 meta(
                   Icons.history,
-                  '最近尝试：${relative(tsToDate(s.lastAttempt?.toDouble()))}',
+                  'Last attempt: ${relative(tsToDate(s.lastAttempt?.toDouble()), context)}',
                 ),
                 meta(
                   Icons.inventory_2_outlined,
                   '${s.matchCount} ${s.isTimeline
-                      ? '条活动摘要'
+                      ? ' activity summaries'
                       : s.platform == 'generic'
-                      ? '个片段'
-                      : '条匹配'} · ${s.items.length} 份资料',
+                      ? ' fragments'
+                      : ' matches'} · ${s.items.length}  docs',
                 ),
               ],
             ),
@@ -183,12 +183,12 @@ class ReadingSourceCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         s.result == 'need_login'
-                            ? '请在原站重新登录；已有资料与成功记录保留。'
-                            : '来源账号不符。回到原账号后重新测试，普通恢复不能解除绑定保护。',
+                            ? 'Sign in again on the school site; saved docs and successful checks are kept.'
+                            : 'Source account mismatch. Return to the original account and retest; normal restore cannot lift binding protection.',
                         style: TextStyle(fontSize: 12, color: cs.error),
                       ),
                     ),
-                    TextButton(onPressed: onOpen, child: const Text('去原站登录')),
+                    TextButton(onPressed: onOpen, child: const Text('Sign in on school site')),
                   ],
                 ),
               ),
@@ -202,43 +202,43 @@ class ReadingSourceCard extends StatelessWidget {
               children: [
                 Text(
                   s.capability == 'account_unknown'
-                      ? '仅当前页手动采集'
+                      ? 'Manual capture on this page only'
                       : !s.verified
-                      ? '尚未验证后台重读'
+                      ? 'Background reread not verified yet'
                       : s.mode == 'manual'
-                      ? '仅手动检查'
+                      ? 'Manual check only'
                       : s.paused
-                      ? '定期检查已暂停'
-                      : '每 ${s.interval ~/ 60} 分钟 · 下次约 ${relative(tsToDate(s.nextAt?.toDouble()))}',
+                      ? 'Periodic checks paused'
+                      : 'Every ${s.interval ~/ 60} min · next ~ ${relative(tsToDate(s.nextAt?.toDouble()), context)}',
                   style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                 ),
                 TextButton(
                   onPressed: onDetails,
-                  child: Text(s.result == 'changed' ? '查看资料与变化' : '查看资料'),
+                  child: Text(s.result == 'changed' ? 'View docs & changes' : 'View docs'),
                 ),
-                TextButton(onPressed: onLogs, child: const Text('检查日志')),
-                TextButton(onPressed: onSettings, child: const Text('设置')),
+                TextButton(onPressed: onLogs, child: const Text('Check log')),
+                TextButton(onPressed: onSettings, child: const Text('Settings')),
                 if (onDelete != null)
                   TextButton.icon(
                     onPressed: onDelete,
                     icon: const Icon(Icons.delete_outline, size: 16),
-                    label: Text(s.resident ? '删除此规则' : '删除来源'),
+                    label: Text(s.resident ? 'Delete this rule' : 'Delete source'),
                   ),
                 if (s.mode == 'periodic' && s.verified)
                   TextButton(
                     onPressed: s.active ? null : onPause,
-                    child: Text(s.paused ? '恢复定期' : '暂停'),
+                    child: Text(s.paused ? 'Resume periodic' : 'Pause'),
                   ),
                 if (s.verified)
                   OutlinedButton.icon(
                     onPressed: s.active ? null : onCheck,
                     icon: const Icon(Icons.refresh, size: 16),
-                    label: Text(s.active ? '等待检查' : '立即检查'),
+                    label: Text(s.active ? 'Waiting for check' : 'Check now'),
                   )
                 else if (s.capability != 'account_unknown')
                   FilledButton.tonal(
                     onPressed: onSettings,
-                    child: const Text('启用自动监测'),
+                    child: const Text('Enable auto-monitor'),
                   ),
               ],
             ),

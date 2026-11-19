@@ -6,13 +6,17 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
-String typeLabel(String t) => switch (t) {
-      'todo' => '待办',
-      'event' => '日程',
-      _ => '通知',
-    };
+String typeLabel(String t, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return switch (t) {
+    'todo' => l10n.typeTodo,
+    'event' => l10n.typeEvent,
+    _ => l10n.typeNotice,
+  };
+}
 
 IconData typeIcon(String t) => switch (t) {
       'todo' => Icons.task_alt,
@@ -26,42 +30,54 @@ Color typeColor(String t) => switch (t) {
       _ => const Color(0xFFB07A28),
     };
 
-String statusLabel(String s) => switch (s) {
-      'open' => '待完成',
-      'done' => '已完成',
-      'active' => '未归档',
-      'archived' => '已归档',
-      'unread' => '未读',
-      _ => '已读',
-    };
+String statusLabel(String s, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return switch (s) {
+    'open' => l10n.statusOpen,
+    'done' => l10n.statusDone,
+    'active' => l10n.statusActive,
+    'archived' => l10n.statusArchived,
+    'unread' => l10n.statusUnread,
+    _ => l10n.statusRead,
+  };
+}
 
-/// 按类型切换处理状态的按钮文字。
-String statusAction(Item i) => switch (i.type) {
-      'todo' => i.isDone ? '标为待完成' : '标为已完成',
-      'event' => i.state.archived ? '取消归档' : '归档',
-      _ => i.state.read ? '标为未读' : '标为已读',
-    };
+String statusAction(Item i, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return switch (i.type) {
+    'todo' => i.isDone ? l10n.markOpen : l10n.markDone,
+    'event' => i.state.archived ? l10n.unarchive : l10n.archive,
+    _ => i.state.read ? l10n.markUnread : l10n.markRead,
+  };
+}
 
-const fieldLabels = {
-  'title': '标题',
-  'summary': '摘要',
-  'type': '类型',
-  'deadline_at': '截止时间',
-  'start_at': '开始时间',
-  'end_at': '结束时间',
-  'location': '地点',
-  'requirements': '要求',
-};
+String fieldLabel(String field, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return switch (field) {
+    'title' => l10n.fieldTitle,
+    'summary' => l10n.fieldSummary,
+    'type' => l10n.fieldType,
+    'deadline_at' => l10n.fieldDeadline,
+    'start_at' => l10n.fieldStart,
+    'end_at' => l10n.fieldEnd,
+    'location' => l10n.fieldLocation,
+    'requirements' => l10n.fieldRequirements,
+    'body' => l10n.fieldBody,
+    _ => field,
+  };
+}
 
-String fieldText(String field, Object? v) {
-  if (v == null || (v is String && v.isEmpty)) return '（空）';
-  if (field.endsWith('_at') && v is num) return absolute(tsToDate(v)!);
-  if (field == 'type') return typeLabel(v.toString());
+String fieldText(String field, Object? v, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  if (v == null || (v is String && v.isEmpty)) return l10n.emptyValue;
+  if (field.endsWith('_at') && v is num) return absolute(tsToDate(v)!, context);
+  if (field == 'type') return typeLabel(v.toString(), context);
   return v.toString();
 }
 
 void _toastError(BuildContext context, Object e) {
-  if (context.mounted) toast(context, e is ApiException ? e.message : '操作失败：$e');
+  final l10n = AppLocalizations.of(context);
+  if (context.mounted) toast(context, e is ApiException ? e.message : l10n.operationFailed('$e'));
 }
 
 /// 执行需要联网的操作；失败时提示原因（例如离线、不支持监测）。
@@ -81,9 +97,10 @@ class TypeStatusRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = typeColor(item.type);
     return Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-      Pill(typeLabel(item.type), color: c, icon: typeIcon(item.type)),
-      Pill(statusLabel(item.status), color: Theme.of(context).colorScheme.onSurfaceVariant),
-      if (item.origin == 'capture') Pill('插件采集', color: Theme.of(context).colorScheme.primary, icon: Icons.extension_outlined),
+      Pill(typeLabel(item.type, context), color: c, icon: typeIcon(item.type)),
+      Pill(statusLabel(item.status, context), color: Theme.of(context).colorScheme.onSurfaceVariant),
+      if (item.origin == 'capture')
+        Pill(AppLocalizations.of(context).pluginCapture, color: Theme.of(context).colorScheme.primary, icon: Icons.extension_outlined),
     ]);
   }
 }
@@ -94,6 +111,7 @@ class EventCard extends StatelessWidget {
   const EventCard({super.key, required this.item});
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final start = tsToDate(item.startAt);
     final end = tsToDate(item.endAt);
     if (start == null && item.location.isEmpty) return const SizedBox.shrink();
@@ -103,8 +121,8 @@ class EventCard extends StatelessWidget {
         if (start != null)
           ListTile(
             leading: const Icon(Icons.schedule),
-            title: Text(end == null ? absolute(start) : '${absolute(start)} – ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}'),
-            subtitle: Text(start.isBefore(DateTime.now()) ? '已开始' : countdown(start), style: TextStyle(color: cs.onSurfaceVariant)),
+            title: Text(end == null ? absolute(start, context) : '${absolute(start, context)} – ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}'),
+            subtitle: Text(start.isBefore(DateTime.now()) ? l10n.alreadyStarted : countdown(start, context), style: TextStyle(color: cs.onSurfaceVariant)),
           ),
         if (item.location.isNotEmpty) ListTile(leading: const Icon(Icons.place_outlined), title: Text(item.location)),
       ]),
@@ -119,6 +137,7 @@ class ConflictBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (item.conflicts.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     final store = ref.read(feedProvider.notifier);
     final fields = item.fields;
@@ -131,23 +150,22 @@ class ConflictBanner extends ConsumerWidget {
           Icon(Icons.call_split, color: cs.onErrorContainer),
           const SizedBox(width: 8),
           Expanded(
-            child: Text('你改过的内容在来源里也更新了，请确认保留哪一个',
-                style: TextStyle(color: cs.onErrorContainer, fontWeight: FontWeight.w700)),
+            child: Text(l10n.conflictBanner, style: TextStyle(color: cs.onErrorContainer, fontWeight: FontWeight.w700)),
           ),
         ]),
         for (final f in item.conflicts) ...[
           const SizedBox(height: 10),
-          Text(fieldLabels[f] ?? f, style: TextStyle(color: cs.onErrorContainer, fontWeight: FontWeight.w600)),
-          Text('我的：${fieldText(f, fields[f]?.value)}', style: TextStyle(color: cs.onErrorContainer)),
-          Text('来源：${fieldText(f, fields[f]?.source)}', style: TextStyle(color: cs.onErrorContainer)),
+          Text(fieldLabel(f, context), style: TextStyle(color: cs.onErrorContainer, fontWeight: FontWeight.w600)),
+          Text(l10n.mineValue(fieldText(f, fields[f]?.value, context)), style: TextStyle(color: cs.onErrorContainer)),
+          Text(l10n.sourceValue(fieldText(f, fields[f]?.source, context)), style: TextStyle(color: cs.onErrorContainer)),
           Wrap(spacing: 8, children: [
             TextButton(
               onPressed: () => _run(context, () => store.resolveConflict(item, f, 'mine')),
-              child: const Text('保留我的'),
+              child: Text(l10n.keepMine),
             ),
             TextButton(
               onPressed: () => _run(context, () => store.resolveConflict(item, f, 'source')),
-              child: const Text('采用来源'),
+              child: Text(l10n.useSource),
             ),
           ]),
         ],
@@ -161,28 +179,29 @@ class MonitorCard extends ConsumerWidget {
   final Item item;
   const MonitorCard({super.key, required this.item});
 
-  static String statusText(MonitorInfo m) => switch (m.status) {
-        'unsupported' => '暂不支持自动检查，可打开原始来源手动核对',
-        'disabled' => '已关闭自动检查',
-        'pending' => '已开启，等待第一次检查',
-        'unchanged' => '最近一次检查：无变化',
-        'changed' => '最近一次检查：发现变化',
-        'failed' => '最近一次检查失败',
+  static String statusText(MonitorInfo m, AppLocalizations l10n) => switch (m.status) {
+        'unsupported' => l10n.monitorUnsupported,
+        'disabled' => l10n.monitorDisabled,
+        'pending' => l10n.monitorPending,
+        'unchanged' => l10n.monitorUnchanged,
+        'changed' => l10n.monitorChanged,
+        'failed' => l10n.monitorFailed,
         _ => m.status,
       };
 
-  static String errorText(MonitorInfo m) => switch (m.errorCode) {
-        'auth_expired' || 'need_login' => '登录已过期：请在浏览器里重新登录该网站',
-        'forbidden' => '没有权限访问该页面',
-        'network' || 'failed' => '网络错误',
-        'not_found' => '页面上找不到这条事项',
-        'parse_failed' => '页面结构变了，暂时无法解析',
-        'unsupported' => '该页面不再支持自动检查',
+  static String errorText(MonitorInfo m, AppLocalizations l10n) => switch (m.errorCode) {
+        'auth_expired' || 'need_login' => l10n.errAuthExpired,
+        'forbidden' => l10n.errForbidden,
+        'network' || 'failed' => l10n.errNetwork,
+        'not_found' => l10n.errNotFound,
+        'parse_failed' => l10n.errParseFailed,
+        'unsupported' => l10n.errUnsupported,
         _ => m.errorCode,
       };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final m = item.monitor;
     final cs = Theme.of(context).colorScheme;
     final failed = m.status == 'failed';
@@ -191,14 +210,13 @@ class MonitorCard extends ConsumerWidget {
       child: Column(children: [
         ListTile(
           leading: Icon(failed ? Icons.sync_problem : Icons.radar, color: color),
-          title: Text(statusText(m), style: TextStyle(color: failed ? cs.error : null, fontWeight: failed ? FontWeight.w700 : null)),
+          title: Text(statusText(m, l10n), style: TextStyle(color: failed ? cs.error : null, fontWeight: failed ? FontWeight.w700 : null)),
           subtitle: Text(
             [
-              // 失败不更新最后成功检查时间，所以这里永远是真正成功的那一次
-              '最后成功检查：${m.lastSuccessAt == null ? '还没有' : relative(tsToDate(m.lastSuccessAt))}',
-              if (failed) '原因：${m.errorMessage.isNotEmpty ? m.errorMessage : errorText(m)}',
-              if (m.lastCheckedAt != null && failed) '失败时间：${relative(tsToDate(m.lastCheckedAt))}',
-              if (m.enabled && m.nextCheckAt != null) '下次检查：${absolute(tsToDate(m.nextCheckAt)!)}（需 Chrome 与本地后端运行）',
+              l10n.lastSuccessCheckLine(m.lastSuccessAt == null ? l10n.lastSuccessNever : relative(tsToDate(m.lastSuccessAt), context)),
+              if (failed) l10n.reasonLine(localizeMonitorReason(m, l10n)),
+              if (m.lastCheckedAt != null && failed) l10n.failedAtLine(relative(tsToDate(m.lastCheckedAt), context)),
+              if (m.enabled && m.nextCheckAt != null) l10n.nextCheckLine(absolute(tsToDate(m.nextCheckAt)!, context)),
             ].join('\n'),
           ),
           isThreeLine: failed || (m.enabled && m.nextCheckAt != null),
@@ -240,81 +258,85 @@ Future<void> showEditFields(BuildContext context, WidgetRef ref, Item item) asyn
     return DateTime(d.year, d.month, d.day, t?.hour ?? 23, t?.minute ?? 59);
   }
 
+  final l10n = AppLocalizations.of(context);
   final saved = await showDialog<bool>(
     context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setLocal) {
-        Widget resetBtn(String f) => fields[f]?.edited == true && !reset.contains(f)
-            ? TextButton(onPressed: () => setLocal(() => reset.add(f)), child: const Text('恢复来源值'))
-            : (reset.contains(f) ? const Text('将恢复来源值', style: TextStyle(fontSize: 12)) : const SizedBox.shrink());
-        Widget timeRow(String f) => Row(children: [
-              Expanded(
-                child: Text('${fieldLabels[f]}：${times[f] == null ? '未设置' : absolute(times[f]!)}'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  final v = await pick(ctx, times[f]);
-                  if (v != null) {
-                    setLocal(() {
-                      times[f] = v;
-                      reset.remove(f);
-                    });
-                  }
-                },
-                child: const Text('选择'),
-              ),
-              if (times[f] != null)
+    builder: (ctx) {
+      final dlg = AppLocalizations.of(ctx);
+      return StatefulBuilder(
+        builder: (ctx, setLocal) {
+          Widget resetBtn(String f) => fields[f]?.edited == true && !reset.contains(f)
+              ? TextButton(onPressed: () => setLocal(() => reset.add(f)), child: Text(dlg.restoreSourceValue))
+              : (reset.contains(f) ? Text(dlg.willRestoreSource, style: const TextStyle(fontSize: 12)) : const SizedBox.shrink());
+          Widget timeRow(String f) => Row(children: [
+                Expanded(
+                  child: Text('${fieldLabel(f, ctx)}：${times[f] == null ? dlg.notSet : absolute(times[f]!, ctx)}'),
+                ),
                 TextButton(
-                  onPressed: () => setLocal(() {
-                    times[f] = null;
-                    reset.remove(f);
-                  }),
-                  child: const Text('清空'),
+                  onPressed: () async {
+                    final v = await pick(ctx, times[f]);
+                    if (v != null) {
+                      setLocal(() {
+                        times[f] = v;
+                        reset.remove(f);
+                      });
+                    }
+                  },
+                  child: Text(dlg.choose),
                 ),
-              resetBtn(f),
-            ]);
-        return AlertDialog(
-          title: const Text('修改事项'),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('修改只影响你看到的内容；来源更新不会覆盖，若来源也改了会提示你确认。', style: TextStyle(fontSize: 12)),
-                const SizedBox(height: 12),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'todo', label: Text('待办'), icon: Icon(Icons.task_alt)),
-                    ButtonSegment(value: 'event', label: Text('日程'), icon: Icon(Icons.event)),
-                    ButtonSegment(value: 'notice', label: Text('通知'), icon: Icon(Icons.campaign_outlined)),
-                  ],
-                  selected: {type},
-                  onSelectionChanged: (s) => setLocal(() {
-                    type = s.first;
-                    reset.remove('type');
-                  }),
-                ),
-                for (final f in ['title', 'summary', 'location', 'requirements']) ...[
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: text[f],
-                    maxLines: f == 'summary' || f == 'requirements' ? 3 : 1,
-                    decoration: InputDecoration(labelText: fieldLabels[f], isDense: true),
-                    onChanged: (_) => setLocal(() => reset.remove(f)),
+                if (times[f] != null)
+                  TextButton(
+                    onPressed: () => setLocal(() {
+                      times[f] = null;
+                      reset.remove(f);
+                    }),
+                    child: Text(dlg.clear),
                   ),
-                  Align(alignment: Alignment.centerRight, child: resetBtn(f)),
-                ],
-                const SizedBox(height: 4),
-                for (final f in ['deadline_at', 'start_at', 'end_at']) timeRow(f),
-              ]),
+                resetBtn(f),
+              ]);
+          return AlertDialog(
+            title: Text(dlg.editItem),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(dlg.editItemHint, style: const TextStyle(fontSize: 12)),
+                  const SizedBox(height: 12),
+                  SegmentedButton<String>(
+                    segments: [
+                      ButtonSegment(value: 'todo', label: Text(dlg.typeTodo), icon: const Icon(Icons.task_alt)),
+                      ButtonSegment(value: 'event', label: Text(dlg.typeEvent), icon: const Icon(Icons.event)),
+                      ButtonSegment(value: 'notice', label: Text(dlg.typeNotice), icon: const Icon(Icons.campaign_outlined)),
+                    ],
+                    selected: {type},
+                    onSelectionChanged: (s) => setLocal(() {
+                      type = s.first;
+                      reset.remove('type');
+                    }),
+                  ),
+                  for (final f in ['title', 'summary', 'location', 'requirements']) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: text[f],
+                      maxLines: f == 'summary' || f == 'requirements' ? 3 : 1,
+                      decoration: InputDecoration(labelText: fieldLabel(f, ctx), isDense: true),
+                      onChanged: (_) => setLocal(() => reset.remove(f)),
+                    ),
+                    Align(alignment: Alignment.centerRight, child: resetBtn(f)),
+                  ],
+                  const SizedBox(height: 4),
+                  for (final f in ['deadline_at', 'start_at', 'end_at']) timeRow(f),
+                ]),
+              ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
-          ],
-        );
-      },
-    ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(dlg.actionCancel)),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(dlg.actionSave)),
+            ],
+          );
+        },
+      );
+    },
   );
   if (saved != true || !context.mounted) return;
   // 只提交真的改了的字段：与当前生效值相同的不发，免得把“没改”记成用户修改
@@ -334,7 +356,7 @@ Future<void> showEditFields(BuildContext context, WidgetRef ref, Item item) asyn
   if (set.isEmpty && reset.isEmpty) return;
   try {
     await ref.read(feedProvider.notifier).editFields(item, set: set, reset: reset.toList());
-    if (context.mounted) toast(context, '已保存修改');
+    if (context.mounted) toast(context, l10n.editsSaved);
   } catch (e) {
     if (context.mounted) _toastError(context, e);
   }
@@ -350,6 +372,7 @@ class VersionDiff extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     final rows = <Widget>[];
     final prev = previous?.snapshot ?? const {};
@@ -366,15 +389,15 @@ class VersionDiff extends StatelessWidget {
         }
       }
       if ('${a ?? ''}' == '${b ?? ''}') continue;
-      final label = f == 'body' ? '正文' : (fieldLabels[f] ?? f);
+      final label = fieldLabel(f, context);
       final long = f == 'body' || f == 'summary';
       rows.add(Padding(
         padding: const EdgeInsets.only(top: 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-          Text('旧：${_short(fieldText(f, a), long)}',
+          Text(l10n.oldValue(_short(fieldText(f, a, context), long)),
               style: TextStyle(fontSize: 12, color: cs.error, decoration: TextDecoration.lineThrough)),
-          Text('新：${_short(fieldText(f, b), long)}', style: TextStyle(fontSize: 12, color: cs.primary)),
+          Text(l10n.newValue(_short(fieldText(f, b, context), long)), style: TextStyle(fontSize: 12, color: cs.primary)),
         ]),
       ));
     }

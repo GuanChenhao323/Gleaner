@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'assignment_list.dart';
@@ -24,6 +25,7 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final courses = ref.watch(coursesProvider);
     final cs = Theme.of(context).colorScheme;
     final t = Theme.of(context);
@@ -32,13 +34,13 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
       appBar: AppBar(
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/courses')),
         actions: [
-          FilterChip(label: const Text('已完成'), selected: showDone, onSelected: (v) => setState(() => showDone = v)),
+          FilterChip(label: Text(l10n.completed), selected: showDone, onSelected: (v) => setState(() => showDone = v)),
           const SizedBox(width: 12),
         ],
       ),
       body: courses.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: '课程信息需要联网获取', message: '$e'),
+        error: (e, _) => EmptyState(icon: Icons.cloud_off, title: l10n.courseNeedNetwork, message: '$e'),
         data: (list) {
           Course? match;
           for (final c in list) {
@@ -50,9 +52,9 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
           if (match == null) {
             return EmptyState(
               icon: Icons.class_outlined,
-              title: '找不到课程',
+              title: l10n.courseNotFound,
               message: widget.name,
-              action: TextButton(onPressed: () => context.go('/courses'), child: const Text('返回课程列表')),
+              action: TextButton(onPressed: () => context.go('/courses'), child: Text(l10n.backToCourses)),
             );
           }
           final c = match;
@@ -79,39 +81,39 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
                   ),
                   Column(children: [
                     Text('$openCount', style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: color)),
-                    Text('待完成', style: t.textTheme.labelSmall),
+                    Text(l10n.statusPending, style: t.textTheme.labelSmall),
                   ]),
                 ]),
               ),
               const SizedBox(height: 20),
-              SectionHeader('作业', trailing: '${c.assignments.length}'),
+              SectionHeader(l10n.assignments, trailing: '${c.assignments.length}'),
               if (c.assignments.isEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
-                  child: Text('还没有作业', style: TextStyle(color: cs.onSurfaceVariant)),
+                  child: Text(l10n.noAssignmentsYet, style: TextStyle(color: cs.onSurfaceVariant)),
                 )
               else ...[
                 for (final k in deadlineGroupOrder)
                   if (grouped.groups[k] != null) ...[
-                    SectionHeader(k, trailing: '${grouped.groups[k]!.length}'),
+                    SectionHeader(deadlineGroupLabel(k, l10n), trailing: '${grouped.groups[k]!.length}'),
                     for (final a in grouped.groups[k]!) AssignmentTile(a, showCourse: false),
                   ],
                 if (showDone && grouped.done.isNotEmpty) ...[
-                  SectionHeader('已完成', trailing: '${grouped.done.length}'),
+                  SectionHeader(l10n.completed, trailing: '${grouped.done.length}'),
                   for (final a in grouped.done) AssignmentTile(a, showCourse: false),
                 ],
                 if (!showDone && grouped.done.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 8, bottom: 8),
-                    child: Center(child: Text('${grouped.done.length} 项已完成', style: TextStyle(color: cs.onSurfaceVariant))),
+                    child: Center(child: Text(l10n.doneCount(grouped.done.length), style: TextStyle(color: cs.onSurfaceVariant))),
                   ),
               ],
               const SizedBox(height: 12),
-              SectionHeader('通知', trailing: c.notices.isEmpty ? null : '${c.notices.length}'),
+              SectionHeader(l10n.inboxNotice, trailing: c.notices.isEmpty ? null : '${c.notices.length}'),
               if (c.notices.isEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
-                  child: Text('暂无通知', style: TextStyle(color: cs.onSurfaceVariant)),
+                  child: Text(l10n.noNotices, style: TextStyle(color: cs.onSurfaceVariant)),
                 )
               else
                 for (final n in c.notices)
@@ -119,16 +121,16 @@ class _CourseDetailPageState extends ConsumerState<CourseDetailPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(kindIcon(n.kind)),
                     title: Text(n.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(relative(n.sortTime)),
-                    trailing: Text(kindLabel(n.kind), style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                    subtitle: Text(relative(n.sortTime, context)),
+                    trailing: Text(kindLabel(n.kind, context), style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
                     onTap: () => context.push('/item/${n.id}'),
                   ),
               const SizedBox(height: 12),
-              const SectionHeader('教师'),
+              SectionHeader(AppLocalizations.of(context).teachersHeader),
               if (c.teachers.isEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
-                  child: Text('添加“教师信息”来源以显示老师联系方式', style: TextStyle(color: cs.onSurfaceVariant)),
+                  child: Text(AppLocalizations.of(context).addFacultySourceHint, style: TextStyle(color: cs.onSurfaceVariant)),
                 )
               else
                 for (final te in c.teachers) _TeacherTile(te),

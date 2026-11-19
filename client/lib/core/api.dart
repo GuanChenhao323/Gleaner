@@ -39,12 +39,12 @@ class Api {
     try {
       r = await dio.request(path, data: data, queryParameters: query, options: Options(method: method, headers: headers));
     } on DioException catch (e) {
-      throw ApiException(null, 'offline', '网络不可用：${e.message ?? e.type.name}');
+      throw ApiException(null, 'offline', 'Network unavailable: ${e.message ?? e.type.name}');
     }
     final body = r.data;
     if ((r.statusCode ?? 500) >= 400) {
       final m = body is Map ? body : const {};
-      throw ApiException(r.statusCode, (m['error'] ?? 'error').toString(), (m['message'] ?? '请求失败（${r.statusCode}）').toString());
+      throw ApiException(r.statusCode, (m['error'] ?? 'error').toString(), (m['message'] ?? 'Request failed (${r.statusCode})').toString());
     }
     return body;
   }
@@ -61,9 +61,9 @@ class Api {
   Future<void> logout({bool all = false}) => _req('POST', '/api/auth/logout', data: {'all_devices': all});
   Future<Me> me() async => Me.fromJson(await _map('GET', '/api/me'));
   Future<Me> updateMe(Map<String, dynamic> body) async => Me.fromJson(await _map('PUT', '/api/me', data: body));
-  /// 删除账号需要再次输入密码（防止令牌被盗后被删号）。
+  /// Delete账号需要再次输入Password（防止令牌被盗后被删号）。
   Future<void> deleteAccount(String password) => _req('DELETE', '/api/account', data: {'password': password});
-  /// 修改密码：其他设备全部退出，返回当前设备的新令牌（与登录响应格式相同）。
+  /// 修改Password：其他设备全部退出，返回当前设备的新令牌（与Sign in响应格式相同）。
   Future<Map<String, dynamic>> changePassword(String oldPassword, String newPassword) =>
       _map('PUT', '/api/me/password', data: {'old_password': oldPassword, 'new_password': newPassword});
 
@@ -89,7 +89,7 @@ class Api {
     final m = await _map('PUT', '/api/items/$id/labels', data: {'label_ids': labelIds});
     return ((m['label_ids'] ?? []) as List).map((e) => (e as num).toInt()).toList();
   }
-  /// 修改字段（与来源版本分开保存）：set 为新值，reset 为恢复来源值的字段（IC-002 3.3）。
+  /// 修改字段（与来源版本分开Save）：set 为新值，reset 为Resume来源值的字段（IC-002 3.3）。
   Future<Item> patchFields(int id, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
       Item.fromJson(await _map('PATCH', '/api/items/$id/fields', data: {'set': set, 'reset': reset}));
 
@@ -125,9 +125,9 @@ class Api {
   Future<void> removeSource(int id) => _req('DELETE', '/api/sources/$id');
   Future<Map<String, dynamic>> sourceLogin(int id, String user, String pw, {Map<String, dynamic>? smtp}) =>
       _map('POST', '/api/sources/$id/login', data: {'username': user, 'password': pw, 'smtp': ?smtp});
-  /// 统一认证（CAS / SSO）的 Moodle：粘贴“偏好设置 → 安全密钥”里的密钥，不经手统一认证密码。
+  /// 统一认证（CAS / SSO）的 Moodle：粘贴“偏好Settings → Security key”里的密钥，不经手统一认证Password。
   Future<Map<String, dynamic>> sourceLoginToken(int id, String token) => _map('POST', '/api/sources/$id/login', data: {'token': token});
-  /// 立即检查。返回服务端说明：采集服务不在线时 checking=false，只是排队。
+  /// Check now。返回服务端说明：采集服务不在线时 checking=false，只是排队。
   Future<Map<String, dynamic>> refreshSource(int id) async {
     final b = await _req('POST', '/api/sources/$id/refresh');
     return b is Map ? Map<String, dynamic>.from(b) : const {};
@@ -136,17 +136,17 @@ class Api {
   // Browser capture v1 has a stricter success envelope than legacy APIs.
   Future<Map<String, dynamic>> _browser(String method, String path, {Object? data}) async {
     final result = await _map(method, path, data: data);
-    if (result['schema_version'] != 1 || result['ok'] != true) throw ApiException(502, 'invalid_response', '来源接口响应格式异常');
+    if (result['schema_version'] != 1 || result['ok'] != true) throw ApiException(502, 'invalid_response', 'Source API response format invalid');
     return result;
   }
   Future<List<Map<String, dynamic>>> browserMonitors() async {
     final result = await _browser('GET', '/api/v1/monitors');
-    if (result['monitors'] is! List) throw ApiException(502, 'invalid_response', '来源列表格式异常');
+    if (result['monitors'] is! List) throw ApiException(502, 'invalid_response', 'Source list format invalid');
     return (result['monitors'] as List).map((m) => Map<String, dynamic>.from(m as Map)).toList();
   }
   Future<List<Map<String, dynamic>>> webCaptures() async {
     final result = await _browser('GET', '/api/v1/web-captures');
-    if (result['collections'] is! List) throw ApiException(502, 'invalid_response', '网页资料列表格式异常');
+    if (result['collections'] is! List) throw ApiException(502, 'invalid_response', 'Web clip list format invalid');
     return (result['collections'] as List).map((m) => Map<String, dynamic>.from(m as Map)).toList();
   }
   Future<void> browserControl(int id, int revision, bool enabled) async { await _browser('PUT', '/api/v1/monitors/$id', data: {'revision': revision, 'enabled': enabled}); }
@@ -156,7 +156,7 @@ class Api {
   Future<List<Map<String, dynamic>>> readingSources() async {
     final result = await _browser('GET', '/api/v1/reading-sources');
     if (result['sources'] is! List) {
-      throw ApiException(502, 'invalid_response', '条件来源列表格式异常');
+      throw ApiException(502, 'invalid_response', 'Conditional source list format invalid');
     }
     return (result['sources'] as List)
         .map((m) => Map<String, dynamic>.from(m as Map))
@@ -170,13 +170,13 @@ class Api {
       data: body,
     );
     if (result['revision'] is! int) {
-      throw ApiException(502, 'invalid_response', '检查配置未获确认');
+      throw ApiException(502, 'invalid_response', 'Check settings were not confirmed');
     }
   }
 
   Future<List<Map<String, dynamic>>> deletedReadingSources() async {
     final result = await _browser('GET', '/api/v1/reading-sources/deleted');
-    if (result['sources'] is! List) throw ApiException(502, 'invalid_response', '已删除来源列表异常');
+    if (result['sources'] is! List) throw ApiException(502, 'invalid_response', 'Deleted sources list invalid');
     return (result['sources'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
   }
 
@@ -185,7 +185,7 @@ class Api {
     if (result['generation'] is! int || result['generation'] < 0 ||
         result['item_ids'] is! List ||
         (result['item_ids'] as List).any((v) => v is! int || v <= 0)) {
-      throw ApiException(502, 'invalid_response', '采集代次响应异常，未清理本地缓存。');
+      throw ApiException(502, 'invalid_response', 'Capture generation response invalid; local cache not cleared.');
     }
     return result;
   }
@@ -195,7 +195,7 @@ class Api {
   Future<Map<String, dynamic>> purgeReading(int id, Map<String,dynamic> body) async {
     final result=await _browser('POST','/api/v1/reading-sources/$id/purge',data:body);
     if(result['source_id']!=id || result['purged']!=true || result['generation'] is! int || result['item_ids'] is! List || (result['item_ids'] as List).any((v)=>v is! int || v<=0)) {
-      throw ApiException(502,'invalid_response','永久删除未获确认，请刷新核对。');
+      throw ApiException(502, 'invalid_response', 'Permanent delete was not confirmed. Refresh and verify.');
     }
     return result;
   }
@@ -203,7 +203,7 @@ class Api {
   Future<void> restoreReading(int id, int revision) async {
     final result = await _browser('POST', '/api/v1/reading-sources/$id/restore', data: {'revision':revision});
     if (result['source_id'] != id || result['restored'] != true || result['paused'] != true || result['revision'] != revision + 1) {
-      throw ApiException(502, 'invalid_response', '来源恢复未获确认');
+      throw ApiException(502, 'invalid_response', 'Source restore was not confirmed');
     }
   }
 
@@ -217,13 +217,13 @@ class Api {
         result['deleted'] != true ||
         result['trash_items'] != trashItems ||
         result['trashed_item_ids'] is! List) {
-      throw ApiException(502, 'invalid_response', '删除来源未获确认，请刷新核对。');
+      throw ApiException(502, 'invalid_response', 'Source delete was not confirmed. Refresh and verify.');
     }
   }
 
   Future<void> activateReading(int id, int revision, int interval) async {
     final result = await _browser('POST', '/api/v1/reading-sources/$id/activate', data: {'revision':revision, 'interval_s':interval});
-    if (result['source_id'] != id || result['status'] != 'queued') throw ApiException(502, 'invalid_response', '自动监测启动未获确认');
+    if (result['source_id'] != id || result['status'] != 'queued') throw ApiException(502, 'invalid_response', 'Auto-monitor start was not confirmed');
   }
 
   Future<void> checkReading(int id, int revision, String purpose) async {
@@ -233,14 +233,14 @@ class Api {
       data: {'revision': revision, 'purpose': purpose},
     );
     if (result['status'] != 'queued' || result['source_id'] != id) {
-      throw ApiException(502, 'invalid_response', '检查请求未获确认');
+      throw ApiException(502, 'invalid_response', 'Check request was not confirmed');
     }
   }
 
   Future<List<Map<String, dynamic>>> readingChecks(int id) async {
     final result = await _browser('GET', '/api/v1/reading-sources/$id/checks');
     if (result['checks'] is! List) {
-      throw ApiException(502, 'invalid_response', '检查日志格式异常');
+      throw ApiException(502, 'invalid_response', 'Check log format invalid');
     }
     return (result['checks'] as List)
         .map((m) => Map<String, dynamic>.from(m as Map))
@@ -311,11 +311,11 @@ class Api {
             Headers.contentLengthHeader: chunk.length,
           }));
     } on DioException catch (e) {
-      throw ApiException(null, 'offline', '网络中断：${e.message}');
+      throw ApiException(null, 'offline', 'Network interrupted: ${e.message}');
     }
     final m = Map<String, dynamic>.from((r.data ?? {}) as Map);
     if (r.statusCode == 409) return {...m, 'conflict': true};
-    if ((r.statusCode ?? 500) >= 400) throw ApiException(r.statusCode, (m['error'] ?? 'error').toString(), (m['message'] ?? '上传失败').toString());
+    if ((r.statusCode ?? 500) >= 400) throw ApiException(r.statusCode, (m['error'] ?? 'error').toString(), (m['message'] ?? 'Upload failed').toString());
     return m;
   }
 

@@ -8,21 +8,25 @@ import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/session.dart';
+import '../../l10n/app_localizations.dart';
 
-String browserCheckLabel(String result) => switch (result) {
-  'not_executed' => '待首次检查',
-  'unchanged' => '检查成功 · 无变化',
-  'changed' => '已发现来源变化',
-  'need_login' => '请在学校原站重新登录',
-  'account_mismatch' => '学校账号已切换 · 旧绑定已停止',
-  'selection_missing' => '原文定位失效 · 需要重新采集',
-  'view_mismatch' => '原学期／周次视图失效 · 需要重新采集',
-  'route_mismatch' => '来源路由已改变 · 需要重新采集',
-  'render_timeout' => '页面加载超时',
-  'permission_denied' => '浏览器来源权限不足',
-  'unsupported' => '暂不支持监测',
-  _ => '检查失败',
-};
+String browserCheckLabel(String result, BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return switch (result) {
+    'not_executed' => l10n.bcNotExecuted,
+    'unchanged' => l10n.bcUnchanged,
+    'changed' => l10n.bcChanged,
+    'need_login' => l10n.bcNeedLogin,
+    'account_mismatch' => l10n.bcAccountMismatch,
+    'selection_missing' => l10n.bcSelectionMissing,
+    'view_mismatch' => l10n.bcViewMismatch,
+    'route_mismatch' => l10n.bcRouteMismatch,
+    'render_timeout' => l10n.bcRenderTimeout,
+    'permission_denied' => l10n.bcPermissionDenied,
+    'unsupported' => l10n.bcUnsupported,
+    _ => l10n.bcFailed,
+  };
+}
 
 class BrowserMonitorsPanel extends ConsumerStatefulWidget {
   const BrowserMonitorsPanel({super.key});
@@ -94,19 +98,19 @@ class _BrowserMonitorsPanelState extends ConsumerState<BrowserMonitorsPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '已保存的浏览器来源',
+          'Saved browser sources',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        const Text('读取不等于保存。以下仅列已保存的事项来源；快照保存不会自动启用后台检查。'),
+        const Text('Reading ≠ saving. Only saved item sources are listed; snapshot save does not enable background checks.'),
         Wrap(
           spacing: 8,
           children: [
-            TextButton(onPressed: load, child: const Text('刷新采集来源')),
+            TextButton(onPressed: load, child: const Text('Refresh capture sources')),
           ],
         ),
         if (error != null)
           Text(
-            '无法读取采集来源：$error',
+            'Could not read capture sources: $error',
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         for (final m in rows)
@@ -117,24 +121,24 @@ class _BrowserMonitorsPanelState extends ConsumerState<BrowserMonitorsPanel> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${m['title'] ?? '已保存来源'}',
+                    '${m['title'] ?? 'Saved source'}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   SelectableText('${(m['recipe'] as Map)['url']}'),
                   Text(
                     m['supported'] != true
-                        ? '仅保存 · 暂不支持监测'
-                        : '${m['enabled'] == true ? '已启用' : '已暂停'} · ${browserCheckLabel('${m['last_result']}')}',
+                        ? 'Saved only · monitoring not supported'
+                        : '${m['enabled'] == true ? 'Enabled' : 'Paused'} · ${browserCheckLabel('${m['last_result']}', context)}',
                   ),
-                  Text('最后成功检查：${relative(tsToDate(m['last_success_at']))}'),
+                  Text('Last successful check: ${relative(tsToDate(m['last_success_at']), context)}'),
                   if ('${m['error']}'.isNotEmpty)
-                    Text(browserCheckLabel('${m['error']}')),
+                    Text(browserCheckLabel('${m['error']}', context)),
                   Wrap(
                     spacing: 8,
                     children: [
                       TextButton(
                         onPressed: () => context.push('/item/${m['item_id']}'),
-                        child: const Text('查看事项与变化'),
+                        child: const Text('View item & changes'),
                       ),
                       if (m['supported'] == true &&
                           m['last_result'] != 'account_mismatch') ...[
@@ -146,19 +150,19 @@ class _BrowserMonitorsPanelState extends ConsumerState<BrowserMonitorsPanel> {
                               m['enabled'] != true,
                             ),
                           ),
-                          child: Text(m['enabled'] == true ? '暂停' : '恢复'),
+                          child: Text(m['enabled'] == true ? 'Pause' : 'Resume'),
                         ),
                         if (m['enabled'] == true)
                           TextButton(
                             onPressed: () =>
                                 act(() => api.browserCheck(m['id'] as int)),
-                            child: const Text('立即检查'),
+                            child: const Text('Check now'),
                           ),
                       ],
                       TextButton(
                         onPressed: () =>
                             act(() => api.browserRemove(m['id'] as int)),
-                        child: const Text('停止监测，保留事项'),
+                        child: const Text('Stop monitoring, keep items'),
                       ),
                     ],
                   ),

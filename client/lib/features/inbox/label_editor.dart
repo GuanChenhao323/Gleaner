@@ -6,6 +6,7 @@ import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
@@ -61,21 +62,22 @@ class _ItemLabelEditorState extends ConsumerState<ItemLabelEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final labels = ref.watch(labelsProvider);
     return SafeArea(child: SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('给事项打标签', style: Theme.of(context).textTheme.titleMedium),
+        Text(l10n.tagItem, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         ...labels.when<List<Widget>>(
           skipLoadingOnRefresh: false,
-          loading: () => [const LinearProgressIndicator(semanticsLabel: '正在加载标签')],
+          loading: () => [LinearProgressIndicator(semanticsLabel: l10n.loadingLabels)],
           error: (error, _) => [
-            const Text('标签加载失败'),
-            TextButton(onPressed: () => ref.invalidate(labelsProvider), child: const Text('重试')),
+            Text(l10n.labelsLoadFailed),
+            TextButton(onPressed: () => ref.invalidate(labelsProvider), child: Text(l10n.retry)),
           ],
           data: (all) => [
-            if (all.isEmpty) const Text('还没有标签，可以先创建一个。'),
+            if (all.isEmpty) Text(l10n.noLabelsYet),
             for (final label in all)
               CheckboxListTile(
                 title: Text(label.name),
@@ -86,9 +88,9 @@ class _ItemLabelEditorState extends ConsumerState<ItemLabelEditor> {
                   if (checked == true) { selected.add(label.id); } else { selected.remove(label.id); }
                 }),
               ),
-            TextButton.icon(onPressed: busy ? null : _create, icon: const Icon(Icons.add), label: const Text('新建标签')),
+            TextButton.icon(onPressed: busy ? null : _create, icon: const Icon(Icons.add), label: Text(l10n.newLabelAction)),
             if (saveError != null) Text(saveError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            FilledButton(onPressed: busy || all.isEmpty ? null : _save, child: const Text('保存')),
+            FilledButton(onPressed: busy || all.isEmpty ? null : _save, child: Text(l10n.actionSave)),
           ],
         ),
       ]),
@@ -121,8 +123,9 @@ class _CreateLabelDialogState extends State<_CreateLabelDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('新建标签'),
+      title: Text(l10n.newLabelAction),
       content: SizedBox(
         width: 320,
         child: Column(
@@ -133,11 +136,11 @@ class _CreateLabelDialogState extends State<_CreateLabelDialog> {
               controller: _name,
               autofocus: true,
               maxLength: 40,
-              decoration: const InputDecoration(hintText: '例如：收藏、作业、社团'),
+              decoration: InputDecoration(hintText: l10n.labelNameHint),
               onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 8),
-            Text('颜色', style: Theme.of(context).textTheme.labelLarge),
+            Text(l10n.color, style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 10),
             Wrap(
               spacing: 10,
@@ -169,8 +172,8 @@ class _CreateLabelDialogState extends State<_CreateLabelDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(onPressed: _submit, child: const Text('创建')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.actionCancel)),
+        FilledButton(onPressed: _submit, child: Text(l10n.create)),
       ],
     );
   }

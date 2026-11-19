@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
 /// Keep transport/ownership failure feedback separate from item rendering.
@@ -20,23 +21,24 @@ class ItemLoadFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final status = error is ApiException
         ? (error as ApiException).status
         : null;
     final message = switch (status) {
-      404 => '事项不存在或不属于当前账号。请确认工作台与插件使用同一 Campus Radar 邮箱。',
-      401 => '登录已失效，请在工作台重新登录。',
-      _ => '未能读取详情，请检查后端连接后重试。',
+      404 => l10n.itemNotFound,
+      401 => l10n.loginExpired,
+      _ => l10n.detailLoadFailed,
     };
     return EmptyState(
       icon: Icons.info_outline,
-      title: '无法打开这条事项',
-      message: '$message\n当前工作台账号：${email.isEmpty ? '未登录' : email}',
+      title: l10n.cannotOpenItem,
+      message: '$message\n${l10n.currentDeskAccount(email.isEmpty ? l10n.notSignedIn : email)}',
       action: Wrap(
         spacing: 8,
         children: [
-          OutlinedButton(onPressed: onRetry, child: const Text('重试')),
-          TextButton(onPressed: onSources, child: const Text('返回信息源')),
+          OutlinedButton(onPressed: onRetry, child: Text(l10n.retry)),
+          TextButton(onPressed: onSources, child: Text(l10n.backToSources)),
         ],
       ),
     );

@@ -13,12 +13,15 @@ void main() {
           ),
         ),
       );
-      expect(find.text('学院公告／学生系统'), findsOneWidget);
-      expect(find.text('教师信息'), findsOneWidget);
-      expect(find.text('Moodle 课程与作业'), findsOneWidget);
-      expect(find.text('公开网页 · 无需学生登录'), findsOneWidget);
-      expect(find.text('需在原站登录 · 本页不判断学校会话是否有效'), findsNWidgets(2));
-      expect(find.text('已连接'), findsNothing);
+      expect(find.text('College notices / student system'), findsOneWidget);
+      expect(find.text('Faculty directory'), findsOneWidget);
+      expect(find.text('Moodle courses & assignments'), findsOneWidget);
+      expect(find.text('Public page · no student sign-in'), findsOneWidget);
+      expect(
+        find.text('Requires original-site sign-in · this page does not check school session'),
+        findsNWidgets(2),
+      );
+      expect(find.text('Connected'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

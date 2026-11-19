@@ -1,63 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme.dart';
 import 'models.dart';
 
-final _md = DateFormat('M月d日');
-final _hm = DateFormat('HH:mm');
-final _ymd = DateFormat('yyyy年M月d日');
-const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+AppLocalizations _l10n(BuildContext context) => AppLocalizations.of(context);
 
-String weekday(DateTime d) => _weekdays[d.weekday - 1];
+String _hm(AppLocalizations l10n, DateTime t) => DateFormat.Hm(l10n.localeName).format(t);
+String _md(AppLocalizations l10n, DateTime t) => DateFormat.MMMd(l10n.localeName).format(t);
+String _ymd(AppLocalizations l10n, DateTime t) => DateFormat.yMMMd(l10n.localeName).format(t);
 
-/// “最后检查：10 分钟前”这类相对时间。
-String relative(DateTime? t, {DateTime? now}) {
-  if (t == null) return '从未';
+String weekday(DateTime d, BuildContext context) {
+  final l10n = _l10n(context);
+  return switch (d.weekday) {
+    1 => l10n.weekdayMon,
+    2 => l10n.weekdayTue,
+    3 => l10n.weekdayWed,
+    4 => l10n.weekdayThu,
+    5 => l10n.weekdayFri,
+    6 => l10n.weekdaySat,
+    _ => l10n.weekdaySun,
+  };
+}
+
+String relative(DateTime? t, BuildContext context, {DateTime? now}) {
+  final l10n = _l10n(context);
+  if (t == null) return l10n.never;
   final n = now ?? DateTime.now();
   final diff = n.difference(t);
-  if (diff.isNegative) return absolute(t);
-  if (diff.inMinutes < 1) return '刚刚';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
-  if (diff.inHours < 24 && t.day == n.day) return '${diff.inHours} 小时前';
+  if (diff.isNegative) return absolute(t, context);
+  if (diff.inMinutes < 1) return l10n.justNow;
+  if (diff.inMinutes < 60) return l10n.minutesAgo(diff.inMinutes);
+  if (diff.inHours < 24 && t.day == n.day) return l10n.hoursAgo(diff.inHours);
   final y = n.subtract(const Duration(days: 1));
-  if (t.year == y.year && t.month == y.month && t.day == y.day) return '昨天 ${_hm.format(t)}';
-  if (diff.inDays < 7) return '${weekday(t)} ${_hm.format(t)}';
-  return t.year == n.year ? _md.format(t) : _ymd.format(t);
+  if (t.year == y.year && t.month == y.month && t.day == y.day) return l10n.yesterdayAt(_hm(l10n, t));
+  if (diff.inDays < 7) return '${weekday(t, context)} ${_hm(l10n, t)}';
+  return t.year == n.year ? _md(l10n, t) : _ymd(l10n, t);
 }
 
-String absolute(DateTime t) {
+String absolute(DateTime t, BuildContext context) {
+  final l10n = _l10n(context);
   final n = DateTime.now();
-  final day = t.year == n.year ? _md.format(t) : _ymd.format(t);
-  return '$day ${weekday(t)} ${_hm.format(t)}';
+  final day = t.year == n.year ? _md(l10n, t) : _ymd(l10n, t);
+  return '$day ${weekday(t, context)} ${_hm(l10n, t)}';
 }
 
-String dayLabel(DateTime d) {
+String dayLabel(DateTime d, BuildContext context) {
+  final l10n = _l10n(context);
   final n = DateTime.now();
   final today = DateTime(n.year, n.month, n.day);
   final dd = DateTime(d.year, d.month, d.day);
   final delta = dd.difference(today).inDays;
-  if (delta == 0) return '今天';
-  if (delta == 1) return '明天';
-  if (delta == 2) return '后天';
-  if (delta == -1) return '昨天';
-  return '${_md.format(d)} ${weekday(d)}';
+  if (delta == 0) return l10n.today;
+  if (delta == 1) return l10n.tomorrow;
+  if (delta == 2) return l10n.dayAfterTomorrow;
+  if (delta == -1) return l10n.yesterday;
+  return '${_md(l10n, d)} ${weekday(d, context)}';
 }
 
-/// 截止倒计时：“还剩 2 天 3 小时”“已截止 1 天”。
-String countdown(DateTime due, {DateTime? now}) {
+String countdown(DateTime due, BuildContext context, {DateTime? now}) {
+  final l10n = _l10n(context);
   final n = now ?? DateTime.now();
   final d = due.difference(n);
   if (d.isNegative) {
     final p = n.difference(due);
-    if (p.inHours < 24) return '已截止 ${p.inHours} 小时';
-    return '已截止 ${p.inDays} 天';
+    if (p.inHours < 24) return l10n.overdueHours(p.inHours);
+    return l10n.overdueDays(p.inDays);
   }
-  if (d.inMinutes < 60) return '还剩 ${d.inMinutes} 分钟';
-  if (d.inHours < 24) return '还剩 ${d.inHours} 小时';
+  if (d.inMinutes < 60) return l10n.remainingMinutes(d.inMinutes);
+  if (d.inHours < 24) return l10n.remainingHours(d.inHours);
   final days = d.inDays;
   final hours = d.inHours - days * 24;
-  return hours > 0 && days < 3 ? '还剩 $days 天 $hours 小时' : '还剩 $days 天';
+  return hours > 0 && days < 3 ? l10n.remainingDaysHours(days, hours) : l10n.remainingDays(days);
 }
 
 enum Urgency { overdue, critical, soon, later, none }
@@ -82,7 +97,6 @@ Color urgencyColor(BuildContext context, Urgency u) {
   };
 }
 
-/// 列表左侧强调条用色（黄/琥珀，不用红）：24 小时内 / 系统紧急 → 深琥珀；72 小时内 → 黄；已逾期 → 褐琥珀；否则 null。
 Color? dueRowAccent({required bool done, required String priority, DateTime? deadline}) {
   if (done) return null;
   if (priority == 'urgent') return Brand.dueCritical;
@@ -94,16 +108,19 @@ Color? dueRowAccent({required bool done, required String priority, DateTime? dea
   };
 }
 
-String kindLabel(String kind) => switch (kind) {
-      'assignment' => '待办任务',
-      'event' => '日程活动',
-      'notice' => '通知',
-      'mail' => '邮件',
-      'rss' => '通知',
-      'clip' => '剪藏', // 浏览器插件“保存到收件箱”
-      'page' => '网页', // 插件“订阅更新”的整页监测
-      _ => '事项',
-    };
+String kindLabel(String kind, BuildContext context) {
+  final l10n = _l10n(context);
+  return switch (kind) {
+    'assignment' => l10n.kindAssignment,
+    'event' => l10n.kindEvent,
+    'notice' => l10n.kindNotice,
+    'mail' => l10n.kindMail,
+    'rss' => l10n.kindNotice,
+    'clip' => l10n.kindClip,
+    'page' => l10n.kindPage,
+    _ => l10n.kindItem,
+  };
+}
 
 IconData kindIcon(String kind) => switch (kind) {
       'event' => Icons.event_outlined,
@@ -136,23 +153,26 @@ IconData templateIcon(String name) => switch (name) {
       _ => Icons.link,
     };
 
-String channelLabel(String c) => switch (c) {
-      'moodle' => 'Moodle',
-      'web' => '网站',
-      'rss' => 'RSS',
-      'imap' => '邮件',
-      'pop3' => '邮件',
-      _ => c,
-    };
+String channelLabel(String c, BuildContext context) {
+  final l10n = _l10n(context);
+  return switch (c) {
+    'moodle' => 'Moodle',
+    'web' => l10n.channelWeb,
+    'rss' => 'RSS',
+    'imap' => l10n.channelMail,
+    'pop3' => l10n.channelMail,
+    _ => c,
+  };
+}
 
-/// 来源状态：区分“没有更新”“检查失败”“需要重新登录”。
 ({String label, Color color, IconData icon}) sourceStatus(BuildContext context, Source s) {
+  final l10n = _l10n(context);
   final cs = Theme.of(context).colorScheme;
   return switch (s.status) {
-    'ok' => (label: '正常', color: Brand.ok, icon: Icons.check_circle),
-    'failed' => (label: '检查失败', color: cs.error, icon: Icons.error),
-    'need_login' => (label: '需要重新登录', color: Brand.wheat, icon: Icons.lock_clock),
-    _ => (label: '等待首次检查', color: cs.outline, icon: Icons.hourglass_top),
+    'ok' => (label: l10n.sourceOk, color: Brand.ok, icon: Icons.check_circle),
+    'failed' => (label: l10n.sourceFailed, color: cs.error, icon: Icons.error),
+    'need_login' => (label: l10n.sourceNeedLogin, color: Brand.wheat, icon: Icons.lock_clock),
+    _ => (label: l10n.sourceWaiting, color: cs.outline, icon: Icons.hourglass_top),
   };
 }
 
@@ -161,17 +181,133 @@ String shortCourse(String course) {
   return parts.length > 1 && RegExp(r'^[A-Z]{2,5}\d{3,5}$').hasMatch(parts.first) ? parts.sublist(1).join(' ') : course;
 }
 
-String greeting() {
+String greeting(BuildContext context) {
+  final l10n = _l10n(context);
   final h = DateTime.now().hour;
-  if (h < 5) return '夜深了';
-  if (h < 11) return '早上好';
-  if (h < 13) return '中午好';
-  if (h < 18) return '下午好';
-  return '晚上好';
+  if (h < 5) return l10n.greetingLateNight;
+  if (h < 11) return l10n.greetingMorning;
+  if (h < 13) return l10n.greetingNoon;
+  if (h < 18) return l10n.greetingAfternoon;
+  return l10n.greetingEvening;
 }
 
 bool sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
-String priorityLabel(String p) => switch (p) { 'urgent' => '紧急', 'normal' => '普通', _ => '低' };
+String priorityLabel(String p, BuildContext context) {
+  final l10n = _l10n(context);
+  return switch (p) {
+    'urgent' => l10n.priorityUrgent,
+    'normal' => l10n.priorityNormal,
+    _ => l10n.priorityLow,
+  };
+}
 
 DateTime? itemDeadline(Item i) => i.deadline;
+
+/// Localize server-generated change notes (always stored in zh-CN).
+String localizeChangeNote(String note, BuildContext context) {
+  final l10n = _l10n(context);
+  if (note.trim().isEmpty) return note;
+  final parts = note.split('；');
+  return parts
+      .map((p) => _localizeChangePart(p.trim(), l10n))
+      .where((s) => s.isNotEmpty)
+      .join(l10n.changeNoteSep);
+}
+
+String _localizeChangePart(String part, AppLocalizations l10n) {
+  if (part.isEmpty) return part;
+
+  final advanced = RegExp(r'^截止提前 (.+?)（(.+?) → (.+?)）$').firstMatch(part);
+  if (advanced != null) {
+    return l10n.changeDeadlineAdvanced(
+      _localizeChangeSpan(advanced.group(1)!, l10n),
+      advanced.group(2)!,
+      advanced.group(3)!,
+    );
+  }
+  final postponed = RegExp(r'^截止推迟 (.+?)（(.+?) → (.+?)）$').firstMatch(part);
+  if (postponed != null) {
+    return l10n.changeDeadlinePostponed(
+      _localizeChangeSpan(postponed.group(1)!, l10n),
+      postponed.group(2)!,
+      postponed.group(3)!,
+    );
+  }
+  final added = RegExp(r'^新增截止时间 (.+)$').firstMatch(part);
+  if (added != null) return l10n.changeDeadlineAdded(added.group(1)!);
+  if (part == '截止时间被移除') return l10n.changeDeadlineRemoved;
+
+  final replaced = RegExp(r'^附件替换：(.+)$').firstMatch(part);
+  if (replaced != null) {
+    return l10n.changeAttachmentReplaced(_localizeNameList(replaced.group(1)!, l10n));
+  }
+  final attAdded = RegExp(r'^新增附件：(.+)$').firstMatch(part);
+  if (attAdded != null) {
+    return l10n.changeAttachmentAdded(_localizeNameList(attAdded.group(1)!, l10n));
+  }
+  final attRemoved = RegExp(r'^附件被移除：(.+)$').firstMatch(part);
+  if (attRemoved != null) {
+    return l10n.changeAttachmentRemoved(_localizeNameList(attRemoved.group(1)!, l10n));
+  }
+  if (part == '附件内容更新') return l10n.changeAttachmentUpdated;
+  if (part == '提交要求变化') return l10n.changeRequirements;
+  if (part == '活动时间变化') return l10n.changeEventTime;
+  if (part == '地点变化') return l10n.changeLocation;
+  if (part == '类型变化') return l10n.changeType;
+  if (part == '标题修改') return l10n.changeTitle;
+  if (part == '内容措辞调整') return l10n.changeWording;
+  return part;
+}
+
+String _localizeChangeSpan(String span, AppLocalizations l10n) {
+  final days = RegExp(r'^(\d+)\s*天$').firstMatch(span);
+  if (days != null) return l10n.changeDays(int.parse(days.group(1)!));
+  final hours = RegExp(r'^(\d+)\s*小时$').firstMatch(span);
+  if (hours != null) return l10n.changeHours(int.parse(hours.group(1)!));
+  return span;
+}
+
+String _localizeNameList(String names, AppLocalizations l10n) =>
+    names.split('、').where((s) => s.isNotEmpty).join(l10n.changeNameSep);
+
+/// Localize server score/match reasons (always stored in zh-CN).
+String localizeReasons(List<String> reasons, BuildContext context) {
+  final l10n = _l10n(context);
+  return reasons.map((r) => localizeReason(r, l10n)).where((s) => s.isNotEmpty).join(' · ');
+}
+
+String localizeReason(String reason, AppLocalizations l10n) {
+  final r = reason.trim();
+  if (r.isEmpty) return r;
+  if (r == '命中屏蔽词') return l10n.reasonBlocked;
+  if (r == '24 小时内截止') return l10n.reasonDue24h;
+  if (r == '7 天内截止') return l10n.reasonDue7d;
+  if (r == '你的课程') return l10n.reasonYourCourse;
+  if (r == '课程事项') return l10n.reasonCourseItem;
+  if (r == '符合你的年级/专业') return l10n.reasonGradeMajorMatch;
+  if (r == '面向其他年级或专业') return l10n.reasonOtherAudience;
+  if (r == '重要变更') return l10n.reasonImportantChange;
+  final kw = RegExp(r'^关键词：(.+)$').firstMatch(r);
+  if (kw != null) {
+    return l10n.reasonKeyword(kw.group(1)!.split('、').where((s) => s.isNotEmpty).join(l10n.changeNameSep));
+  }
+  return r;
+}
+
+String localizeMonitorReason(MonitorInfo m, AppLocalizations l10n) {
+  final coded = switch (m.errorCode) {
+    'auth_expired' || 'need_login' => l10n.errAuthExpired,
+    'forbidden' => l10n.errForbidden,
+    'network' || 'failed' => l10n.errNetwork,
+    'not_found' => l10n.errNotFound,
+    'parse_failed' => l10n.errParseFailed,
+    'unsupported' => l10n.errUnsupported,
+    _ => '',
+  };
+  if (coded.isNotEmpty) return coded;
+  final msg = m.errorMessage.trim();
+  if (msg == '尚未登录该 Moodle 来源') return l10n.errMoodleNeedLogin;
+  if (msg.isNotEmpty) return msg;
+  return m.errorCode;
+}
