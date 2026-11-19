@@ -68,10 +68,11 @@ class Api {
       _map('PUT', '/api/me/password', data: {'old_password': oldPassword, 'new_password': newPassword});
 
   // ---- 事项 ----
-  Future<Map<String, dynamic>> feed({String? cursor, String? kind, String? filter, String? q, int limit = 100}) => _map('GET', '/api/feed', query: {
+  Future<Map<String, dynamic>> feed({String? cursor, String? kind, String? filter, int? labelId, String? q, int limit = 100}) => _map('GET', '/api/feed', query: {
         'cursor': ?cursor,
         'kind': ?kind,
         'filter': ?filter,
+        if (labelId != null) 'label_id': labelId,
         if (q != null && q.isNotEmpty) 'q': q,
         'limit': limit,
       });
@@ -84,6 +85,10 @@ class Api {
 
   Future<Map<String, dynamic>> putState(int id, Map<String, dynamic> body, String opId) =>
       _map('PUT', '/api/items/$id/state', data: body, headers: {'Idempotency-Key': opId});
+  Future<List<int>> putItemLabels(int id, List<int> labelIds) async {
+    final m = await _map('PUT', '/api/items/$id/labels', data: {'label_ids': labelIds});
+    return ((m['label_ids'] ?? []) as List).map((e) => (e as num).toInt()).toList();
+  }
   /// 修改字段（与来源版本分开保存）：set 为新值，reset 为恢复来源值的字段（IC-002 3.3）。
   Future<Item> patchFields(int id, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
       Item.fromJson(await _map('PATCH', '/api/items/$id/fields', data: {'set': set, 'reset': reset}));
@@ -265,6 +270,24 @@ class Api {
   }
 
   Future<void> saveRules(List<Rule> rules) => _req('PUT', '/api/rules', data: {'rules': rules.map((r) => r.toJson()).toList()});
+
+  Future<List<UserLabel>> labels() async {
+    final m = await _map('GET', '/api/labels');
+    return (m['labels'] as List).map((e) => UserLabel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+  }
+
+  Future<UserLabel> createLabel(String name, {String color = ''}) async =>
+      UserLabel.fromJson(await _map('POST', '/api/labels', data: {'name': name, 'color': color}));
+
+  Future<UserLabel> updateLabel(int id, {String? name, String? color}) async {
+    final body = <String, dynamic>{
+      if (name != null) 'name': name,
+      if (color != null) 'color': color,
+    };
+    return UserLabel.fromJson(await _map('PUT', '/api/labels/$id', data: body));
+  }
+
+  Future<void> deleteLabel(int id) => _req('DELETE', '/api/labels/$id');
 
   // ---- 扫码传输 ----
   Future<Map<String, dynamic>> transferCreate() => _map('POST', '/api/transfer');

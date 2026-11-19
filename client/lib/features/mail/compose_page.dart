@@ -125,8 +125,6 @@ class _ComposePageState extends ConsumerState<ComposePage> {
                   ),
               ]),
             ],
-            const SizedBox(height: 8),
-            Text('经你在“来源”中连接的学校邮箱发送（SMTP + STARTTLS）。重复点击不会重复发送。', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
             if (sent.isNotEmpty) ...[
               const SectionHeader('最近发送'),
               Card(

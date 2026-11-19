@@ -209,6 +209,8 @@ class Item {
   }
 
   String get locator => (raw['locator'] ?? '') as String;
+  List<int> get labelIds =>
+      ((raw['label_ids'] ?? []) as List).map((e) => (e as num).toInt()).toList();
   Map<String, FieldInfo> get fields {
     final f = raw['fields'];
     if (f is! Map) return const {};
@@ -226,11 +228,14 @@ class Item {
 
   Item withState(ItemState s) => Item.fromJson({...raw, 'state': s.toJson()});
 
+  Item withLabelIds(List<int> ids) => Item.fromJson({...raw, 'label_ids': ids});
+
   /// 合并服务端推送：保留本地个人状态（若推送不带 state）。
   Item merge(Map<String, dynamic> j) {
     final next = {...raw, ...j};
     if (j['state'] == null) next['state'] = state.toJson();
     if (j['body'] == null || (j['body'] as String).isEmpty) next['body'] = body;
+    if (j['label_ids'] == null) next['label_ids'] = labelIds;
     return Item.fromJson(next);
   }
 
@@ -476,6 +481,20 @@ class Rule {
   const Rule(this.kind, this.pattern, this.boost);
   factory Rule.fromJson(Map<String, dynamic> j) => Rule(j['kind'] as String, j['pattern'] as String, (j['boost'] as num).toDouble());
   Map<String, dynamic> toJson() => {'kind': kind, 'pattern': pattern, 'boost': boost};
+}
+
+class UserLabel {
+  final int id;
+  final String name;
+  final String color;
+  final double createdAt;
+  const UserLabel({required this.id, required this.name, this.color = '', this.createdAt = 0});
+  factory UserLabel.fromJson(Map<String, dynamic> j) => UserLabel(
+        id: (j['id'] as num).toInt(),
+        name: (j['name'] ?? '') as String,
+        color: (j['color'] ?? '') as String,
+        createdAt: (j['created_at'] as num?)?.toDouble() ?? 0,
+      );
 }
 
 class DashWidget {

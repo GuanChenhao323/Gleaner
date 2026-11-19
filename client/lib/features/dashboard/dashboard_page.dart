@@ -11,7 +11,6 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'deadline_calendar.dart';
 
-/// 工作台类型筛选：全部 / 待办任务 / 日程活动 / 通知。
 enum _KindFilter { all, assignment, event, notice }
 
 bool _kindMatches(Item i, _KindFilter f) => switch (f) {
@@ -28,7 +27,7 @@ String _kindFilterLabel(_KindFilter f) => switch (f) {
       _KindFilter.notice => '通知',
     };
 
-/// 工作台：今日要事（按类型）+ 本周一眼 + 截止日历 + 异常信息源。
+/// 工作台：今日要事 + 本周一眼 + 异常信息源。
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
 
@@ -68,21 +67,21 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
               padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(24),
-                gradient: LinearGradient(
-                  colors: [cs.primaryContainer, Color.lerp(cs.primaryContainer, Brand.wheat, 0.22)!],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: cs.surface,
+                border: Border.all(color: cs.outlineVariant),
+                boxShadow: [
+                  BoxShadow(color: Brand.yellow.withValues(alpha: 0.12), blurRadius: 0, offset: const Offset(0, 3)),
+                ],
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(
                   '${dayLabel(now)} · ${now.month}月${now.day}日',
-                  style: t.textTheme.labelLarge?.copyWith(color: cs.onPrimaryContainer.withValues(alpha: 0.8)),
+                  style: t.textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '${greeting()}，${me?.name.isNotEmpty == true ? me!.name : '同学'}',
-                  style: t.textTheme.headlineMedium?.copyWith(color: cs.onPrimaryContainer),
+                  style: t.textTheme.headlineMedium?.copyWith(color: cs.onSurface),
                 ),
                 const SizedBox(height: 14),
                 Wrap(spacing: 18, runSpacing: 8, children: [
@@ -311,7 +310,7 @@ class _FocusRow extends StatelessWidget {
     final accent = dueRowAccent(done: item.isDone, priority: item.priority, deadline: item.deadline);
     final status = item.importantChange
         ? '变更'
-        : (accent == Brand.urgent
+        : (item.priority == 'urgent' || accent == Brand.dueCritical
             ? '紧急'
             : (!item.state.read ? '未读' : (item.state.todo == 'todo' || item.state.todo == 'doing' ? '待办' : null)));
     return InkWell(
@@ -321,22 +320,22 @@ class _FocusRow extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
         padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
         decoration: BoxDecoration(
-          color: accent?.withValues(alpha: 0.10),
+          color: cs.surface,
           borderRadius: BorderRadius.circular(12),
-          border: accent != null ? Border.all(color: accent.withValues(alpha: 0.28)) : null,
+          border: Border.all(color: cs.outlineVariant),
         ),
         child: Row(children: [
           Container(
-            width: 4,
+            width: 3,
             height: 36,
-            decoration: BoxDecoration(color: accent ?? Brand.course(item.course), borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(color: accent ?? cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(width: 10),
           Icon(kindIcon(item.kind), size: 18, color: cs.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: accent)),
+              Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: cs.onSurface)),
               const SizedBox(height: 2),
               Text(
                 [

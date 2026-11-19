@@ -74,21 +74,22 @@ Urgency urgencyOf(DateTime? due) {
 Color urgencyColor(BuildContext context, Urgency u) {
   final s = Theme.of(context).colorScheme;
   return switch (u) {
-    Urgency.overdue => s.outline,
-    Urgency.critical => Brand.urgent,
-    Urgency.soon => Brand.wheat,
-    Urgency.later => s.primary,
+    Urgency.overdue => Brand.dueOverdue,
+    Urgency.critical => Brand.dueCritical,
+    Urgency.soon => Brand.dueSoon,
+    Urgency.later => s.onSurfaceVariant,
     Urgency.none => s.outline,
   };
 }
 
-/// 列表整行强调色：24 小时内 / 系统紧急 → 红；72 小时内（如「还剩 2 天」）→ 黄；否则 null。
+/// 列表左侧强调条用色（黄/琥珀，不用红）：24 小时内 / 系统紧急 → 深琥珀；72 小时内 → 黄；已逾期 → 褐琥珀；否则 null。
 Color? dueRowAccent({required bool done, required String priority, DateTime? deadline}) {
   if (done) return null;
-  if (priority == 'urgent') return Brand.urgent;
+  if (priority == 'urgent') return Brand.dueCritical;
   return switch (urgencyOf(deadline)) {
-    Urgency.critical || Urgency.overdue => Brand.urgent,
-    Urgency.soon => Brand.wheat,
+    Urgency.critical => Brand.dueCritical,
+    Urgency.overdue => Brand.dueOverdue,
+    Urgency.soon => Brand.dueSoon,
     _ => null,
   };
 }

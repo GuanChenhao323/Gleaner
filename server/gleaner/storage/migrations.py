@@ -279,6 +279,34 @@ MIGRATIONS: list[Migration] = [
             add_column("reading_sources", "delete_result", "TEXT"),
         ],
     ),
+    Migration(
+        9,
+        "user labels for inbox",
+        [
+            ddl(
+                """CREATE TABLE IF NOT EXISTS labels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    color TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    UNIQUE (user_id, name)
+                )"""
+            ),
+            ddl(
+                """CREATE TABLE IF NOT EXISTS item_labels (
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, item_id, label_id)
+                )"""
+            ),
+            "CREATE INDEX IF NOT EXISTS ix_labels_user ON labels(user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_item_labels_item ON item_labels(item_id)",
+            "CREATE INDEX IF NOT EXISTS ix_item_labels_label ON item_labels(label_id)",
+        ],
+    ),
 ]
 
 

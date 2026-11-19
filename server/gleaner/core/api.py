@@ -136,7 +136,7 @@ def _courses_of(v: Any) -> list[str]:
 
 
 ITEM_KINDS = ("assignment", "notice", "mail", "rss", "teacher", "clip", "page")
-FEED_FILTERS = ("unread", "starred", "todo", "important", "trash")
+FEED_FILTERS = ("unread", "starred", "todo", "important", "trash", "labeled")
 
 
 def _like(text: str) -> str:
@@ -513,6 +513,11 @@ class API:
         add("PUT", "/api/dashboard", a(self.put_dashboard))
         add("GET", "/api/rules", a(self.get_rules))
         add("PUT", "/api/rules", a(self.put_rules))
+        add("GET", "/api/labels", a(self.list_labels))
+        add("POST", "/api/labels", a(self.create_label))
+        add("PUT", "/api/labels/{id}", a(self.update_label))
+        add("DELETE", "/api/labels/{id}", a(self.delete_label))
+        add("PUT", "/api/items/{id}/labels", a(self.put_item_labels))
         add("GET", "/api/stats", self.stats)
 
     # ---- 账号 ------------------------------------------------------------------
@@ -835,6 +840,8 @@ class API:
                 "user_item_state",
                 "user_item_edits",
                 "item_monitors",
+                "item_labels",
+                "labels",
                 "op_log",
                 "rules",
                 "sent_mails",
@@ -882,6 +889,7 @@ class API:
         ids = list(dict.fromkeys(r["id"] for r in rows))
         all_edits = await edits.load(self.db, uid, ids)
         all_mons = await monitor.load(self.db, uid, ids)
+        label_map = await self._label_ids_for(uid, ids)
         out = []
         seen: set[int] = set()
         for r in rows:
@@ -914,8 +922,23 @@ class API:
             state["priority"] = state["priority"] or "low"
             it = item_public(r, state, src)
             it["state"]["archived"] = r.get("archived_at") is not None
+            it["label_ids"] = label_map.get(r["id"], [])
             self._decorate(it, r, all_edits.get(r["id"], {}), all_mons.get(r["id"]))
             out.append(it)
+        return out
+
+    async def _label_ids_for(self, uid: int, item_ids: list[int]) -> dict[int, list[int]]:
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = await self.db.fetch(
+            f"SELECT item_id, label_id FROM item_labels WHERE user_id = ? AND item_id IN ({marks}) ORDER BY label_id",
+            uid,
+            *item_ids,
+        )
+        out: dict[int, list[int]] = {}
+        for r in rows:
+            out.setdefault(r["item_id"], []).append(r["label_id"])
         return out
 
     @staticmethod
@@ -1002,6 +1025,21 @@ class API:
             where += " AND COALESCE(st.todo_status, '') IN ('todo', 'doing')"
         elif f == "important":
             where += " AND COALESCE(st.priority, 'low') != 'low'"
+        elif f == "labeled":
+            try:
+                label_id = int(q.get("label_id", ""))
+            except (TypeError, ValueError):
+                return Response.error(422, "labeled 筛选需要 label_id", "invalid")
+            owns = await self.db.fetchval(
+                "SELECT id FROM labels WHERE id = ? AND user_id = ?", label_id, user["id"]
+            )
+            if owns is None:
+                return Response.error(404, "标签不存在", "not_found")
+            where += (
+                " AND EXISTS (SELECT 1 FROM item_labels il "
+                "WHERE il.user_id = ? AND il.item_id = i.id AND il.label_id = ?)"
+            )
+            params += [user["id"], label_id]
         if q.get("q"):
             where += (
                 " AND (LOWER(i.title) LIKE ? ESCAPE '!' OR LOWER(i.summary) LIKE ? ESCAPE '!'"
@@ -2019,6 +2057,124 @@ class API:
             time.time(),
         )
         return Response.json_body({"ok": True})
+
+    async def list_labels(self, req: Request, user: dict[str, Any]) -> Response:
+        rows = await self.db.fetch(
+            "SELECT id, name, color, created_at FROM labels WHERE user_id = ? ORDER BY id",
+            user["id"],
+        )
+        return Response.json_body({"labels": [dict(r) for r in rows]})
+
+    async def create_label(self, req: Request, user: dict[str, Any]) -> Response:
+        b = body_of(req)
+        name = as_str(b.get("name"), "name", max_len=40, default="").strip()
+        if not name:
+            return Response.error(422, "标签名不能为空", "invalid")
+        color = as_str(b.get("color"), "color", max_len=20, default="").strip()
+        count = await self.db.fetchval("SELECT COUNT(*) FROM labels WHERE user_id = ?", user["id"])
+        if (count or 0) >= 50:
+            return Response.error(422, "标签最多 50 个", "limit")
+        exists = await self.db.fetchval(
+            "SELECT id FROM labels WHERE user_id = ? AND name = ?", user["id"], name
+        )
+        if exists is not None:
+            return Response.error(409, "已有同名标签", "conflict")
+        now = time.time()
+        lid = await self.db.insert(
+            "labels",
+            {"user_id": user["id"], "name": name, "color": color, "created_at": now},
+        )
+        return Response.json_body(
+            {"id": lid, "name": name, "color": color, "created_at": now}, status=201
+        )
+
+    async def update_label(self, req: Request, user: dict[str, Any]) -> Response:
+        lid = path_id(req)
+        row = await self.db.fetchone(
+            "SELECT id, name, color, created_at FROM labels WHERE id = ? AND user_id = ?",
+            lid,
+            user["id"],
+        )
+        if row is None:
+            return Response.error(404, "标签不存在", "not_found")
+        b = body_of(req)
+        name = row["name"]
+        color = row["color"]
+        if "name" in b:
+            name = as_str(b.get("name"), "name", max_len=40, default="").strip()
+            if not name:
+                return Response.error(422, "标签名不能为空", "invalid")
+            clash = await self.db.fetchval(
+                "SELECT id FROM labels WHERE user_id = ? AND name = ? AND id != ?",
+                user["id"],
+                name,
+                lid,
+            )
+            if clash is not None:
+                return Response.error(409, "已有同名标签", "conflict")
+        if "color" in b:
+            color = as_str(b.get("color"), "color", max_len=20, default="").strip()
+        await self.db.execute(
+            "UPDATE labels SET name = ?, color = ? WHERE id = ? AND user_id = ?",
+            name,
+            color,
+            lid,
+            user["id"],
+        )
+        return Response.json_body(
+            {"id": lid, "name": name, "color": color, "created_at": row["created_at"]}
+        )
+
+    async def delete_label(self, req: Request, user: dict[str, Any]) -> Response:
+        lid = path_id(req)
+        row = await self.db.fetchone(
+            "SELECT id FROM labels WHERE id = ? AND user_id = ?", lid, user["id"]
+        )
+        if row is None:
+            return Response.error(404, "标签不存在", "not_found")
+        async with self.db.transaction():
+            await self.db.execute(
+                "DELETE FROM item_labels WHERE user_id = ? AND label_id = ?", user["id"], lid
+            )
+            await self.db.execute(
+                "DELETE FROM labels WHERE id = ? AND user_id = ?", lid, user["id"]
+            )
+        return Response.json_body({"ok": True})
+
+    async def put_item_labels(self, req: Request, user: dict[str, Any]) -> Response:
+        iid = path_id(req)
+        owned = await self._items_for(user["id"], " AND i.id = ?", (iid,), limit=1)
+        if not owned:
+            return Response.error(404, "事项不存在", "not_found")
+        b = body_of(req)
+        raw_ids = as_list(b.get("label_ids"), "label_ids", max_len=50, default=[])
+        label_ids: list[int] = []
+        for i, v in enumerate(raw_ids):
+            try:
+                label_ids.append(int(v))
+            except (TypeError, ValueError):
+                return Response.error(422, f"第 {i + 1} 个 label_id 不正确", "invalid")
+        label_ids = list(dict.fromkeys(label_ids))
+        if label_ids:
+            marks = ",".join("?" * len(label_ids))
+            found = await self.db.fetch(
+                f"SELECT id FROM labels WHERE user_id = ? AND id IN ({marks})",
+                user["id"],
+                *label_ids,
+            )
+            if len(found) != len(label_ids):
+                return Response.error(422, "含有不属于你的标签", "invalid")
+        now = time.time()
+        async with self.db.transaction():
+            await self.db.execute(
+                "DELETE FROM item_labels WHERE user_id = ? AND item_id = ?", user["id"], iid
+            )
+            if label_ids:
+                await self.db.executemany(
+                    "INSERT INTO item_labels (user_id, item_id, label_id, created_at) VALUES (?, ?, ?, ?)",
+                    [(user["id"], iid, lid, now) for lid in label_ids],
+                )
+        return Response.json_body({"item_id": iid, "label_ids": label_ids})
 
     async def get_rules(self, req: Request, user: dict[str, Any]) -> Response:
         rows = await self.db.fetch(

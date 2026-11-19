@@ -18,7 +18,7 @@ class Dest {
   const Dest(this.path, this.label, this.icon, this.selected);
 }
 
-/// 侧栏第一段：主功能（作业已并入课程详情）
+/// 侧栏第一段：主功能
 const destinations = [
   Dest('/', '工作台', Icons.space_dashboard_outlined, Icons.space_dashboard),
   Dest('/inbox', '收件箱', Icons.inbox_outlined, Icons.inbox),
@@ -31,7 +31,6 @@ const settingsDest = Dest('/settings', '设置', Icons.settings_outlined, Icons.
 
 const _railCollapsed = 72.0;
 const _railExpanded = 220.0;
-/// 宽度动画还没到位时先只画图标，避免标题行在窄宽度里横向溢出。
 const _railLabelsAt = 168.0;
 
 /// 自适应外壳：手机底栏；桌面侧栏默认收起（仅图标），悬停展开（Gmail 逻辑）。
@@ -138,7 +137,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
 
     final cs = Theme.of(context).colorScheme;
-    // 侧栏与主内容并排：展开时挤开内容，不再叠在上面遮住。
     return Scaffold(
       body: Row(children: [
         MouseRegion(

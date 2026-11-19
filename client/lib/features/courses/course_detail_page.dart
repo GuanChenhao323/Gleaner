@@ -11,7 +11,6 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'assignment_list.dart';
 
-/// 单门课程详情：全部作业（按截止分组）+ 通知 + 教师。
 class CourseDetailPage extends ConsumerStatefulWidget {
   final String name;
   const CourseDetailPage({super.key, required this.name});

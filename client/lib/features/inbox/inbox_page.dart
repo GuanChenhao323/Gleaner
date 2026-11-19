@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api.dart';
 import '../../core/models.dart';
+import '../../core/providers.dart';
+import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -32,11 +35,13 @@ const typeStatuses = {
 Color? _filterAccent(InboxFilter f) => switch (f) {
       InboxFilter.unread => null,
       InboxFilter.trash => null,
-      InboxFilter.starred => Brand.wheat,
+      InboxFilter.starred => Brand.yellow,
       InboxFilter.todo => const Color(0xFFD9534F),
-      InboxFilter.event => const Color(0xFF5C6BC0),
-      InboxFilter.notice => const Color(0xFF3A7BD5),
+      InboxFilter.event => const Color(0xFFC9891F),
+      InboxFilter.notice => const Color(0xFFB07A28),
     };
+
+Color _labelAccent(UserLabel label) => Brand.labelColor(label.color);
 
 String? _typeOf(InboxFilter? f) => switch (f) {
       InboxFilter.todo => 'todo',
@@ -45,15 +50,19 @@ String? _typeOf(InboxFilter? f) => switch (f) {
       _ => null,
     };
 
-bool _match(Item i, InboxFilter? f, String? status, String q) {
-  final ok = switch (f) {
-    null => true,
-    InboxFilter.unread => !i.state.read,
-    InboxFilter.trash => i.state.hidden,
-    InboxFilter.starred => i.state.starred || i.priority != 'low' || i.importantChange,
-    InboxFilter.todo || InboxFilter.event || InboxFilter.notice => i.type == _typeOf(f),
-  };
-  if (!ok) return false;
+bool _match(Item i, InboxFilter? f, int? labelId, String? status, String q) {
+  if (labelId != null) {
+    if (!i.labelIds.contains(labelId) || i.state.hidden) return false;
+  } else {
+    final ok = switch (f) {
+      null => true,
+      InboxFilter.unread => !i.state.read,
+      InboxFilter.trash => i.state.hidden,
+      InboxFilter.starred => i.state.starred || i.priority != 'low' || i.importantChange,
+      InboxFilter.todo || InboxFilter.event || InboxFilter.notice => i.type == _typeOf(f),
+    };
+    if (!ok) return false;
+  }
   if (status != null && i.status != status) return false;
   if (q.isEmpty) return true;
   final s = q.toLowerCase();
@@ -82,18 +91,67 @@ class InboxPage extends ConsumerStatefulWidget {
 
 class _InboxPageState extends ConsumerState<InboxPage> {
   late InboxFilter? filter = widget.initial;
+  int? labelId;
   String? status; // 选中类型后的状态筛选；null = 全部状态
   String q = '';
   int? selected;
   bool searching = false;
 
+  Future<void> _createLabel() async {
+    final result = await showDialog<({String name, String color})>(
+      context: context,
+      builder: (ctx) => const _CreateLabelDialog(),
+    );
+    if (result == null || result.name.isEmpty || !mounted) return;
+    try {
+      await ref.read(apiProvider).createLabel(result.name, color: result.color);
+      ref.invalidate(labelsProvider);
+      if (mounted) toast(context, '已创建「${result.name}」');
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message);
+    }
+  }
+
+  Future<void> _deleteLabel(UserLabel label) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除「${label.name}」？'),
+        content: const Text('事项上的该标签会被一并去掉，收藏星标不受影响。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(apiProvider).deleteLabel(label.id);
+      if (labelId == label.id) setState(() => labelId = null);
+      ref.invalidate(labelsProvider);
+      if (mounted) toast(context, '已删除「${label.name}」');
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final st = ref.watch(feedProvider);
-    final items = (filter == InboxFilter.trash ? st.trashed : st.visible)
-        .where((i) => _match(i, filter, status, q))
+    final userLabels = ref.watch(labelsProvider).asData?.value ?? const <UserLabel>[];
+    UserLabel? activeLabel;
+    if (labelId != null) {
+      for (final l in userLabels) {
+        if (l.id == labelId) {
+          activeLabel = l;
+          break;
+        }
+      }
+    }
+    final items = (filter == InboxFilter.trash && labelId == null ? st.trashed : st.visible)
+        .where((i) => _match(i, filter, labelId, status, q))
         .toList();
-    final type = _typeOf(filter);
+    final type = labelId != null ? null : _typeOf(filter);
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final cs = Theme.of(context).colorScheme;
     // 宽屏默认选中当前列表第一条，右侧始终是详情（Gmail 式），不再留空。
@@ -118,9 +176,11 @@ class _InboxPageState extends ConsumerState<InboxPage> {
                   decoration: const InputDecoration(hintText: '搜索标题、课程、来源', prefixIcon: Icon(Icons.search), isDense: true),
                   onChanged: (v) => setState(() => q = v.trim()),
                 )
-              : filter == InboxFilter.trash
+              : filter == InboxFilter.trash && labelId == null
                   ? const Text('回收站')
-                  : (st.unread > 0 ? Pill('${st.unread} 未读', color: cs.primary) : const SizedBox.shrink()),
+                  : activeLabel != null
+                      ? Text(activeLabel.name)
+                      : (st.unread > 0 ? Pill('${st.unread} 未读', color: Brand.yellow) : const SizedBox.shrink()),
           actions: [
             IconButton(
               tooltip: searching ? '关闭搜索' : '搜索',
@@ -134,10 +194,12 @@ class _InboxPageState extends ConsumerState<InboxPage> {
               onSelected: (v) async {
                 if (v == 'read') await ref.read(feedProvider.notifier).markAllRead(items);
                 if (v == 'refresh') await ref.read(feedProvider.notifier).refreshAll();
+                if (v == 'new_label') await _createLabel();
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'read', child: ListTile(leading: Icon(Icons.done_all), title: Text('当前列表全部已读'))),
                 PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.refresh), title: Text('重新同步'))),
+                PopupMenuItem(value: 'new_label', child: ListTile(leading: Icon(Icons.new_label_outlined), title: Text('新建标签'))),
               ],
             ),
           ],
@@ -153,19 +215,44 @@ class _InboxPageState extends ConsumerState<InboxPage> {
                     for (final f in InboxFilter.values) ...[
                       _FilterChip(
                         label: _labels[f]!,
-                        selected: filter == f,
+                        selected: labelId == null && filter == f,
                         accent: _filterAccent(f),
                         badge: f == InboxFilter.unread && st.unread > 0 ? st.unread : null,
                         emphasize: f == InboxFilter.unread && st.unread > 0,
                         onSelected: () => setState(() {
+                          labelId = null;
                           filter = filter == f ? null : f;
-                          // 切到某类事项时默认只看未处理的（待完成／未归档／未读）
                           final t = _typeOf(filter);
                           status = t == null ? null : typeStatuses[t]!.first.$1;
                         }),
                       ),
                       const SizedBox(width: 8),
                     ],
+                    for (final label in userLabels) ...[
+                      GestureDetector(
+                        onLongPress: () => _deleteLabel(label),
+                        child: _FilterChip(
+                          label: label.name,
+                          selected: labelId == label.id,
+                          accent: _labelAccent(label),
+                          onSelected: () => setState(() {
+                            if (labelId == label.id) {
+                              labelId = null;
+                            } else {
+                              labelId = label.id;
+                              filter = null;
+                              status = null;
+                            }
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    ActionChip(
+                      avatar: const Icon(Icons.add, size: 18),
+                      label: const Text('标签'),
+                      onPressed: _createLabel,
+                    ),
                   ]),
                 ),
               ),
@@ -200,11 +287,17 @@ class _InboxPageState extends ConsumerState<InboxPage> {
               icon: q.isNotEmpty ? Icons.search_off : Icons.inbox_outlined,
               title: q.isNotEmpty
                   ? '没有找到“$q”'
-                  : (filter == null ? '还没有事项' : filter == InboxFilter.trash ? '回收站是空的' : '这里没有${_labels[filter]}的事项'),
-              message: filter == null && q.isEmpty
+                  : activeLabel != null
+                      ? '还没有打上「${activeLabel.name}」的事项'
+                      : (filter == null ? '还没有事项' : filter == InboxFilter.trash ? '回收站是空的' : '这里没有${_labels[filter]}的事项'),
+              message: filter == null && labelId == null && q.isEmpty
                   ? '在 Chrome 里打开 Moodle 或校园网页，用 Campus Radar 插件输入条件、预览并保存匹配内容。'
-                  : filter == InboxFilter.trash ? '恢复后保留备注、收藏与历史；来源检查不会自动恢复。' : null,
-              action: filter == null && q.isEmpty
+                  : filter == InboxFilter.trash && labelId == null
+                      ? '恢复后保留备注、收藏与历史；来源检查不会自动恢复。'
+                      : activeLabel != null
+                          ? '在事项详情里可以把内容加到这个标签。'
+                          : null,
+              action: filter == null && labelId == null && q.isEmpty
                   ? FilledButton.icon(onPressed: () => context.go('/sources'), icon: const Icon(Icons.add), label: const Text('添加信息源'))
                   : null,
             ),
@@ -299,6 +392,86 @@ class _FilterChip extends StatelessWidget {
         color: selected ? color : (emphasize ? color : null),
       ),
       onSelected: (_) => onSelected(),
+    );
+  }
+}
+
+class _CreateLabelDialog extends StatefulWidget {
+  const _CreateLabelDialog();
+
+  @override
+  State<_CreateLabelDialog> createState() => _CreateLabelDialogState();
+}
+
+class _CreateLabelDialogState extends State<_CreateLabelDialog> {
+  final _name = TextEditingController();
+  String _color = Brand.labelPalette.first;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) return;
+    Navigator.pop(context, (name: name, color: _color));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新建标签'),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              maxLength: 40,
+              decoration: const InputDecoration(hintText: '例如：收藏、作业、社团'),
+              onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 8),
+            Text('颜色', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final hex in Brand.labelPalette)
+                  InkWell(
+                    onTap: () => setState(() => _color = hex),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: Brand.labelColor(hex),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _color == hex ? Brand.ink : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: _color == hex
+                          ? const Icon(Icons.check, size: 16, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(onPressed: _submit, child: const Text('创建')),
+      ],
     );
   }
 }

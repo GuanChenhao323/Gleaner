@@ -145,30 +145,19 @@ class _TransferPageState extends ConsumerState<TransferPage> {
             if (code == null) ...[
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('在电脑上发起', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 6),
-                    Text('生成二维码，用手机扫码后即可互传文件。配对码 30 分钟内有效。', style: TextStyle(color: cs.onSurfaceVariant)),
-                    const SizedBox(height: 14),
+                  padding: const EdgeInsets.all(28),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     FilledButton.icon(onPressed: _create, icon: const Icon(Icons.qr_code_2), label: const Text('生成二维码')),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('加入已有会话', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 28),
+                    Text('或输入配对码', style: TextStyle(color: cs.onSurfaceVariant)),
                     const SizedBox(height: 12),
                     Row(children: [
-                      Expanded(child: TextField(controller: codeCtl, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(hintText: '输入 6 位配对码'))),
+                      Expanded(child: TextField(controller: codeCtl, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(hintText: '6 位配对码'))),
                       const SizedBox(width: 10),
                       FilledButton(onPressed: () => _join(codeCtl.text.trim()), child: const Text('加入')),
                     ]),
                     if (!kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       OutlinedButton.icon(onPressed: () => _scan(context), icon: const Icon(Icons.qr_code_scanner), label: const Text('扫描二维码')),
                     ],
                   ]),
@@ -177,7 +166,7 @@ class _TransferPageState extends ConsumerState<TransferPage> {
             ] else ...[
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(28),
                   child: Column(children: [
                     if (status == 'waiting') ...[
                       Container(
@@ -185,15 +174,18 @@ class _TransferPageState extends ConsumerState<TransferPage> {
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
                         child: QrImageView(data: '$server/#/transfer/$code', size: 220),
                       ),
-                      const SizedBox(height: 12),
-                      Text('用手机扫码，或在手机上输入配对码', style: TextStyle(color: cs.onSurfaceVariant)),
-                    ] else
+                      const SizedBox(height: 16),
+                      SelectableText(code!, style: Theme.of(context).textTheme.headlineMedium?.copyWith(letterSpacing: 6, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 10),
+                      Text('配对码 30 分钟内有效', style: TextStyle(color: cs.onSurfaceVariant)),
+                    ] else ...[
                       Icon(Icons.devices, size: 56, color: cs.primary),
-                    const SizedBox(height: 8),
-                    SelectableText(code!, style: Theme.of(context).textTheme.headlineMedium?.copyWith(letterSpacing: 6, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 8),
+                      const SizedBox(height: 8),
+                      SelectableText(code!, style: Theme.of(context).textTheme.headlineMedium?.copyWith(letterSpacing: 6, fontWeight: FontWeight.w800)),
+                    ],
+                    const SizedBox(height: 12),
                     Pill(status == 'paired' ? '已配对' : '等待配对…', color: status == 'paired' ? Colors.green : cs.outline, icon: status == 'paired' ? Icons.link : Icons.hourglass_top),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     FilledButton.icon(onPressed: _send, icon: const Icon(Icons.upload_file), label: const Text('发送文件')),
                   ]),
                 ),

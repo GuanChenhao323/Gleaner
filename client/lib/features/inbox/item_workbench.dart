@@ -22,8 +22,8 @@ IconData typeIcon(String t) => switch (t) {
 
 Color typeColor(String t) => switch (t) {
       'todo' => const Color(0xFFD9534F),
-      'event' => const Color(0xFF5C6BC0),
-      _ => const Color(0xFF3A7BD5),
+      'event' => const Color(0xFFC9891F),
+      _ => const Color(0xFFB07A28),
     };
 
 String statusLabel(String s) => switch (s) {

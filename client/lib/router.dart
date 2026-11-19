@@ -34,7 +34,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
       // 扫码加入传输会话不要求登录（手机可能还没有账号）
       if (loc.startsWith('/transfer/')) return null;
-      // 作业页已并入课程；旧日历入口落到工作台
       if (loc == '/calendar' || loc == '/assignments' || loc.startsWith('/assignments')) {
         return loggedIn ? '/' : '/login';
       }
@@ -61,7 +60,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             )),
           ),
           GoRoute(path: '/courses', pageBuilder: (_, _) => page(const CoursesPage())),
-          // 课程名含空格/中文，不用 path 参数（避免 encode/decode 二次处理报错）
           GoRoute(
             path: '/courses/detail',
             pageBuilder: (_, s) {

@@ -19,6 +19,8 @@ final coursesProvider = FutureProvider<List<Course>>((ref) async {
 
 final rulesProvider = FutureProvider<List<Rule>>((ref) => ref.watch(apiProvider).rules());
 
+final labelsProvider = FutureProvider<List<UserLabel>>((ref) => ref.watch(apiProvider).labels());
+
 final versionsProvider = FutureProvider.family<List<ItemVersion>, int>((ref, id) async {
   ref.watch(feedProvider.select((s) => s.items[id]?.version));
   return ref.watch(apiProvider).versions(id);

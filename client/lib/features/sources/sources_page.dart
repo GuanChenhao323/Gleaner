@@ -234,28 +234,28 @@ class SourcesPage extends ConsumerWidget {
                   onDelete: () => _remove(context, ref, s),
                 );
           return ListView(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+            padding: const EdgeInsets.fromLTRB(28, 20, 28, 56),
             children: [
               if (rows.isNotEmpty) ...[
                 Text(
                   rows.any((s) => s.deviceOnline)
                       ? '本机 Chrome 近期已连接 · 原站登录状态逐来源检查'
                       : '尚未检测到执行设备近期连接 · 保留上次成功结果',
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.5),
                 ),
-                const SizedBox(height: 17),
+                const SizedBox(height: 20),
               ],
               Card(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    vertical: 18,
-                    horizontal: 8,
+                    vertical: 22,
+                    horizontal: 12,
                   ),
                   child: LayoutBuilder(
                     builder: (context, c) => Wrap(
                       alignment: WrapAlignment.spaceAround,
-                      spacing: 16,
-                      runSpacing: 14,
+                      spacing: 20,
+                      runSpacing: 18,
                       children: [
                         metric('${groups.length}', '已保存页面'),
                         metric(
@@ -275,15 +275,18 @@ class SourcesPage extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 32),
               Text('我的信息源', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               if (rows.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Text('还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 36),
+                  child: Text(
+                    '还没有保留原条件的信息源。请在原网页通过插件提取、预览并保存。',
+                    style: TextStyle(color: cs.onSurfaceVariant, height: 1.55),
+                  ),
                 ),
-              for (final group in groups.values)
+              for (final group in groups.values) ...[
                 if (group.first.resident)
                   ResidentSourceGroup(
                     rules: group,
@@ -308,17 +311,21 @@ class SourcesPage extends ConsumerWidget {
                   )
                 else
                   ruleCard(group.first),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
+                const SizedBox(height: 12),
+              ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 20, 0, 28),
                 child: Text(
                   '专用监测标签页需要保持打开；可以关闭工作台页面。请保持Chrome、扩展和本地服务运行，检查可能延后。',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.55),
                 ),
               ),
               deleted.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('已删除来源暂不可用：$e'),
                 data: (values) => ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
                   title: Text('已删除来源（${values.length}）'),
                   subtitle: const Text('恢复后保持暂停；彻底删除会永久清除关联资料与历史。'),
                   children: [
@@ -360,11 +367,13 @@ class SourcesPage extends ConsumerWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 8),
               if (oldCaptures.isNotEmpty ||
                   oldSources.isNotEmpty ||
                   captures.hasError)
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
                   title: const Text('旧资料与演示订阅'),
                   subtitle: const Text('保留已有数据；缺少原条件时请打开原网页重新采集。'),
                   children: [

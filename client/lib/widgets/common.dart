@@ -88,17 +88,19 @@ class Pill extends StatelessWidget {
 
 class CourseTag extends StatelessWidget {
   final String course;
-  const CourseTag(this.course, {super.key});
+  final bool muted;
+  const CourseTag(this.course, {super.key, this.muted = false});
   @override
   Widget build(BuildContext context) {
     if (course.isEmpty) return const SizedBox.shrink();
-    final c = Brand.course(course);
+    final cs = Theme.of(context).colorScheme;
+    final c = muted ? cs.outline : Brand.course(course);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
       const SizedBox(width: 6),
       Flexible(
         child: Text(shortCourse(course),
-            overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
       ),
     ]);
   }
@@ -116,6 +118,7 @@ class DeadlineBadge extends StatelessWidget {
     return Pill(countdown(due), color: urgencyColor(context, u), icon: Icons.schedule, filled: u == Urgency.critical);
   }
 }
+
 
 /// 截止时间变化等重要变更的醒目标记。
 class ChangeBadge extends StatelessWidget {

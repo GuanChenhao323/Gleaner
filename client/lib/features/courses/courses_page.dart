@@ -10,7 +10,7 @@ import '../../core/providers.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
-/// 课程列表：点进详情看该课全部作业。
+/// 课程主页（场景 6）：未完成作业、近期通知、来自官网的教师信息。
 class CoursesPage extends ConsumerWidget {
   const CoursesPage({super.key});
 

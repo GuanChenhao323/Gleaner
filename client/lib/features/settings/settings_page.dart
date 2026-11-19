@@ -25,81 +25,88 @@ class SettingsPage extends ConsumerWidget {
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), children: [
+          child: ListView(padding: const EdgeInsets.fromLTRB(20, 20, 20, 96), children: [
             Card(
               child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
+                contentPadding: const EdgeInsets.all(18),
                 leading: Avatar(me?.name ?? '', size: 52),
                 title: Text(me?.name ?? '', style: Theme.of(context).textTheme.titleMedium),
-                subtitle: Text([me?.email, me?.grade, me?.major].where((e) => e != null && e.isNotEmpty).join(' · ')),
+                subtitle: Text(me?.email ?? ''),
                 trailing: const Icon(Icons.edit_outlined),
                 onTap: () => _editProfile(context, ref),
               ),
             ),
+            const SizedBox(height: 8),
             const SectionHeader('通知'),
             Card(
               child: Column(children: [
                 ListTile(
                   leading: const Icon(Icons.bedtime_outlined),
-                  title: const Text('免打扰时段'),
-                  subtitle: Text('${me?.quietStart ?? '23:00'} – ${me?.quietEnd ?? '07:00'}，只放行紧急通知'),
+                  title: const Text('免打扰'),
+                  subtitle: Text('${me?.quietStart ?? '23:00'} – ${me?.quietEnd ?? '07:00'}'),
                   onTap: () => _editTimes(context, ref),
                 ),
                 ListTile(
                   leading: const Icon(Icons.wb_twilight),
-                  title: const Text('每日摘要时间'),
-                  subtitle: Text('每天 ${me?.digestTime ?? '08:00'} 推送一次摘要（MQTT 保留消息）'),
+                  title: const Text('每日摘要'),
+                  subtitle: Text('每天 ${me?.digestTime ?? '08:00'}'),
                   onTap: () => _editTimes(context, ref),
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.forward_to_inbox),
-                  title: const Text('每日摘要邮件'),
-                  subtitle: Text('同时把摘要发到 ${me?.email ?? '注册邮箱'}（默认关闭）'),
+                  title: const Text('摘要同时发邮件'),
                   value: me?.digestEmail ?? false,
                   onChanged: (v) => _save(context, ref, {'digest_email': v}),
                 ),
                 ListTile(
                   leading: const Icon(Icons.tune),
                   title: const Text('个性化规则'),
-                  subtitle: const Text('加分关键词、屏蔽词、白名单发件人'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/settings/rules'),
                 ),
               ]),
             ),
-            const SectionHeader('连接与同步'),
+            const SizedBox(height: 8),
+            const SectionHeader('连接'),
             Card(
               child: Column(children: [
-                const ListTile(leading: Icon(Icons.bolt_outlined), title: Text('实时推送（WebSocket）')),
                 ListTile(
                   leading: const Icon(Icons.notifications_active_outlined),
-                  title: const Text('系统通知（MQTT）'),
-                  subtitle: Text(switch (mqtt) { MqttConn.on => '已连接，紧急通知会推送到本设备', MqttConn.connecting => '连接中…', MqttConn.off => '未连接' }),
+                  title: const Text('推送状态'),
+                  subtitle: Text(switch (mqtt) { MqttConn.on => '已连接', MqttConn.connecting => '连接中…', MqttConn.off => '未连接' }),
                 ),
                 ListTile(
                   leading: const Icon(Icons.sync),
-                  title: const Text('同步游标'),
-                  subtitle: Text('seq ${feed.cursor} · 本地缓存 ${feed.items.length} 条 · 待同步操作 ${feed.pending} 个'),
+                  title: const Text('同步'),
+                  subtitle: Text(feed.pending > 0 ? '${feed.pending} 项待同步' : '已是最新'),
                   trailing: TextButton(onPressed: () => ref.read(feedProvider.notifier).syncNow(), child: const Text('立即同步')),
                 ),
                 ListTile(leading: const Icon(Icons.dns_outlined), title: const Text('服务器'), subtitle: Text(s.server)),
               ]),
             ),
-            const SectionHeader('隐私与账号'),
+            const SizedBox(height: 8),
+            const SectionHeader('账号'),
             Card(
               child: Column(children: [
-                const ListTile(
-                  leading: Icon(Icons.shield_outlined),
-                  title: Text('隐私说明'),
-                  subtitle: Text(
-                    'Moodle 等来源只保存登录会话，不保存统一认证密码；学校邮箱的应用专用密码与会话均用 AES-GCM 加密保存；'
-                    '邮件只保存标题、发件人、摘要与链接；可随时删除账号与全部数据。',
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('隐私说明'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: const Text('隐私说明'),
+                      content: const Text(
+                        'Moodle 等来源只保存登录会话，不保存统一认证密码；学校邮箱的应用专用密码与会话均用 AES-GCM 加密保存；'
+                        '邮件只保存标题、发件人、摘要与链接；可随时删除账号与全部数据。',
+                      ),
+                      actions: [FilledButton(onPressed: () => Navigator.pop(c), child: const Text('知道了'))],
+                    ),
                   ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.password),
                   title: const Text('修改密码'),
-                  subtitle: const Text('修改后其他设备需要重新登录'),
                   onTap: () => _changePassword(context, ref),
                 ),
                 ListTile(
@@ -115,7 +122,7 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: Icon(Icons.delete_forever_outlined, color: cs.error),
-                  title: Text('删除账号及全部数据', style: TextStyle(color: cs.error)),
+                  title: Text('删除账号', style: TextStyle(color: cs.error)),
                   onTap: () => _delete(context, ref),
                 ),
               ]),

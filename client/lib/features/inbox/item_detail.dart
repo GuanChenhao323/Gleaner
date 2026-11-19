@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
@@ -78,8 +79,11 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Pill(item.raw['web_capture'] is Map ? '网页资料' : kindLabel(item.kind), color: courseColor, icon: kindIcon(item.kind)),
           if (item.course.isNotEmpty) CourseTag(item.course),
-          if (item.priority != 'low') Pill('${priorityLabel(item.priority)} · ${item.score} 分', color: item.priority == 'urgent' ? Brand.urgent : cs.primary),
+          if (item.priority != 'low')
+            Pill('${priorityLabel(item.priority)} · ${item.score} 分',
+                color: item.priority == 'urgent' ? Brand.dueCritical : Brand.dueSoon),
           if (item.deleted) Pill('来源已删除', color: cs.error, icon: Icons.delete_outline),
+          ..._itemLabelPills(ref, item),
         ]),
         const SizedBox(height: 14),
         SelectableText(item.title, style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, height: 1.3)),
@@ -230,12 +234,88 @@ class _ItemDetailState extends ConsumerState<ItemDetail> {
             icon: Icon(item.state.starred ? Icons.star_rounded : Icons.star_outline_rounded, color: item.state.starred ? Brand.wheat : null),
             onPressed: () => store.setState(item, starred: !item.state.starred),
           ),
+          IconButton(
+            tooltip: '标签',
+            icon: const Icon(Icons.label_outline),
+            onPressed: () => _editLabels(context, ref, item),
+          ),
           IconButton(tooltip: '标为未读', icon: const Icon(Icons.mark_email_unread_outlined), onPressed: () => store.setState(item, read: false)),
           const SizedBox(width: 8),
         ],
       ),
       body: Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: body)),
     );
+  }
+}
+
+List<Widget> _itemLabelPills(WidgetRef ref, Item item) {
+  final labels = ref.watch(labelsProvider).asData?.value ?? const <UserLabel>[];
+  if (labels.isEmpty || item.labelIds.isEmpty) return const [];
+  final byId = {for (final l in labels) l.id: l};
+  return [
+    for (final id in item.labelIds)
+      if (byId[id] != null)
+        Pill(byId[id]!.name, color: Brand.labelColor(byId[id]!.color), icon: Icons.label_outline),
+  ];
+}
+
+Future<void> _editLabels(BuildContext context, WidgetRef ref, Item item) async {
+  final labels = await ref.read(labelsProvider.future);
+  if (!context.mounted) return;
+  if (labels.isEmpty) {
+    toast(context, '还没有标签，请先在收件箱新建');
+    return;
+  }
+  final selected = item.labelIds.toSet();
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) {
+      return StatefulBuilder(builder: (ctx, setLocal) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('给事项打标签', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              for (final label in labels)
+                CheckboxListTile(
+                  value: selected.contains(label.id),
+                  title: Text(label.name),
+                  secondary: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Brand.labelColor(label.color),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (v) => setLocal(() {
+                    if (v == true) {
+                      selected.add(label.id);
+                    } else {
+                      selected.remove(label.id);
+                    }
+                  }),
+                ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('保存'),
+              ),
+            ]),
+          ),
+        );
+      });
+    },
+  );
+  if (ok != true || !context.mounted) return;
+  try {
+    await ref.read(feedProvider.notifier).setItemLabels(item, selected.toList()..sort());
+    if (context.mounted) toast(context, '标签已更新');
+  } on ApiException catch (e) {
+    if (context.mounted) toast(context, e.message);
   }
 }
 

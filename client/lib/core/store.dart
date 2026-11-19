@@ -471,6 +471,13 @@ class FeedStore extends Notifier<FeedState> {
     await setState(item, read: true);
   }
 
+  Future<void> setItemLabels(Item item, List<int> labelIds) async {
+    final ids = await _api.putItemLabels(item.id, labelIds);
+    final next = item.withLabelIds(ids);
+    state = state.copyWith(items: {...state.items, item.id: next});
+    await _cache(() => _db.saveItems([next.toJson()]));
+  }
+
   Future<Item> loadDetail(int id) async {
     final it = await _api.item(id);
     final old = state.items[id];

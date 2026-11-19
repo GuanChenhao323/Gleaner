@@ -10,7 +10,6 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../courses/assignment_list.dart';
 
-/// 工作台上的跨课截止日历（原作业页日历）。
 class DeadlineCalendarCard extends ConsumerStatefulWidget {
   const DeadlineCalendarCard({super.key});
 
