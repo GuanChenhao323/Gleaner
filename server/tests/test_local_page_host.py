@@ -5,23 +5,28 @@ import json
 import uuid
 
 import pytest
+import test_reading_sources as reading_tests
 from monitoring_helpers import cookie
 from test_browser_capture import batch
 from test_monitoring_moodle import page
-from test_reading_sources import setup
 from test_resident_monitoring import resident
 
 from gleaner.monitoring.host import LocalPageHost
 from gleaner.monitoring.models import SafeResponse
 from gleaner.net.http import Headers, Request
 
+setup = reading_tests.setup
+
 URL = "https://moodle.must.edu.mo/mod/assign/view.php?id=7"
 
 
-async def source_fixture(setup):
+async def source_fixture(setup, *, account="account-a", device="device-a"):
     reading, _, native, db = setup
     req = batch("scope", ("assignment:7",))
-    req["binding"].update(adapter="moodle", origin="https://moodle.must.edu.mo")
+    req["device_id"] = device
+    req["binding"].update(
+        adapter="moodle", origin="https://moodle.must.edu.mo", account_key=account
+    )
     target = req["targets"][0]
     target["locator"].update(url=URL, frame_url=URL)
     target.update(supported=False, enabled=False)
@@ -139,10 +144,10 @@ async def test_browser_protocol_handoff_real_contract(setup, tmp_path, case):
             bound.monitor.transport = orig
         after = await reading.own(1, row["id"])
         if case == "missing_intro":
-            assert after["last_result"] == "unsupported"
+            assert after["last_result"] == "protocol_unsupported"
             assert await db.fetchval("SELECT body FROM items WHERE id=?", iid) == "Original"
         elif case == "wrong_account":
-            assert after["last_result"] == "account_mismatch"
+            assert after["last_result"] == "protocol_account_required"
             assert await db.fetchval("SELECT body FROM items WHERE id=?", iid) == "Original"
         else:
             assert after["last_result"] == "changed"
@@ -152,3 +157,42 @@ async def test_browser_protocol_handoff_real_contract(setup, tmp_path, case):
             assert (await reading.claim(1, {"device_id": row["device_id"]}))["job"]
     finally:
         await host.close()
+
+
+async def test_restart_restores_task_and_rate_budget_without_reactivating_revoked_session(
+    setup, tmp_path
+):
+    reading, _, _, _ = setup
+    row, _, _ = await source_fixture(setup)
+    first = LocalPageHost(reading, tmp_path, 0, "a" * 32)
+    await first.start()
+    proof = hashlib.sha256(f"{first.epoch}|{row['id']}|moodle|42".encode()).hexdigest()
+    common = {"revision": row["revision"], "device_id": row["device_id"]}
+    try:
+        state = await first.session(
+            row, {**common, "action": "authorize", "epoch": first.epoch, "account_proof": proof}
+        )
+        task_id = state["task_id"]
+        bound = reading.protocol.sessions[row["id"]]
+        bound.monitor.access_not_before = 2_040_000_000
+        bound.monitor.next_due_at = 2_040_000_600
+        bound.monitor.pause()
+        await first.session(
+            row, {**common, "action": "revoke", "epoch": first.epoch, "auth_revision": 0}
+        )
+    finally:
+        await first.close()
+    second = LocalPageHost(reading, tmp_path, 0, "a" * 32)
+    await second.start()
+    try:
+        restored = reading.protocol.sessions[row["id"]]
+        status = await second.session(row, {**common, "action": "status"})
+        assert status["state"] == "revoked" and status["epoch"] != first.epoch
+        assert status["task_id"] == task_id and not restored.monitor.task.enabled
+        assert (
+            restored.monitor.next_due_at == 2_040_000_600
+            and restored.monitor.access_not_before == 2_040_000_000
+        )
+        assert not restored.proof and not restored.available(row)
+    finally:
+        await second.close()

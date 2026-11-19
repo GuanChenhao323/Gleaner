@@ -20,6 +20,7 @@ from .models import MonitorError
 from .pages import HTMLReceipt, HTMLSnapshot, PageMonitor
 from .profiles import SessionInspector, page_policy
 from .store import Store
+from .transport import OriginPacing
 
 
 class LocalPageHost:
@@ -37,6 +38,7 @@ class LocalPageHost:
         self.tickets: dict[str, tuple[float, int, int, str]] = {}
         directory.mkdir(parents=True, exist_ok=True)
         self.store = Store(str(directory / "page-monitor.sqlite"))
+        self.pacing: dict[str, OriginPacing] = {}
         self.epoch = str(uuid4())
         self.server = HTTPServer(
             self.handle, ServerConfig(host="127.0.0.1", port=port, max_body_bytes=262144)
@@ -62,6 +64,7 @@ class LocalPageHost:
         transport = create_page_transport(
             policy,
             auth,
+            pacing=self.pacing.setdefault(policy.origin, OriginPacing()),
             get_not_before=lambda: self.store.meta("not-before:" + policy.origin, 0),
             set_not_before=lambda value: self.store.put_meta("not-before:" + policy.origin, value),
         )
@@ -171,9 +174,20 @@ class LocalPageHost:
         ):
             return Response.error(422, "invalid")
         try:
-            await self.reading.own(user["id"], data["source_id"])
+            row = await self.reading.own(
+                user["id"],
+                data["source_id"],
+                include_deleted=data["action"] in ("revoke", "status", "presence"),
+            )
         except ContractError:
-            return Response.error(404, "not_found")
+            bound = self.reading.protocol.sessions.get(data["source_id"])
+            if (
+                data["action"] not in ("revoke", "status", "presence")
+                or not bound
+                or bound.task.owner_id != user["id"]
+            ):
+                return Response.error(404, "未登记此来源", "source_missing")
+            row = {"device_id": bound.task.bridge_id, "revision": bound.revision}
         now = time.monotonic()
         self.tickets = {k: v for k, v in self.tickets.items() if v[0] > now}
         if len(self.tickets) >= 512:
@@ -186,6 +200,8 @@ class LocalPageHost:
                 "schema_version": 1,
                 "ticket": token,
                 "port": self.server.port,
+                "device_id": row["device_id"],
+                "revision": row["revision"],
                 "epoch": self.epoch,
             }
         )
@@ -218,7 +234,39 @@ class LocalPageHost:
                 raise MonitorError("invalid")
             async with self.reading.db.transaction():
                 await self.reading.fence.lock(uid)
-                row = await self.reading.own(uid, data["source_id"])
+                try:
+                    row = await self.reading.own(
+                        uid,
+                        source_id,
+                        include_deleted=operation in ("revoke", "status", "presence"),
+                    )
+                except ContractError:
+                    bound = self.reading.protocol.sessions.get(source_id)
+                    if (
+                        not bound
+                        or bound.task.owner_id != uid
+                        or operation not in ("revoke", "status", "presence")
+                    ):
+                        raise
+                    row = {
+                        "id": source_id,
+                        "device_id": bound.task.bridge_id,
+                        "revision": bound.revision,
+                        "deleted": True,
+                    }
+                if row.get("deleted") and operation in ("revoke", "status", "presence"):
+                    bound = self.reading.protocol.sessions.get(source_id)
+                    if bound and bound.task.owner_id == uid:
+                        await self.detach(bound)
+                    return Response.json_body(
+                        {
+                            "ok": True,
+                            "schema_version": 1,
+                            "state": "not_authorized",
+                            "epoch": self.epoch,
+                        }
+                    )
+
                 if (
                     data.get("device_id") != row["device_id"]
                     or data.get("revision") != row["revision"]
@@ -227,7 +275,7 @@ class LocalPageHost:
                 result = await self.session(row, data)
             response = Response.json_body({"ok": True, "schema_version": 1, **result})
         except (ContractError, MonitorError) as error:
-            response = Response.error(409, error.code)
+            response = Response.error(409, error.code, error.code)
         except (ValueError, KeyError, TypeError):
             response = Response.error(422, "invalid")
         response.headers["Cache-Control"] = "no-store"
@@ -251,7 +299,10 @@ class LocalPageHost:
                 raise MonitorError("revision_conflict")
             if not bound:
                 bound = self.build(row, proof)
+            bound.monitor.auth.approve_reauthorization(bound.task.auth_context_id)
             bound.proof = proof
+            if not bound.task.enabled:
+                bound.monitor.resume(bound.task.revision)
         elif not bound:
             if action == "status":
                 return {"state": "not_authorized", "epoch": self.epoch}
@@ -263,6 +314,7 @@ class LocalPageHost:
         if action == "supply":
             if not bound.proof:
                 raise MonitorError("account_confirmation_required")
+            generation = ctx.generation
             auth.import_cookies(
                 ctx.auth_id,
                 data["cookies"],
@@ -272,17 +324,32 @@ class LocalPageHost:
                 reason=data["reason"],
                 confirmed_same_account=data.get("confirmed_same_account") is True,
             )
+            if ctx.generation != generation and bound.task.enabled and not row["paused"]:
+                allowed = bound.monitor.queue_recovery(
+                    self.store.meta("not-before:" + auth.policy.origin, 0)
+                )
+                await self.reading.db.execute(
+                    "UPDATE reading_sources SET next_at=? WHERE id=? AND revision=? AND paused=0",
+                    allowed,
+                    row["id"],
+                    row["revision"],
+                )
         elif action == "revoke":
             if data["epoch"] != self.epoch:
                 raise MonitorError("stale_backend")
             await auth.revoke(ctx.auth_id, data["auth_revision"])
+            bound.proof = ""
         elif action == "presence":
             auth.presence(row["device_id"], data["sequence"])
         elif action not in ("status", "authorize"):
             raise MonitorError("invalid")
         return {
             "epoch": self.epoch,
-            "state": ctx.state,
+            "state": (
+                "account_confirmation_required"
+                if not bound.proof and ctx.was_verified and ctx.state != "revoked"
+                else ctx.state
+            ),
             "auth_revision": ctx.revision,
             "task_id": bound.task.task_id,
             "next_allowed_at": max(

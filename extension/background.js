@@ -1,3 +1,4 @@
+import {PageRecovery} from './monitoring/page-recovery.js';
 import {PageControl} from './monitoring/page-control.js';
 import {CaptureContextSync} from './lifecycle/capture-context.js';
 import {ResidentTabRegistry} from './monitoring/resident-registry.js';
@@ -37,6 +38,7 @@ const residents=new ResidentTabRegistry(chrome,storage,domReader,accountKey);
 const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,presence:cfg=>residents.presence(cfg),
   reader:new ResidentCycleReader({browser:chrome,registry:residents,reader:domReader,verifier:new SourceSessionVerifier(accountKey),config,legacy:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey))}),reentry,config,device});
 const pageControl=new PageControl({api:request,browser:chrome,device,reader:domReader,accountKey});
+const pageRecovery=new PageRecovery(storage,pageControl);
 const drafts=new DraftRepository(storage);
 const contexts=new CaptureContextSync({storage,repository:drafts,api:request});
 box.beforeFlush=cfg=>contexts.sync(cfg,{offline:true});
@@ -133,12 +135,14 @@ async function wake() {
   try {await readingJobs.wake(cfg);}catch {/* Connection remains visible in popup/workbench; next alarm retries. */}
   try {await legacyWake();}catch {/* Legacy failures must not block saved-page monitoring. */}
 }
+async function recoveryWake(){await pageRecovery.wake(await config());}
 async function alarm() {
+  if(!(await chrome.alarms.get('local-page-session')))await chrome.alarms.create('local-page-session',{periodInMinutes:1});
   if (!(await chrome.alarms.get('campus-radar'))) chrome.alarms.create('campus-radar', { periodInMinutes: 1 });
 }
-chrome.runtime.onInstalled.addListener(() => { alarm(); serial(wake).catch(() => {}); });
-chrome.runtime.onStartup.addListener(() => { alarm(); serial(wake).catch(() => {}); });
-chrome.alarms.onAlarm.addListener(a => { if (a.name === 'campus-radar') serial(wake).catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { alarm(); recoveryWake().catch(()=>{}); serial(wake).catch(() => {}); });
+chrome.runtime.onStartup.addListener(() => { alarm(); recoveryWake().catch(()=>{}); serial(wake).catch(() => {}); });
+chrome.alarms.onAlarm.addListener(a => { if (a.name === 'campus-radar') serial(wake).catch(() => {}); if(a.name==='local-page-session')recoveryWake().catch(()=>{}); });
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   if (sender.id !== chrome.runtime.id || (sender.url && !sender.url.startsWith(chrome.runtime.getURL('')))) return false;
   const action = async () => {
@@ -149,9 +153,10 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       const next = { server: url.origin };
       const data = await request(next, '/api/auth/login', { email: m.email, password: m.password }, { login: true });
       Object.assign(next, { token: data.token, uid: data.user.id, email: data.user.email });
+      if(cfg.uid && cfg.token && (cfg.uid!==next.uid || cfg.server!==next.server))await pageRecovery.stop(cfg);
       await storage.set({ config: next }); await box.retry(next); return { uid: next.uid, email: next.email, server: next.server };
     }
-    if (m.type === 'logout') { await storage.set({ config: { server: cfg.server } }); return {}; }
+    if (m.type === 'logout') { if(cfg.uid && cfg.token)await pageRecovery.stop(cfg); await storage.set({ config: { server: cfg.server } }); return {}; }
     if (!cfg.uid || !cfg.token) throw Error('backend_login_required');
     if (m.type === 'connection.check') {
       const user = await request(cfg, '/api/me', undefined, { session: true });
@@ -164,7 +169,11 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       const current=await device();
       return sources.filter(s=>s.device_id===current.device && s.recipe.source==='moodle' && s.recipe.resident && /^https:\/\/moodle\.must\.edu\.mo\/mod\/assign\/view\.php\?id=\d+$/.test(s.recipe.url)).map(s=>({id:s.id,query:s.recipe.query,url:s.recipe.url}));
     }
-    if(m.type==='page-control.run')return pageControl.run(cfg,m);
+    if(m.type==='page-control.run') {
+      const state=await pageControl.run(cfg,m);
+      if(m.action==='authorize' || m.action==='revoke')await pageRecovery.remember(cfg,m.source_id,state);
+      return state;
+    }
     if (m.type==='intent.save') {
       if(m.owner?.uid!==cfg.uid || m.owner?.server!==cfg.server)throw Error('backend_account_changed');
       const {activity,...capture}=m.capture;

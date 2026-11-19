@@ -83,6 +83,7 @@ class PageMonitor:
         self.pending: HTMLSnapshot | None = None
         self.next_due_at = 0.0
         self.delivery_due_at = 0.0
+        self.access_not_before = 0.0
         self.failures = 0
         self.last_fetch_at: float | None = None
         self.last_delivery_at: float | None = None
@@ -99,6 +100,7 @@ class PageMonitor:
                 "task": asdict(self.task),
                 "next_due_at": self.next_due_at,
                 "failures": self.failures,
+                "access_not_before": self.access_not_before,
                 "last_fetch_at": self.last_fetch_at,
                 "last_delivery_at": self.last_delivery_at,
             },
@@ -119,12 +121,21 @@ class PageMonitor:
         self.task = task
         self.pending = None
         self.next_due_at = saved["next_due_at"]
+        self.access_not_before = saved.get("access_not_before", saved["next_due_at"])
         self.failures = saved["failures"]
         self.last_fetch_at = saved["last_fetch_at"]
         self.last_delivery_at = saved["last_delivery_at"]
         self._last_state = None
         self.delivery_due_at = 0
         return task
+
+    def queue_recovery(self, host_not_before: float) -> float:
+        if self.task is None or not self.task.enabled:
+            raise MonitorError("paused")
+        self.next_due_at = max(self.access_not_before, host_not_before)
+        self._last_state = None
+        self._persist()
+        return self.next_due_at
 
     def resume(self, expected_revision: int) -> None:
         if self.task is None or self.task.revision != expected_revision:
@@ -262,6 +273,7 @@ class PageMonitor:
                 if self.task is not task or not task.enabled:
                     return self._result("superseded")
                 revision, generation = task.revision, c.generation
+                self.access_not_before = self.clock.utc() + self.policy.min_interval_s
                 self.next_due_at = self.clock.utc() + task.interval_s
                 self._persist()
                 try:
@@ -318,6 +330,11 @@ class PageMonitor:
                         task.interval_s,
                         error.retry_after_s,
                         1800 if error.retryable and self.failures >= 3 else 0,
+                    )
+                    self.access_not_before = max(
+                        self.access_not_before,
+                        self.clock.utc() + error.retry_after_s,
+                        self.clock.utc() + 1800 if error.retryable and self.failures >= 3 else 0,
                     )
                     self.next_due_at = self.clock.utc() + delay
                     return self._result("failed", error=error.code, retryable=error.retryable)

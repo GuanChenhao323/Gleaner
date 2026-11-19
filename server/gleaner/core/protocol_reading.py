@@ -152,9 +152,14 @@ class ProtocolReading:
                         account_key=job["recipe"]["binding"]["account_key"],
                     )
                 else:
-                    payload["status"] = active.error
+                    if active.error in ("account_unknown", "account_mismatch"):
+                        bound.monitor.auth.require_auth(context.auth_id)
+                        payload["status"] = "protocol_account_required"
+                    else:
+                        payload["status"] = "protocol_unsupported"
+                        bound.monitor.pause()
             elif outcome and outcome.get("error") in ("auth_required", "account_mismatch"):
-                payload["status"] = "need_login"
+                payload["status"] = "protocol_account_required"
             elif outcome and outcome["state"] == "failed":
                 payload["status"] = "protocol_unavailable"
             async with service.db.transaction():

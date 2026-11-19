@@ -128,6 +128,7 @@ class AuthManager:
             metadata["owner_id"],
             metadata["bridge_id"],
             metadata["cookie_store_id"],
+            state="revoked" if metadata.get("state") == "revoked" else "needs_credentials",
             revision=metadata["revision"] + 1,
             generation=metadata["generation"] + 1,
             was_verified=metadata["was_verified"],
@@ -150,6 +151,8 @@ class AuthManager:
         c = self.context(auth_id)
         if backend_epoch != self.backend_epoch:
             raise MonitorError("stale_backend")
+        if c.state == "revoked" and reason != "manual_reauthorize":
+            raise MonitorError("revoked")
         if not request_id or reason not in (
             "initial",
             "backend_restart",
@@ -249,6 +252,8 @@ class AuthManager:
 
     async def acquire(self, auth_id: str) -> AuthLease:
         c = self.context(auth_id)
+        if c.state == "revoked":
+            raise MonitorError("revoked")
         if c.state not in ("unverified", "valid") or not len(c.jar):
             c.state = "auth_required"
             self._save(auth_id)
@@ -338,9 +343,20 @@ class AuthManager:
         self._save(c.auth_id)
 
     def require_auth(self, auth_id: str) -> None:
+        if self.context(auth_id).state == "revoked":
+            return
         self.context(auth_id).state = "auth_required"
         self._save(auth_id)
         self._invalidate_resource(auth_id)
+
+    def approve_reauthorization(self, auth_id: str) -> None:
+        context = self.context(auth_id)
+        if context.state == "revoked":
+            context.state = "needs_credentials"
+            context.revision += 1
+            context.generation += 1
+            context.lease_handle = object()
+            self._save(auth_id)
 
     async def revoke(self, auth_id: str, expected_revision: int) -> None:
         c = self.context(auth_id)
@@ -355,6 +371,7 @@ class AuthManager:
         c.generation += 1
         c.revision += 1
         c.state = "revoked"
+        self._imports = {k: v for k, v in self._imports.items() if k[0] != auth_id}
         c.lease_handle = object()
         self._save(auth_id)
         cleanup = self._invalidate_resource(auth_id)
@@ -365,7 +382,8 @@ class AuthManager:
         cleanup_failed = False
         for c in self.contexts.values():
             c.jar.clear()
-            c.state = "needs_credentials"
+            if c.state != "revoked":
+                c.state = "needs_credentials"
             c.generation += 1
             c.lease_handle = object()
             self._save(c.auth_id)

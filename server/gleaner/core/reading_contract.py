@@ -31,6 +31,8 @@ FAILURES = {
     "tab_ambiguous",
     "waiting_page",
     "protocol_unavailable",
+    "protocol_account_required",
+    "protocol_unsupported",
     "user_busy",
     "single_account_conflict",
 }

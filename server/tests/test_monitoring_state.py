@@ -211,3 +211,25 @@ async def test_opaque_lease_does_not_expose_manager_or_cross_context():
     await auth.revoke(c.auth_id, c.revision)
     with pytest.raises(MonitorError, match="superseded"):
         auth.current(replace(lease, generation=c.generation))
+
+
+async def test_revoked_context_stays_revoked_across_shutdown_restart_and_automatic_recovery():
+    auth, ctx, clock = make()
+    import_one(auth, ctx)
+    await auth.revoke(ctx.auth_id, ctx.revision)
+    with pytest.raises(MonitorError, match="revoked"):
+        await auth.acquire(ctx.auth_id)
+    auth.require_auth(ctx.auth_id)
+    auth.close()
+    fresh = AuthManager(auth.policy, clock)
+    restored = fresh.restore(auth.metadata(ctx.auth_id))
+    assert restored.state == "revoked" and not len(restored.jar)
+    with pytest.raises(MonitorError, match="revoked"):
+        fresh.import_cookies(
+            restored.auth_id,
+            [cookie()],
+            backend_epoch=fresh.backend_epoch,
+            expected_revision=restored.revision,
+            request_id="resume",
+            reason="backend_restart",
+        )

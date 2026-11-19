@@ -3,17 +3,17 @@ export class PageControl {
   constructor({api,browser,device,reader,accountKey}) {
     Object.assign(this,{api,browser,device,reader,accountKey});
   }
-  async run(cfg,{action,source_id,tabId}) {
+  async run(cfg,{action,source_id,tabId,sequence}) {
     if(!['authorize','status','revoke','presence'].includes(action))throw Error('invalid_control');
     const server=new URL(cfg.server);
     if(!['localhost','127.0.0.1','[::1]'].includes(server.hostname))throw Error('local_service_required');
-    const {sources}=await this.api(cfg,'/api/v1/reading-sources');
-    const source=sources.find(s=>s.id===source_id);
     const {device}=await this.device();
-    if(!source || source.device_id!==device || source.recipe.source!=='moodle')throw Error('source_missing');
-    const params={source_id,action,device_id:device,revision:source.revision};
+    const params={source_id,action,device_id:device};
     let principal;
     if(action==='authorize') {
+      const {sources}=await this.api(cfg,'/api/v1/reading-sources');
+      const source=sources.find(s=>s.id===source_id && s.device_id===device && s.recipe.source==='moodle');
+      if(!source)throw Error('source_missing');
       const meta=await this.reader.metadata(tabId);
       if(meta.url!==source.recipe.url || meta.login || meta.account?.state!=='known')throw Error('account_unknown');
       principal=meta.account.native;
@@ -22,6 +22,8 @@ export class PageControl {
     const local=async(values)=>{
       const ticket=await this.api(cfg,'/api/v1/page-control-ticket',{source_id,action:values.action});
       if(!Number.isInteger(ticket.port)||ticket.port<1||ticket.port>65535||!ticket.ticket)throw Error('invalid_response');
+      if(ticket.device_id!==device)throw Error('binding_denied');
+      values.revision=ticket.revision;
       if(values.action==='authorize'){
         const bytes=new TextEncoder().encode(ticket.epoch+'|'+source_id+'|moodle|'+principal);
         values.account_proof=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -38,7 +40,7 @@ export class PageControl {
       if(state.state==='not_authorized')return state;
       params.auth_revision=state.auth_revision;
     }
-    if(action==='presence')params.sequence=Date.now();
+    if(action==='presence')params.sequence=sequence;
     return local(params);
   }
 }

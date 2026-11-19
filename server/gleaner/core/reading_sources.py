@@ -915,7 +915,15 @@ class ReadingSourceService:
         success = result in {"verified", "changed", "unchanged"}
         count = (
             0
-            if success or result in {"user_busy", "waiting_page", "protocol_unavailable"}
+            if success
+            or result
+            in {
+                "user_busy",
+                "waiting_page",
+                "protocol_unavailable",
+                "protocol_account_required",
+                "protocol_unsupported",
+            }
             else row.get("failure_count", 0) + 1
         )
         pause = invalidates or (resident and count >= 3)

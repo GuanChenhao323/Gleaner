@@ -183,3 +183,35 @@ test('heartbeats report only owned page IDs and distinguish lost browser identit
   await h.session.remove('residentEpoch');
   assert.deepEqual(await h.registry.presence(cfg),{[r.page_id]:'unknown'});
 });
+
+test('worker restart renews only approved sources and drops revoked consent',async()=>{
+  const {PageRecovery}=await import('../monitoring/page-recovery.js');
+  const storage=memory(),calls=[];
+  const control={sources:async()=>[],run:async(_cfg,params)=>{calls.push(params);return {state:calls.length===1?'needs_credentials':'revoked',epoch:'new'};}};
+  await new PageRecovery(storage,control).remember(cfg,11,{state:'valid',epoch:'old'});
+  const current=new PageRecovery(storage,control);
+  await current.wake({...cfg,uid:42});
+  await current.wake(cfg);await current.wake(cfg);await current.wake(cfg);
+  assert.equal(calls.length,2);assert.equal(calls[0].action,'presence');
+  assert.ok(calls[1].sequence>calls[0].sequence);
+  assert.deepEqual(await current.grants(cfg),{});
+});
+
+test('a failed revoke keeps the grant retriable before logout can finish',async()=>{
+  const {PageRecovery}=await import('../monitoring/page-recovery.js');
+  let available=false;
+  const storage=memory(), calls=[];
+  const control={run:async(_cfg,params)=>{
+    calls.push(params.action);
+    if(!available)throw Error('local_service_unavailable');
+    return {state:'revoked'};
+  }};
+  const recovery=new PageRecovery(storage,control);
+  await recovery.remember(cfg,23,{epoch:'one',state:'valid'});
+  await assert.rejects(recovery.stop(cfg),/page_revoke_pending/);
+  assert.equal((await recovery.grants(cfg))[23].pending_revoke,true);
+  available=true;
+  await recovery.wake(cfg);
+  assert.deepEqual(calls,['revoke','revoke']);
+  assert.deepEqual(await recovery.grants(cfg),{});
+});
