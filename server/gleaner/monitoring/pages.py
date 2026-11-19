@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 from uuid import uuid4
 
 from .auth import AuthManager
 from .models import Clock, FetchPlan, MonitorError, RemoteTransport, SitePolicy
 from .profiles import SessionInspector, page_policy
+from .store import Store
 
 
 @dataclass
@@ -67,6 +68,7 @@ class PageMonitor:
         sink: HTMLSink,
         *,
         clock: Clock | None = None,
+        store: Store | None = None,
     ) -> None:
         self.policy, self.auth, self.transport, self.inspector, self.sink = (
             policy,
@@ -75,6 +77,7 @@ class PageMonitor:
             inspector,
             sink,
         )
+        self.store = store
         self.clock = clock or Clock()
         self.task: PageTask | None = None
         self.pending: HTMLSnapshot | None = None
@@ -87,7 +90,51 @@ class PageMonitor:
         self.evidence_code: str | None = None
         self._last_state: str | None = None
 
-    def register(self, params: dict[str, Any], *, owner_id: int, bridge_id: str) -> PageTask:
+    def _persist(self) -> None:
+        if self.store is None or self.task is None:
+            return
+        self.store.put_meta(
+            "page:" + self.task.task_id,
+            {
+                "task": asdict(self.task),
+                "next_due_at": self.next_due_at,
+                "failures": self.failures,
+                "last_fetch_at": self.last_fetch_at,
+                "last_delivery_at": self.last_delivery_at,
+            },
+        )
+
+    def restore(self, task_id: str, *, owner_id: int, bridge_id: str) -> PageTask:
+        saved = self.store.meta("page:" + task_id) if self.store is not None else None
+        if not saved:
+            raise MonitorError("not_found")
+        task = PageTask(**saved["task"])
+        if (task.task_id, task.owner_id, task.bridge_id) != (task_id, owner_id, bridge_id):
+            raise MonitorError("binding_denied")
+        params = {
+            k: getattr(task, k)
+            for k in ("target_url", "interval_s", "auth_context_id", "site_profile")
+        }
+        self._validate(params, owner_id, bridge_id)
+        self.task = task
+        self.pending = None
+        self.next_due_at = saved["next_due_at"]
+        self.failures = saved["failures"]
+        self.last_fetch_at = saved["last_fetch_at"]
+        self.last_delivery_at = saved["last_delivery_at"]
+        self._last_state = None
+        self.delivery_due_at = 0
+        return task
+
+    def resume(self, expected_revision: int) -> None:
+        if self.task is None or self.task.revision != expected_revision:
+            raise MonitorError("revision_conflict")
+        if not self.task.enabled:
+            self.task.enabled = True
+            self.task.revision += 1
+            self._persist()
+
+    def _validate(self, params: dict[str, Any], owner_id: int, bridge_id: str) -> None:
         if set(params) != {"target_url", "interval_s", "auth_context_id", "site_profile"}:
             raise MonitorError("invalid")
         url, interval, auth_id, profile = (
@@ -106,13 +153,23 @@ class PageMonitor:
         c = self.auth.context(auth_id)
         if c.owner_id != owner_id or c.bridge_id != bridge_id or self.auth.policy != self.policy:
             raise MonitorError("binding_denied")
+
+    def register(self, params: dict[str, Any], *, owner_id: int, bridge_id: str) -> PageTask:
+        self._validate(params, owner_id, bridge_id)
         self.task = PageTask(
-            str(uuid4()), owner_id, bridge_id, url, float(interval), auth_id, profile
+            str(uuid4()),
+            owner_id,
+            bridge_id,
+            params["target_url"],
+            float(params["interval_s"]),
+            params["auth_context_id"],
+            params["site_profile"],
         )
         self.pending = None
         self.next_due_at = self.delivery_due_at = 0.0
         self.failures = 0
         self.last_fetch_at = self.last_delivery_at = None
+        self._persist()
         return self.task
 
     def pause(self) -> None:
@@ -120,6 +177,7 @@ class PageMonitor:
             self.task.enabled = False
             self.task.revision += 1
         self.pending = None
+        self._persist()
 
     def _current(self, snapshot: HTMLSnapshot) -> bool:
         task = self.task
@@ -134,6 +192,7 @@ class PageMonitor:
 
     def _result(self, state: str, **extra: Any) -> dict[str, Any]:
         self._last_state = state
+        self._persist()
         return {
             "state": state,
             "utc": self.clock.utc(),
@@ -177,7 +236,7 @@ class PageMonitor:
             http_status=snapshot.status,
         )
 
-    async def tick(self) -> dict[str, Any] | None:
+    async def tick(self, *, authorized_offline: bool = False) -> dict[str, Any] | None:
         if self._lock.locked():
             return None
         async with self._lock:
@@ -186,19 +245,25 @@ class PageMonitor:
             task = self.task
             if task is None or not task.enabled:
                 return None
-            if not self.auth.online(task.bridge_id):
+            c = self.auth.context(task.auth_context_id)
+            if not self.auth.online(task.bridge_id) and not (
+                authorized_offline and c.state in ("valid", "unverified") and len(c.jar)
+            ):
                 return (
                     self._result("waiting_browser")
                     if self._last_state != "waiting_browser"
                     else None
                 )
-            c = self.auth.context(task.auth_context_id)
             if c.state not in ("valid", "unverified"):
                 return self._result("waiting_auth") if self._last_state != "waiting_auth" else None
             if self.clock.utc() < self.next_due_at:
                 return None
             async with c.network_lock:
+                if self.task is not task or not task.enabled:
+                    return self._result("superseded")
                 revision, generation = task.revision, c.generation
+                self.next_due_at = self.clock.utc() + task.interval_s
+                self._persist()
                 try:
                     lease = await self.auth.acquire(task.auth_context_id)
                     plan = FetchPlan(

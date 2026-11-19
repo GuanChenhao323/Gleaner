@@ -12,3 +12,6 @@ window.addEventListener('pagehide',()=>controller.dispose());
 
 import {bindIntentPanel} from './ui/intent-panel.js';
 bindIntentPanel(document,chrome,new ExtensionClient(chrome));
+
+import {bindPageControl} from './ui/page-control.js';
+bindPageControl(document,chrome,new ExtensionClient(chrome));

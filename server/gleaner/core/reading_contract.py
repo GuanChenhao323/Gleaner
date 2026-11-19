@@ -29,6 +29,8 @@ FAILURES = {
     "tab_missing",
     "tab_rebind_required",
     "tab_ambiguous",
+    "waiting_page",
+    "protocol_unavailable",
     "user_busy",
     "single_account_conflict",
 }

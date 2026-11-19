@@ -19,6 +19,12 @@
     <div class="settings-actions"><button id="login" class="secondary" type="button">登录工作台</button><button id="check-connection" class="secondary" type="button">检查连接</button><button id="logout" class="text-button" type="button" hidden>退出账号</button></div>
     <p class="muted">插件与工作台使用同一账号。网站账号请在原站自行登录。</p>
   </details>
+  <details id="page-control-panel" class="settings-panel"><summary>本地后端监测</summary>
+    <label>Moodle 作业来源 <select id="protocol-source"></select></label>
+    <button id="protocol-authorize" class="secondary" type="button">关联当前作业页</button>
+    <button id="protocol-status" class="text-button" type="button">查询状态</button>
+    <button id="protocol-revoke" class="text-button" type="button">撤销授权</button>
+    <p id="protocol-message" class="muted" role="status"></p></details>
   <section id="history-panel" class="settings-panel" aria-label="最近记录" hidden><div class="section-top"><h2>最近记录</h2><button id="history-close" class="text-button" type="button">收起</button></div><div id="history"></div></section>
   <section class="page-section" aria-label="当前网页"><div class="page-text"><p id="page" class="page-title">正在获取当前网页…</p><div class="domain-line"><span id="page-domain"></span><button id="page-more" class="text-button" type="button" aria-expanded="false" aria-controls="page-url">详情</button></div></div><span id="source-mode" class="badge">当前网页</span></section>
   <p id="page-url" class="page-url" hidden></p><button id="return-current" class="text-button" type="button" hidden>返回当前网页</button>

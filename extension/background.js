@@ -1,3 +1,4 @@
+import {PageControl} from './monitoring/page-control.js';
 import {CaptureContextSync} from './lifecycle/capture-context.js';
 import {ResidentTabRegistry} from './monitoring/resident-registry.js';
 import {ResidentCycleReader} from './monitoring/resident-reader.js';
@@ -33,8 +34,9 @@ async function accountKey(adapter, account) {
 const domReader = new DomPageReader(chrome);
 const reentry=new PageReentry(chrome,storage,domReader);
 const residents=new ResidentTabRegistry(chrome,storage,domReader,accountKey);
-const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,
+const readingJobs=new ReadingJobExecutor({storage,api:request,outbox:box,presence:cfg=>residents.presence(cfg),
   reader:new ResidentCycleReader({browser:chrome,registry:residents,reader:domReader,verifier:new SourceSessionVerifier(accountKey),config,legacy:new ConditionalPageReader(reentry,new SourceSessionVerifier(accountKey))}),reentry,config,device});
+const pageControl=new PageControl({api:request,browser:chrome,device,reader:domReader,accountKey});
 const drafts=new DraftRepository(storage);
 const contexts=new CaptureContextSync({storage,repository:drafts,api:request});
 box.beforeFlush=cfg=>contexts.sync(cfg,{offline:true});
@@ -157,6 +159,12 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (user.id !== cfg.uid || current.uid !== cfg.uid || current.server !== cfg.server) throw Error('backend_account_changed');
       return { state: 'connected', uid: user.id, email: user.email };
     }
+    if(m.type==='page-control.sources'){
+      const {sources}=await request(cfg,'/api/v1/reading-sources');
+      const current=await device();
+      return sources.filter(s=>s.device_id===current.device && s.recipe.source==='moodle' && s.recipe.resident && /^https:\/\/moodle\.must\.edu\.mo\/mod\/assign\/view\.php\?id=\d+$/.test(s.recipe.url)).map(s=>({id:s.id,query:s.recipe.query,url:s.recipe.url}));
+    }
+    if(m.type==='page-control.run')return pageControl.run(cfg,m);
     if (m.type==='intent.save') {
       if(m.owner?.uid!==cfg.uid || m.owner?.server!==cfg.server)throw Error('backend_account_changed');
       const {activity,...capture}=m.capture;

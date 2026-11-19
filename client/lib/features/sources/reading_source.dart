@@ -10,6 +10,7 @@ String readingResultLabel(String value) => switch (value) {
   'result_rejected' => '检查结果校验失败 · 资料保留，监测已暂停',
   'documents_purged' => '关联资料已彻底删除 · 请在原网页重新提取',
   'starting' => '自动监测启动中 · 等待首次刷新',
+  'waiting_page' => '等待重新打开监测页',
   'user_busy' => '监测页正在编辑 · 延后刷新',
   'tab_missing' => '监测页已关闭 · 请打开原页后重新绑定',
   'tab_rebind_required' => '浏览器会话已重启 · 请重新绑定监测页',

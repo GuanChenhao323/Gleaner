@@ -14,7 +14,7 @@ export class ResidentRefreshStrategy {
     await this.browser.tabs.reload(id,{bypassCache:false});
     const until=this.clock()+this.timeout;let identityPending=false;
     while(this.clock()<until) {
-      const tab=await this.browser.tabs.get(id).catch(()=>{throw Error('tab_missing');});
+      const tab=await this.browser.tabs.get(id).catch(()=>{throw Error(context.site.account && context.site.account===recipe.binding.account_key?'waiting_page':'tab_missing');});
       if(tab.status==='complete') {
         const fresh=await this.registry.inspect(id);
         if(fresh.document_id===guard.document_id){await this.pause(250);continue;}

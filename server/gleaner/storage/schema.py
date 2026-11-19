@@ -334,3 +334,12 @@ SCHEMA += [
         PRIMARY KEY(owner_id, device_id, page_id), UNIQUE(owner_id, device_id, url, view)
     )""",
 ]
+
+SCHEMA += [
+    """CREATE TABLE IF NOT EXISTS reading_page_presence (
+        owner_id INTEGER NOT NULL, device_id TEXT NOT NULL, page_id TEXT NOT NULL,
+        state TEXT NOT NULL, seen_at REAL NOT NULL,
+        PRIMARY KEY(owner_id, device_id, page_id),
+        FOREIGN KEY(owner_id, device_id, page_id) REFERENCES reading_pages(owner_id, device_id, page_id) ON DELETE CASCADE
+    )""",
+]

@@ -1,14 +1,15 @@
-const failures=new Set(['need_login','account_unknown','account_mismatch','route_mismatch','view_mismatch','permission_denied','render_timeout','selection_missing','no_match','unsupported','preview_only','worker_interrupted','private_source_required','tab_missing','tab_rebind_required','tab_ambiguous','user_busy','single_account_conflict']);
+const failures=new Set(['need_login','account_unknown','account_mismatch','route_mismatch','view_mismatch','permission_denied','render_timeout','selection_missing','no_match','unsupported','preview_only','worker_interrupted','private_source_required','tab_missing','tab_rebind_required','tab_ambiguous','waiting_page','user_busy','single_account_conflict']);
 const owner=cfg=>`${cfg.server}|${cfg.uid}`;
 
 /** Owns one persisted intent/receipt, never an independent periodic schedule. */
 export class ReadingJobExecutor {
-  constructor({storage,api,outbox,reader,reentry,config,device}) {Object.assign(this,{storage,api,outbox,reader,reentry,config,device});}
+  constructor({storage,api,outbox,reader,reentry,config,device,presence}) {Object.assign(this,{storage,api,outbox,reader,reentry,config,device,presence});}
   async wake(cfg) {
     if(!cfg.token || !cfg.uid)return;
     await this.reentry.cleanup();
     const device_id=(await this.device()).device;
-    await this.api(cfg,'/api/v1/reading-devices/heartbeat',{device_id});
+    const pages=await this.presence?.(cfg);
+    await this.api(cfg,'/api/v1/reading-devices/heartbeat',{device_id,...(pages?{pages}:{})});
     await this.outbox.flush(cfg);
     const active=(await this.storage.get('readingActiveJob')).readingActiveJob;
     if(active) {

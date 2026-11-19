@@ -18,6 +18,30 @@ export class ResidentTabRegistry {
     if(!value){value=crypto.randomUUID();await this.session.set({residentEpoch:value});}
     return value;
   }
+  async presence(cfg) {
+    const rows=(await this.storage.get('residentSites')).residentSites || [];
+    const sites=rows.filter(site=>site.owner===owner(cfg));
+    if(!sites.length)return {};
+    const epoch=await this.epoch();
+    const tabs=await this.browser.tabs.query({});
+    const pages={};
+    for(const site of sites)for(const page of site.pages) {
+      const tab=tabs.find(t=>t.id===page.tabId);
+      let state='unknown';
+      if(epoch===page.epoch) {
+        if(!tab)state='absent';
+        else if(tab.url) {
+          try {state=stablePageUrl(tab.url)===page.url?'present':'absent';}
+          catch {state='unknown';}
+        }
+        if(state==='absent' && tabs.some(t=>{
+          try{return stablePageUrl(t.url)===page.url;}catch{return false;}
+        }))state='unknown';
+      }
+      pages[page.page_id]=state;
+    }
+    return pages;
+  }
   async inspect(tabId) {
     try {
       await this.browser.scripting.executeScript({target:{tabId,frameIds:[0]},files:['content/resident-guard.js']});
@@ -52,6 +76,11 @@ export class ResidentTabRegistry {
     }
     if(!page){page={page_id:crypto.randomUUID(),url,recipeView:view};site.pages.push(page);}
     const guard=await this.inspect(tab.id);
+    if(task.recoverPageId){
+      if(page.page_id!==task.recoverPageId || page.epoch!==await this.epoch())throw Error('tab_rebind_required');
+      if(guard.busy)throw Error('user_busy');
+      if(guard.view!==page.view)throw Error('view_mismatch');
+    }
     Object.assign(page,{tabId:tab.id,epoch:await this.epoch(),view:guard.view,rawUrl:tab.url});
     await this.storage.set({residentSites:rows});
     return residentDescriptor({version:1,session_id:site.session_id,page_id:page.page_id,refresh:'reload',interval_s:interval});
@@ -66,8 +95,16 @@ export class ResidentTabRegistry {
     const site=rows.find(s=>s.owner===owner(cfg)&&s.session_id===r.session_id&&s.origin===new URL(recipe.url).origin);
     const page=site?.pages.find(p=>p.page_id===r.page_id&&p.url===recipe.url);
     if(!page || page.epoch!==await this.epoch())throw Error('tab_rebind_required');
-    const tab=await this.browser.tabs.get(page.tabId).catch(()=>{throw Error('tab_missing');});
-    if(stablePageUrl(tab.url)!==page.url)throw Error('route_mismatch');
+    let tab=await this.browser.tabs.get(page.tabId).catch(()=>null);
+    const matches=t=>{try{return stablePageUrl(t.url)===page.url;}catch{return false;}};
+    if(!tab || !matches(tab)) {
+      // A labeled, unverified account is tied to its original tab.
+      if(!site.account || recipe.binding.account_key!==site.account)throw Error(tab?'route_mismatch':'tab_missing');
+      const candidates=(await this.browser.tabs.query({})).filter(matches);
+      if(candidates.length!==1)throw Error(candidates.length?'tab_ambiguous':'waiting_page');
+      tab=candidates[0];
+      await this.bind(cfg,{tabId:tab.id,url:tab.url,recoverPageId:r.page_id},recipe,r.interval_s);
+    }
     return {site,page,tab};
   }
   async verify(site,meta) {
