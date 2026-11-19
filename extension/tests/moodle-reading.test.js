@@ -194,7 +194,7 @@ test('detail keeps the labelled due date, own submission summary and attachment 
   assert.equal(c.raw.fields.grading_status,'Not graded');
   assert.equal(c.raw.fields.time_remaining,'41 days 5 hours');
   assert.match(c.raw.text,/未读取正文.*demo.docx/);
-  assert.doesNotMatch(c.raw.text,/private comment|19 November/);
+  assert.doesNotMatch(c.raw.text,/private comment|19 November|31 December|41 days|剩余时间/);
 });
 
 test('Moodle adapter does not expand into unrelated authenticated route types',()=>{

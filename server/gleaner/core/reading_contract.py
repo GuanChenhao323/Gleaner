@@ -6,7 +6,7 @@ import copy
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
-from .monitors import ContractError, compact, string, web_url
+from .monitors import ContractError, assignment_content, compact, string, web_url
 from .resident_contract import ResidentContract
 from .source_identity import account_probe
 from .web_captures import normalized_query
@@ -173,5 +173,5 @@ def semantic_snapshot(snapshot: dict[str, Any], generic: bool) -> list[Any]:
             for f in snapshot["fragments"]
         ]
     else:
-        values = [[t["entity_id"], t["locator"], t["raw"]] for t in snapshot["targets"]]
+        values = [[t["entity_id"], t["locator"], assignment_content(t["raw"])] for t in snapshot["targets"]]
     return sorted(values, key=compact)

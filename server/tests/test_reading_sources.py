@@ -9,6 +9,7 @@ from test_web_captures import batch
 
 from gleaner.core.monitors import BrowserMonitorService, ContractError
 from gleaner.core.pipeline import Pipeline
+from gleaner.core.reading_contract import semantic_snapshot
 from gleaner.core.reading_sources import ReadingSourceService
 from gleaner.core.web_captures import WebCaptureService
 from gleaner.storage.db import Database
@@ -425,3 +426,17 @@ async def test_http_saved_source_verify_result_feed_and_strict_errors(stack):  #
                 headers=auth,
             )
         ).status == 422
+
+def test_moodle_countdown_ignores_elapsed_time_across_reader_versions():
+    def snapshot(hours, legacy, due="31 December", body="Finish within 2 hours"):
+        remaining = f"41 days {hours} hours"
+        fields = {"subtype": "moodle_assignment", "due_text": due, "time_remaining": remaining}
+        text = f"Due: {due}\n剩余时间：{remaining}\n{body}" if legacy else body
+        raw = {"title": "Lab11", "text": text, "fields": fields}
+        target = {"entity_id": "assignment:11", "locator": {}, "raw": raw}
+        return semantic_snapshot({"targets": [target]}, generic=False)
+
+    baseline = snapshot(5, True)
+    assert snapshot(4, True) == snapshot(4, False) == baseline
+    assert snapshot(4, False, due="30 December") != baseline
+    assert snapshot(4, False, body="Finish within 3 hours") != baseline

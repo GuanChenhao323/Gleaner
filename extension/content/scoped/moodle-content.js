@@ -47,8 +47,7 @@
       const field=({'submission status':'submission_status','grading status':'grading_status','time remaining':'time_remaining','due date':'due_text','提交状态':'submission_status','提交狀態':'submission_status','评分状态':'grading_status','評分狀態':'grading_status','剩余时间':'time_remaining','剩餘時間':'time_remaining','截止日期':'due_text'})[name.toLowerCase()];
       if(field && !fields[field] && dom.label(value)) fields[field]=dom.label(value);
     }
-    if(fields.due_text) lines.push('Due: '+fields.due_text);
-    for(const [field,label] of [['submission_status','提交状态'],['grading_status','评分状态'],['time_remaining','剩余时间']]) {
+    for(const [field,label] of [['submission_status','提交状态'],['grading_status','评分状态']]) {
       if(fields[field]) lines.push(label+'：'+fields[field]);
     }
     if(body) lines.push(body);
@@ -58,7 +57,7 @@
     });
     for(const a of links) lines.push('附件（未读取正文）：'+dom.label(a)+'\n'+dom.url(a).href);
     if(!lines.length) {
-      fields.subtype='assignment_link';
+      if(!fields.due_text && !fields.time_remaining) fields.subtype='assignment_link';
       lines.push(title);
     }
     return dom.record('assignment:'+page.activityId,title,lines.join('\n'),heading || intro || root,{url:assignmentUrl(page.url),record_type:'assignment',complete:fields.subtype!=='assignment_link',fields});

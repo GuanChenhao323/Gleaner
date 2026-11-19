@@ -125,6 +125,30 @@ def raw_content(raw: Any) -> dict[str, Any]:
     }
 
 
+def assignment_content(raw: dict[str, Any]) -> dict[str, Any]:
+    """Project Moodle detail captures onto stable fields, including older extension payloads."""
+    fields = raw.get("fields", {})
+    if fields.get("subtype") != "moodle_assignment":
+        return raw
+    stable_fields = dict(fields)
+    remaining = stable_fields.pop("time_remaining", "")
+    due = fields.get("due_text")
+    statuses = [
+        label + fields[key]
+        for key, label in (("submission_status", "提交状态："), ("grading_status", "评分状态："))
+        if fields.get(key)
+    ]
+    # Older readers prepended these rows in this exact order. Preserve authored prose.
+    prefix = ([f"Due: {due}"] if due else []) + statuses
+    if remaining:
+        prefix.append(f"剩余时间：{remaining}")
+    text = raw["text"]
+    lines = text.split("\n")
+    if (due or remaining) and lines[:len(prefix)] == prefix:
+        text = "\n".join(statuses + lines[len(prefix):]) or raw["title"]
+    return {**raw, "text": text, "fields": stable_fields}
+
+
 class BrowserMonitorService:
     def __init__(self, db: Database, pipeline: Pipeline) -> None:
         self.db, self.pipeline = db, pipeline
@@ -431,6 +455,7 @@ class BrowserMonitorService:
 
     async def ingest(self, monitor: dict[str, Any], raw: dict[str, Any]) -> dict[str, int]:
         recipe = loads(monitor["recipe"])
+        raw = assignment_content(raw)
         fields = raw["fields"]
         subtype = fields.get("subtype", "")
         kind = (
