@@ -30,9 +30,9 @@ class FakeTransport:
         return SafeResponse(200, plan.canonical_url, "text/html", self.body)
 
 
-def system(path=":memory:", count=1, auth_required=True):
+def system(path=":memory:", count=1, auth_required=True, port=8888):
     clock = FakeClock()
-    policy = SitePolicy(origin="http://127.0.0.1:8888", local_test=True)
+    policy = SitePolicy(origin=f"http://127.0.0.1:{port}", local_test=True)
     auth = AuthManager(policy, clock)
     c = auth.create(1, "b")
     auth.import_cookies(
@@ -219,3 +219,76 @@ async def test_concurrent_ticks_do_not_overlap_requests():
     await first
     assert len(s.transport.calls) == 1
     s.store.close()
+
+
+async def test_slow_origin_does_not_delay_healthy_origin_receipt():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    slow, healthy = system(), system(port=8889)
+    entered, release = asyncio.Event(), asyncio.Event()
+    received = asyncio.Event()
+
+    async def slow_response():
+        entered.set()
+        await release.wait()
+
+    original_apply = healthy.sink.apply
+
+    async def healthy_receipt(batch):
+        result = await original_apply(batch)
+        received.set()
+        return result
+
+    slow.transport.during = slow_response
+    healthy.sink.apply = healthy_receipt
+    scheduler = SiteScheduler([slow.scheduler, healthy.scheduler])
+    task = asyncio.create_task(scheduler.tick())
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(received.wait(), 1)
+        assert await scheduler.tick() == 0
+    finally:
+        release.set()
+        await task
+        slow.store.close()
+        healthy.store.close()
+    assert task.result() == 2
+
+
+async def test_occupied_session_does_not_use_global_network_slot():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    busy, healthy = system(), system(port=8889)
+    scheduler = SiteScheduler([busy.scheduler, healthy.scheduler], concurrency=1)
+    received = asyncio.Event()
+
+    async def mark():
+        received.set()
+
+    healthy.transport.during = mark
+    async with busy.context.network_lock:
+        task = asyncio.create_task(scheduler.tick())
+        await asyncio.wait_for(received.wait(), 1)
+        assert not busy.transport.calls
+    assert await asyncio.wait_for(task, 1) == 2
+    busy.store.close()
+    healthy.store.close()
+
+
+async def test_shared_quota_resumes_without_a_second_tick():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    a, b = system(), system(port=8889)
+    for item in (a, b):
+        item.clock.utc = __import__("time").time
+        source = item.store.source(item.source.source_id)
+        source.next_due_at = item.clock.utc()
+        item.store.save_source(source)
+    a.store.put_meta("host_not_before", a.clock.utc() + 0.06)
+    dispatcher = SiteScheduler(
+        [a.scheduler, b.scheduler],
+        quota_groups={a.policy.origin: "shared", b.policy.origin: "shared"},
+    )
+    assert await asyncio.wait_for(dispatcher.tick(), 1) == 2
+    a.store.close()
+    b.store.close()

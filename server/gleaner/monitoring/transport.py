@@ -37,6 +37,12 @@ async def resolve(host: str, port: int) -> list[str]:
     return list(dict.fromkeys(str(x[4][0]) for x in infos))
 
 
+class OriginPacing:
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.next_start = 0.0
+
+
 class HTTPXTransport:
     def __init__(
         self,
@@ -45,6 +51,7 @@ class HTTPXTransport:
         *,
         clock: Clock | None = None,
         resolver: Resolver | None = None,
+        pacing: OriginPacing | None = None,
         engine: httpx.AsyncBaseTransport | None = None,
         verify: ssl.SSLContext | bool = True,
         get_not_before: Callable[[], float] = lambda: 0,
@@ -87,8 +94,8 @@ class HTTPXTransport:
             registered_target_fallback,
             policy_event,
         )
-        self._lock, self._global = asyncio.Lock(), asyncio.Semaphore(4)
-        self._next_start = 0.0
+        self.pacing = pacing or OriginPacing()
+        self._global = asyncio.Semaphore(4)
         self._robots: tuple[float, RobotsRules] | None = None
         self._robots_identity: tuple[str, int] | None = None
         # httpx logs full request URLs at INFO; this component emits a fixed, redacted event instead.
@@ -105,6 +112,13 @@ class HTTPXTransport:
             timeout=httpx.Timeout(30, connect=connect_timeout),
             trust_env=False,
             follow_redirects=False,
+        )
+
+    def start_delay(self) -> float:
+        return max(
+            0.0,
+            self.pacing.next_start - self.clock.mono(),
+            self.get_not_before() - self.clock.utc(),
         )
 
     async def close(self) -> None:
@@ -147,12 +161,12 @@ class HTTPXTransport:
             if not self._robots[1].allowed(p.path + ("?" + p.query if p.query else "")):
                 raise MonitorError("robots_denied")
         # A single policy/transport owns host pacing across robots, pages and redirects.
-        async with self._global, self._lock:
+        async with self._global, self.pacing.lock:
             left = self.get_not_before() - self.clock.utc()
             if left > 0:
                 raise MonitorError("rate_limited", retryable=True, retry_after_s=left)
             # Pacing belongs to the overall request budget, not the DNS/TCP/TLS budget.
-            await self.clock.sleep(self._next_start - self.clock.mono())
+            await self.clock.sleep(self.pacing.next_start - self.clock.mono())
             headers = {
                 "Host": urlsplit(url).netloc,
                 "User-Agent": "GleanerMonitor/1.0",
@@ -171,7 +185,7 @@ class HTTPXTransport:
                 started = self.clock.mono()
                 started_utc = self.clock.utc()
                 request_start_observed = False
-                self._next_start = started + max(self.policy.host_gap_s, crawl_delay)
+                self.pacing.next_start = started + max(self.policy.host_gap_s, crawl_delay)
 
                 async def trace(name: str, info: dict[str, Any]) -> None:
                     nonlocal started, started_utc, request_start_observed
@@ -179,8 +193,9 @@ class HTTPXTransport:
                         started = self.clock.mono()
                         started_utc = self.clock.utc()
                         request_start_observed = True
-                        self._next_start = max(
-                            self._next_start, started + max(self.policy.host_gap_s, crawl_delay)
+                        self.pacing.next_start = max(
+                            self.pacing.next_start,
+                            started + max(self.policy.host_gap_s, crawl_delay),
                         )
                     if name == "connection.start_tls.complete" or (
                         urlsplit(url).scheme == "http" and name == "connection.connect_tcp.complete"
