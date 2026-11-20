@@ -100,9 +100,9 @@
 
 **旁白（英文）**
 
-> But information doesn't stay still. The deadline changes. For sources you've saved and chosen to monitor, Gleaner can detect updates and show you what changed.
+> But information doesn't stay still. The deadline changes. Information contents might changes as well. For sources you've saved and chosen to monitor, Gleaner can detect updates and show you what changed.
 
-**中文意思**：信息会变化。作业截止日期可能被调整。对于已保存并启用监测的支持来源，Gleaner 可以在成功检查后发现更新，并展示具体发生了什么变化。
+**中文意思**：信息会变化。作业截止日期可能被调整，信息的内容也可能会被调整。对于已保存并启用监测的支持来源，Gleaner 可以在成功检查后发现更新，并展示具体发生了什么变化。
 
 **声音与画面关系**：`The deadline changes.` 配合模拟作业页从 Friday 改为 Thursday；接下来的句子配合监测完成和 Inbox 变化提示。最后几秒停止旁白，把注意力留给 Before / After 中的日期差异。
 
