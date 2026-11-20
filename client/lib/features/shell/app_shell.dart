@@ -380,25 +380,31 @@ class _SideRail extends StatelessWidget {
     final padH = expanded ? 10.0 : 8.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: EdgeInsets.fromLTRB(expanded ? 12 : 8, 12, expanded ? 12 : 8, 8),
-        child: Row(children: [
-          SizedBox(
-            width: 48,
-            height: 48,
-            child: IconButton(
-              tooltip: pinned ? l10n.unpinSidebar : l10n.pinSidebar,
-              onPressed: onPin,
-              padding: EdgeInsets.zero,
-              icon: expanded ? _PinMorphIcon(pinned: pinned, color: IconTheme.of(context).color ?? cs.onSurface) : const GleanerLogo(size: 32),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+        child: Tooltip(
+          message: pinned ? l10n.unpinSidebar : l10n.pinSidebar,
+          child: TextButton(
+            onPressed: onPin,
+            style: TextButton.styleFrom(
+              foregroundColor: cs.onSurface,
+              padding: const EdgeInsets.only(left: 12, right: 8),
+              minimumSize: const Size(0, 48),
             ),
+            child: Row(children: [
+              const GleanerLogo(size: 32),
+              if (expanded) ...[
+                const SizedBox(width: 2),
+                Expanded(
+                  child: ExcludeSemantics(
+                    child: Text('leaner', maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: t.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                _PinMorphIcon(pinned: pinned, color: cs.onSurface),
+              ],
+            ]),
           ),
-          if (expanded) ...[
-            const SizedBox(width: 4),
-            const GleanerLogo(size: 28),
-            const SizedBox(width: 8),
-            Expanded(child: Text(l10n.appTitle, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis)),
-          ],
-        ]),
+        ),
       ),
       const SizedBox(height: 4),
       Expanded(
