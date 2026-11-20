@@ -256,7 +256,6 @@ export default {
   "请登录原学校账号后重新提取": "Sign in to the school account and extract again",
   "匹配内容超过保存范围，请缩小条件；不会截断保存。": "Matches exceed the save limit. Narrow your query; content will not be truncated.",
   "已提交原预览，正在核对保存结果。": "Preview submitted. Checking save results.",
-  "先保存资料，自动刷新验证后启动；首次检查失败会显示原因，已有资料保留。": "Materials are saved first; monitoring starts after refresh verification. Initial failures show a reason and saved materials are retained.",
   "仅保存当前已加载的活动摘要及详情链接，不含作业完整正文；来源检查在工作台设置。": "Saves only loaded activity summaries and detail links, without full assignment text. Configure source checks in the workspace.",
   "{0} 个网页片段合为一份资料，非完整文章或邮件；来源检查在工作台设置。": "{0} page fragments will be combined into one material, without the full article or email. Configure source checks in the workspace.",
   "仅保存完整且身份明确的匹配事项；不启用监测。": "Only complete matches with verified identity will be saved. Monitoring stays off.",
