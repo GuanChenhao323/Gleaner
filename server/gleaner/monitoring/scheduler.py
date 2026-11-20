@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Collection
 from typing import Any
 
 from .adapters.moodle import MoodleAdapter
@@ -107,9 +108,31 @@ class Scheduler:
                 due.append((source, account_key, queued[0] if queued else None))
         return due
 
+    def share_session(self, source: MonitorSource) -> bool:
+        return bool(
+            source.auth_id
+            and self.coordinator
+            and self.coordinator.limits[self.coordinator.group[self]] > 1
+            and self.auth.can_share_reads(source.auth_id)
+        )
+
+    def session_available(
+        self, source: MonitorSource, reservations: Collection[tuple[tuple[int, str], bool]]
+    ) -> bool:
+        if not source.auth_id:
+            return True
+        identity = (id(self.auth), source.auth_id)
+        gate = self.auth.context(source.auth_id).network_lock
+        if self.share_session(source):
+            return gate.readable() and all(
+                key != identity or shared for key, shared in reservations
+            )
+        return not gate.locked() and all(key != identity for key, _ in reservations)
+
     async def _execute(self, source: MonitorSource, check: dict[str, Any]) -> None:
         lock = self.auth.context(source.auth_id).network_lock if source.auth_id else asyncio.Lock()
-        async with lock:
+        shared = self.share_session(source)
+        async with lock.read() if shared else lock:
             current = self.store.source(source.source_id)
             if not current or current.revision != source.revision:
                 self.store.save_check({**check, "state": "superseded"})
@@ -128,7 +151,11 @@ class Scheduler:
             source.next_due_at = self.clock.utc() + source.interval_s
             self.store.save_source(source)
             try:
-                lease = await self.auth.acquire(source.auth_id) if source.auth_id else None
+                lease = (
+                    await self.auth.acquire(source.auth_id, read_only=shared)
+                    if source.auth_id
+                    else None
+                )
                 plan = self.adapter.plan(source, source.targets, check["check_id"], generation)
                 response = await self.transport.fetch(plan, lease)
                 if not self._generation_current(source, generation):
@@ -242,6 +269,7 @@ class SiteScheduler:
         max_pending: int = 100,
         round_robin: bool = True,
         quota_groups: dict[str, str] | None = None,
+        group_limits: dict[str, int] | None = None,
     ) -> None:
         if concurrency < 1 or max_pending < 1:
             raise ValueError("invalid dispatch budget")
@@ -254,6 +282,12 @@ class SiteScheduler:
             r: (quota_groups or {}).get(r.registry.policy.origin, r.registry.policy.origin)
             for r in routes
         }
+        limits = group_limits or {}
+        if set(limits) - set(self.group.values()) or any(
+            type(v) is not int or not 1 <= v <= concurrency for v in limits.values()
+        ):
+            raise ValueError("invalid per-group concurrency limit")
+        self.limits = {group: limits.get(group, 1) for group in self.group.values()}
         self.round_robin = round_robin
         self.routes = routes
         self.concurrency, self.max_pending = concurrency, max_pending
@@ -268,9 +302,19 @@ class SiteScheduler:
         pacers = {}
         for route in routes:
             if hasattr(route.transport, "pacing"):
-                route.transport.pacing = pacers.setdefault(
-                    self.group[route], route.transport.pacing
+                group = self.group[route]
+                original = route.transport.pacing
+                if group not in pacers:
+                    pacers[group] = (
+                        type(original)(self.limits[group]) if group in limits else original
+                    )
+                pacers[group].next_start = max(pacers[group].next_start, original.next_start)
+                pacers[group].cooldown_until = max(
+                    pacers[group].cooldown_until,
+                    original.cooldown_until,
+                    route.store.meta("host_not_before", 0),
                 )
+                route.transport.pacing = pacers[group]
             route.coordinator = self
             route.registry.on_change = self._refresh.set
 
@@ -307,6 +351,8 @@ class SiteScheduler:
         count = 0
         refresh = True
         delivery_requested = set(self.routes)
+        dispatch_after: dict[str, float] = {}
+        active_sessions = {}
         wake = None
         try:
             while True:
@@ -357,18 +403,21 @@ class SiteScheduler:
                             ),
                         )
                     )
-                for _ in range(len(order)):
+                for route in tuple(order):
                     if (
                         len(active) >= self.concurrency
                         or sum(stores_pending.values()) + len(active) >= self.max_pending
                     ):
                         break
-                    route = order.popleft()
-                    order.append(route)
+                    group = self.group[route]
+                    active_on_route = sum(r is route for r in active.values())
+                    count_in_group = sum(self.group[r] == group for r in active.values())
                     if (
-                        any(self.group[r] == self.group[route] for r in active.values())
+                        count_in_group >= self.limits[group]
                         or not queues[route]
-                        or stores_pending[route] >= route.max_pending
+                        or active_on_route
+                        >= getattr(route.transport, "max_concurrency", self.concurrency)
+                        or stores_pending[route] + active_on_route >= route.max_pending
                     ):
                         continue
                     if quota_blocked := max(
@@ -382,22 +431,27 @@ class SiteScheduler:
                         if quota_blocked > route.clock.utc():
                             delays.append(quota_blocked - route.clock.utc())
                             continue
-                    delay = getattr(route.transport, "start_delay", lambda: 0.0)()
+                    delay = max(
+                        getattr(route.transport, "start_delay", lambda: 0.0)(),
+                        dispatch_after.get(group, 0) - route.clock.mono(),
+                    )
                     if delay > 0:
                         delays.append(delay)
                         continue
                     queue = queues[route]
+
                     entry = next(
                         (
                             entry
                             for entry in queue
-                            if not entry[0].auth_id
-                            or not route.auth.context(entry[0].auth_id).network_lock.locked()
+                            if route.session_available(entry[0], active_sessions.values())
                         ),
                         None,
                     )
                     if entry is None:
-                        delays.append(0.1)
+                        owned = {key for key, _ in active_sessions.values()}
+                        if any((id(route.auth), e[0].auth_id) not in owned for e in queue):
+                            delays.append(0.1)
                         continue
                     queue.remove(entry)
                     source, key, check = entry
@@ -410,7 +464,20 @@ class SiteScheduler:
                     route.store.put_meta(
                         key, route.clock.utc() + route.registry.policy.min_interval_s
                     )
-                    active[asyncio.create_task(self._execute(route, current, check))] = route
+                    order.remove(route)
+                    order.append(route)
+                    task = asyncio.create_task(self._execute(route, current, check))
+                    active[task] = route
+                    if current.auth_id:
+                        active_sessions[task] = (
+                            (id(route.auth), current.auth_id),
+                            route.share_session(current),
+                        )
+                    if self.limits[group] > 1:
+                        gap = route.registry.policy.host_gap_s
+                        dispatch_after[group] = route.clock.mono() + gap
+                        if queue and count_in_group + 1 < self.limits[group]:
+                            delays.append(gap)
                     count += 1
                 if not active and not sending and not delays:
                     break
@@ -436,6 +503,7 @@ class SiteScheduler:
                 for task in done:
                     if task in active:
                         route = active.pop(task)
+                        active_sessions.pop(task, None)
                         await task
                         delivery_requested.add(route)
                     elif task in sending:

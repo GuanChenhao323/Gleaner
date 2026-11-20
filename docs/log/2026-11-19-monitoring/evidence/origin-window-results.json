@@ -1,0 +1,50 @@
+[
+  {
+    "seed": 0,
+    "origin_window": 1,
+    "seconds": 482.14160074992105,
+    "healthy_p95": 1.4758753329515457,
+    "healthy_p99": 1.5075889581348747,
+    "success": 100,
+    "cpu_seconds": 3.3588119999999995,
+    "cpu_percent": 0.6966443042408531,
+    "site_peak": 1,
+    "inflight_peak": 8,
+    "manifest_sha256": "8ab0ff033883f5691d4a57d055563f62f2e6e83f61dae0a0ff44ed2b1cd78124",
+    "rss_peak_mib": 135.1875,
+    "min_moodle_sender_gap_s": 8.020703457994387,
+    "min_moodle_arrival_gap_s": 8.020513667026535
+  },
+  {
+    "seed": 0,
+    "origin_window": 2,
+    "seconds": 243.18218683288433,
+    "healthy_p95": 1.5171938329003751,
+    "healthy_p99": 1.5489540409762412,
+    "success": 100,
+    "cpu_seconds": 2.929099,
+    "cpu_percent": 1.2044874824704521,
+    "site_peak": 2,
+    "inflight_peak": 8,
+    "manifest_sha256": "8ab0ff033883f5691d4a57d055563f62f2e6e83f61dae0a0ff44ed2b1cd78124",
+    "rss_peak_mib": 112.234375,
+    "min_moodle_sender_gap_s": 2.006728542037308,
+    "min_moodle_arrival_gap_s": 2.0064175000879914
+  },
+  {
+    "seed": 0,
+    "origin_window": 4,
+    "seconds": 126.90660333400592,
+    "healthy_p95": 1.4436137499287724,
+    "healthy_p99": 1.4775937090162188,
+    "success": 100,
+    "cpu_seconds": 2.8687460000000002,
+    "cpu_percent": 2.260517518107185,
+    "site_peak": 4,
+    "inflight_peak": 8,
+    "manifest_sha256": "8ab0ff033883f5691d4a57d055563f62f2e6e83f61dae0a0ff44ed2b1cd78124",
+    "rss_peak_mib": 133.84375,
+    "min_moodle_sender_gap_s": 2.0068047498352826,
+    "min_moodle_arrival_gap_s": 2.00494341715239
+  }
+]

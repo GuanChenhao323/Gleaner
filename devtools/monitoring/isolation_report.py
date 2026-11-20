@@ -9,6 +9,7 @@ import random
 from collections import defaultdict
 from pathlib import Path
 from statistics import median
+from tempfile import NamedTemporaryFile
 
 
 def pooled(times, scheduled, p):
@@ -34,6 +35,7 @@ def summarize(rows):
             if not row["sources"][source].startswith("https://" + host + "/")
         )
         scheduled = sum(row["healthy"] for row in rounds)
+        peaks = [r["rss_peak"] / (1024**2) for r in rounds if r["rss_peak"] is not None]
 
         result.append(
             {
@@ -49,10 +51,11 @@ def summarize(rows):
                 if all(r["healthy_p95"] is not None for r in rounds)
                 else None,
                 "median_pages_per_s": median(r["pages_per_second"] for r in rounds),
+                "median_batch_s": median(r["seconds"] for r in rounds),
+                "median_cpu_percent": median(r["cpu_percent"] for r in rounds),
+                "median_effective_mbps": median(r["mbps"] for r in rounds),
                 "median_cpu_s": median(r["cpu_seconds"] for r in rounds),
-                "median_peak_mib": median(
-                    r["rss_peak"] / (1024**2) for r in rounds if r["rss_peak"]
-                ),
+                "median_peak_mib": median(peaks) if peaks else None,
                 "peak_site_concurrency": max(r["site_peak"] for r in rounds),
                 "failed": sum(r["failed"] for r in rounds),
                 "unfinished": sum(r["unfinished"] for r in rounds),
@@ -62,32 +65,48 @@ def summarize(rows):
     comparisons = []
     for scenario in ("A", "B"):
         for fault in (False, True):
-            old = groups[scenario, fault, "baseline"]
-            new = groups[scenario, fault, "round_robin"]
-            paired = old.keys() & new.keys()
-            diffs = [
-                old[i]["healthy_p95"] - new[i]["healthy_p95"]
-                for i in sorted(paired)
-                if old[i]["healthy_p95"] is not None
-                and new[i]["healthy_p95"] is not None
-            ]
-            if not diffs:
-                continue
-            rng = random.Random(20261119)
-            ci = (
-                sorted(median(rng.choices(diffs, k=len(diffs))) for _ in range(4000))
-                if len(diffs) >= 20
-                else None
+            pairs = (
+                ("baseline", "round_robin"),
+                ("oldest_1", "oldest_8"),
+                ("oldest_8", "round_robin"),
+                ("window_1", "window_2"),
+                ("window_2", "window_4"),
+                ("window_1", "window_4"),
             )
-            comparisons.append(
-                {
-                    "scenario": scenario,
-                    "slow": fault,
-                    "usable_pairs": len(diffs),
-                    "median_p95_reduction_s": median(diffs),
-                    "paired_ci95": [ci[100], ci[3899]] if ci else None,
-                }
-            )
+            for before, after in pairs:
+                old = groups[scenario, fault, before]
+                new = groups[scenario, fault, after]
+                paired = sorted(
+                    i
+                    for i in old.keys() & new.keys()
+                    if old[i]["healthy_p95"] is not None
+                    and new[i]["healthy_p95"] is not None
+                )
+                diffs = [old[i]["healthy_p95"] - new[i]["healthy_p95"] for i in paired]
+                if not diffs:
+                    continue
+                rng = random.Random(20261119)
+                ci = (
+                    sorted(
+                        median(rng.choices(diffs, k=len(diffs))) for _ in range(4000)
+                    )
+                    if len(diffs) >= 20
+                    else None
+                )
+                comparisons.append(
+                    {
+                        "scenario": scenario,
+                        "slow": fault,
+                        "from": before,
+                        "to": after,
+                        "median_batch_reduction_s": median(
+                            old[i]["seconds"] - new[i]["seconds"] for i in paired
+                        ),
+                        "usable_pairs": len(diffs),
+                        "median_p95_reduction_s": median(diffs),
+                        "paired_ci95": [ci[100], ci[3899]] if ci else None,
+                    }
+                )
     return {"conditions": result, "paired": comparisons}
 
 
@@ -99,6 +118,10 @@ if __name__ == "__main__":
     rows = [json.loads(line) for line in args.input.read_text().splitlines()]
     report = json.dumps(summarize(rows), ensure_ascii=False, indent=2)
     if args.output:
-        args.output.write_text(report + "\n")
+        with NamedTemporaryFile(
+            "w", dir=args.output.parent, delete=False, encoding="utf-8"
+        ) as pending:
+            pending.write(report + "\n")
+        Path(pending.name).replace(args.output)
     else:
         print(report)

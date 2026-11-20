@@ -455,8 +455,8 @@ async def test_registered_target_fallback_is_explicit_bounded_and_logged():
         assert (await t.fetch(plan(), await auth.acquire(c.auth_id))).status == 200
         assert [r.url.path for _, r in log] == ["/robots.txt", "/mod/assign/view.php"]
         assert decisions[0]["scope"] == "one_registered_target"
-        assert t._robots[1].allowed("/mod/assign/view.php?id=7")
-        assert not t._robots[1].allowed("/mod/assign/view.php?id=8")
+        assert t._robots[(c.auth_id, c.generation)][1].allowed("/mod/assign/view.php?id=7")
+        assert not t._robots[(c.auth_id, c.generation)][1].allowed("/mod/assign/view.php?id=8")
         wrong = FetchPlan("s", 1, c.generation, "c2", URL.replace("id=7", "id=8"), (1,))
         with pytest.raises(MonitorError):
             await t.fetch(wrong, await auth.acquire(c.auth_id))
@@ -513,3 +513,119 @@ def test_registered_target_policy_rejects_unbounded_configuration():
             policy=SitePolicy(target_urls=(URL,)),
             registered_target_fallback=True,
         )
+
+
+async def test_quota_group_rate_limit_blocks_other_transport_before_network():
+    from gleaner.monitoring.transport import OriginPacing
+
+    pacing = OriginPacing(2)
+    a, _, _, _, _, _ = setup(lambda req: (429, {"retry-after": "60"}, b""), pacing=pacing)
+    b, _, _, log, _, _ = setup(
+        lambda req: (200, {"content-type": "text/plain"}, b""), pacing=pacing
+    )
+    try:
+        with pytest.raises(MonitorError, match="rate_limited"):
+            await a.fetch(plan(), None)
+        with pytest.raises(MonitorError, match="rate_limited"):
+            await b.fetch(plan(), None)
+        assert not log
+    finally:
+        await a.close()
+        await b.close()
+
+
+async def test_revoked_session_stops_before_header_write():
+    clock = FakeClock()
+    policy = SitePolicy()
+    auth = AuthManager(policy, clock)
+    ctx = auth.create(1, "fixture")
+    auth.import_cookies(
+        ctx.auth_id,
+        [cookie()],
+        backend_epoch=auth.backend_epoch,
+        expected_revision=0,
+        request_id="setup",
+    )
+    sent = []
+
+    async def resolver(host, port):
+        return ["1.1.1.1"]
+
+    async def send(req):
+        await auth.revoke(ctx.auth_id, ctx.revision)
+        await req.extensions["trace"]("http11.send_request_headers.started", {})
+        sent.append(req.url.path)
+        return httpx.Response(200, content=b"")
+
+    transport = HTTPXTransport(
+        policy, auth, clock=clock, resolver=resolver, engine=httpx.MockTransport(send)
+    )
+    try:
+        with pytest.raises(MonitorError, match="superseded"):
+            await transport.fetch(plan(), await auth.acquire(ctx.auth_id))
+        assert not sent
+    finally:
+        await transport.close()
+
+
+async def test_redirect_uses_robots_rules_for_originating_session_even_after_another_read():
+    from gleaner.monitoring.profiles import PagePolicy
+    from gleaner.monitoring.transport import OriginPacing
+
+    origin = "https://moodle.must.edu.mo"
+    first, second = origin + "/first", origin + "/second"
+    policy = PagePolicy(
+        origin=origin,
+        target_urls=(first, second),
+        cookie_domains=("moodle.must.edu.mo",),
+        host_gap_s=0,
+    )
+    auth = AuthManager(policy)
+    leases = []
+    for value in ("A", "B"):
+        ctx = auth.create(1, value)
+        auth.import_cookies(
+            ctx.auth_id,
+            [cookie(value)],
+            backend_epoch=auth.backend_epoch,
+            expected_revision=0,
+            request_id=value,
+        )
+        leases.append(await auth.acquire(ctx.auth_id))
+    first_waiting, release = asyncio.Event(), asyncio.Event()
+    called = []
+
+    async def resolver(host, port):
+        return ["1.1.1.1"]
+
+    async def send(req):
+        await req.extensions["trace"]("http11.send_request_headers.started", {})
+        await req.extensions["trace"]("http11.send_request_headers.complete", {})
+        a = req.headers["cookie"].endswith("=A")
+        called.append((a, req.url.path))
+        if req.url.path == "/robots.txt":
+            body = b"User-agent: *\nDisallow: /second" if a else b"User-agent: *\nAllow: /"
+            return httpx.Response(200, headers={"Content-Type": "text/plain"}, stream=Stream(body))
+        if req.url.path == "/first":
+            first_waiting.set()
+            await release.wait()
+            return httpx.Response(302, headers={"Location": second}, stream=Stream(b""))
+        return httpx.Response(
+            200, headers={"Content-Type": "text/html"}, stream=Stream(b"<p>ok</p>")
+        )
+
+    transport = HTTPXTransport(
+        policy, auth, resolver=resolver, engine=httpx.MockTransport(send), pacing=OriginPacing(2)
+    )
+    task = asyncio.create_task(transport.fetch(FetchPlan("a", 1, 1, "a", first, ()), leases[0]))
+    try:
+        await asyncio.wait_for(first_waiting.wait(), 2)
+        await asyncio.wait_for(transport.fetch(FetchPlan("b", 1, 1, "b", second, ()), leases[1]), 2)
+        release.set()
+        with pytest.raises(MonitorError, match="robots_denied"):
+            await task
+        assert (True, "/second") not in called
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await transport.close()

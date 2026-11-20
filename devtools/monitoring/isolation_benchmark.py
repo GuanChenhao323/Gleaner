@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from itertools import pairwise
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -118,6 +119,7 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
     random.Random(seed).shuffle(urls)
     ids = {url: f"s-{i:03}" for i, url in enumerate(urls)}
     expected = {ids[url]: manifest[url]["marker"] for url in urls}
+    window = {"window_1": 1, "window_2": 2, "window_4": 4}.get(strategy)
     slow = "go.dev" if scenario == "A" else "moodle.must.edu.mo"
     parent, child = mp.Pipe()
     worker = mp.Process(
@@ -147,6 +149,7 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
                 target_urls=tuple(local.values()),
                 local_test=True,
                 cookie_domains=("127.0.0.1",),
+                concurrent_session_reads=bool(window and host == "moodle.must.edu.mo"),
                 host_gap_s=2 * scale,
             )
             store = TimedStore(Path(temp.name) / f"{host}.sqlite", marks, expected)
@@ -180,7 +183,9 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
                 policy,
                 auth,
                 resolver=resolve,
-                event=arrivals.append,
+                event=lambda event, host=host: arrivals.append(
+                    {**event, "origin": host}
+                ),
                 get_not_before=lambda s=store: s.meta("host_not_before", 0),
                 set_not_before=lambda t, s=store: s.put_meta("host_not_before", t),
             )
@@ -215,7 +220,12 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
             plan = route.adapter.plan(
                 source, source.targets, "warm", lease.generation if lease else None
             )
-            await route.transport.fetch(plan, lease)
+            response = await route.transport.fetch(plan, lease)
+            if window and lease:
+                verdict = route.adapter.inspect(response)
+                if verdict.state != "authenticated" or not verdict.principal_key:
+                    raise ValueError("fixture session verification failed")
+                route.auth.verify(lease, verdict.principal_key)
 
         await asyncio.gather(*(warm(route) for route in routes))
         await asyncio.sleep(2 * scale)
@@ -255,7 +265,10 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
                     await SiteScheduler(
                         routes,
                         concurrency=1 if strategy == "oldest_1" else 8,
-                        round_robin=strategy == "round_robin",
+                        round_robin=strategy == "round_robin" or bool(window),
+                        group_limits={f"http://127.0.0.1:{ports[slow]}": window}
+                        if window
+                        else None,
                     ).tick()
         except TimeoutError:
             cutoff = True
@@ -293,6 +306,19 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
 
         events = Counter(event["kind"] for event in arrivals)
         checks = {c["source_id"]: c for route in routes for c in route.store.checks()}
+        sender_starts = {}
+        for event in arrivals:
+            if event["kind"] == "content" and event["request_start_observed"]:
+                sender_starts.setdefault(event["origin"], []).append(
+                    event["started_mono"]
+                )
+        minimum_gaps = {}
+        for host, starts in sender_starts.items():
+            starts.sort()
+            if len(starts) > 1:
+                minimum_gaps[host] = min(
+                    right - left for left, right in pairwise(starts)
+                )
         response_bytes = sum(
             manifest[url]["bytes"] for url in urls if ids[url] in marks
         )
@@ -307,6 +333,7 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
                 for c in checks.values()
             ),
             "response_bytes": response_bytes,
+            "minimum_observed_sender_gap": minimum_gaps,
             "request_kinds": dict(events),
             "probe_requests": events["probe"],
             "bridge_heartbeats": heartbeat_count,
@@ -319,6 +346,7 @@ async def measure(directory, scenario, seed, strategy, fault, scale):
             "platform": platform.platform(),
             "loop": type(asyncio.get_running_loop()).__name__,
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "origin_window": window,
             "scenario": scenario,
             "seed": seed,
             "strategy": strategy,
@@ -384,11 +412,13 @@ async def main(args):
     }
     with dest.open("a") as stream:  # noqa: ASYNC230 - outside the timed experiment
         for seed in range(args.rounds):
-            for scenario in ("A", "B"):
-                for fault in (False, True):
+            for scenario in ("B",) if args.origin_windows else ("A", "B"):
+                for fault in (True,) if args.origin_windows else (False, True):
                     strategies = ["baseline", "round_robin"]
                     if args.mechanisms:
                         strategies = ["oldest_1", "oldest_8", "round_robin"]
+                    if args.origin_windows:
+                        strategies = ["window_1", "window_2", "window_4"]
                     if seed % 2:
                         strategies.reverse()
                     for strategy in strategies:
@@ -435,7 +465,9 @@ async def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mechanisms", action="store_true")
+    variants = parser.add_mutually_exclusive_group()
+    variants.add_argument("--mechanisms", action="store_true")
+    variants.add_argument("--origin-windows", action="store_true")
     parser.add_argument("--corpus", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--rounds", type=int, default=20)

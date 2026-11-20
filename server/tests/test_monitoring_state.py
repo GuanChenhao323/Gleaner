@@ -233,3 +233,37 @@ async def test_revoked_context_stays_revoked_across_shutdown_restart_and_automat
             request_id="resume",
             reason="backend_restart",
         )
+
+
+async def test_read_only_leases_fence_rotation_and_fall_back_to_verified_exclusive_reads():
+    auth = AuthManager(SitePolicy(concurrent_session_reads=True))
+    ctx = auth.create(1, "b")
+    import_one(auth, ctx)
+    with pytest.raises(MonitorError, match="superseded"):
+        await auth.acquire(ctx.auth_id, read_only=True)
+    auth.verify(await auth.acquire(ctx.auth_id), "principal")
+    first = await auth.acquire(ctx.auth_id, read_only=True)
+    second = await auth.acquire(ctx.auth_id, read_only=True)
+    with pytest.raises(MonitorError, match="superseded"):
+        auth.update_cookies(first, ["MoodleSession=REPLACED; Path=/; Secure"], auth.policy.origin)
+    assert ctx.serial_only and ctx.state == "unverified"
+    with pytest.raises(MonitorError, match="superseded"):
+        auth.update_cookies(second, ["MoodleSession=STALE; Path=/; Secure"], auth.policy.origin)
+    exclusive = await auth.acquire(ctx.auth_id)
+    assert auth.header(exclusive, auth.policy.origin) == "MoodleSession=REPLACED"
+    auth.verify(exclusive, "principal")
+    assert not auth.can_share_reads(ctx.auth_id)
+    assert AuthManager(auth.policy).restore(auth.metadata(ctx.auth_id)).serial_only
+
+
+async def test_shared_reads_require_positive_identity_on_every_response():
+    auth = AuthManager(SitePolicy(concurrent_session_reads=True))
+    ctx = auth.create(1, "b")
+    import_one(auth, ctx)
+    auth.verify(await auth.acquire(ctx.auth_id), "principal")
+    lease = await auth.acquire(ctx.auth_id, read_only=True)
+    with pytest.raises(MonitorError, match="account_confirmation_required"):
+        auth.verify(lease, None)
+    assert ctx.state == "unverified" and ctx.serial_only
+    with pytest.raises(MonitorError, match="superseded"):
+        auth.current(lease)

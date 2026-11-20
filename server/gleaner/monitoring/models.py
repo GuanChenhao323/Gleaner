@@ -43,6 +43,7 @@ class SitePolicy:
     target_urls: tuple[str, ...] = ()
     request_headers: tuple[tuple[str, str], ...] = ()
     allow_default_cookie_path: bool = False
+    concurrent_session_reads: bool = False
 
     @property
     def import_cookie_names(self) -> tuple[str, ...]:
@@ -156,6 +157,7 @@ class AuthLease:
     generation: int
     approved_origin: str
     opaque_handle: object = field(repr=False, compare=False)
+    read_revision: int | None = None
 
 
 @dataclass(frozen=True)
