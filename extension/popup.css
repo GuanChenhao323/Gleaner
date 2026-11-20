@@ -655,7 +655,7 @@ details.settings-panel:not([open]) {
   }
 }
 
-#monitor-options{margin-bottom:12px}.monitor-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600}.monitor-toggle input{width:auto;margin:0;accent-color:var(--primary,#777e87)}#monitor-interval{width:auto;margin-left:12px;font-size:12px;padding:6px}#monitor-explanation{font-size:11px;line-height:1.5;margin:6px 0}
+#monitor-options{margin-bottom:12px}.monitor-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600}.monitor-toggle input{width:auto;margin:0;accent-color:var(--primary,#777e87)}#monitor-interval{width:auto;margin-left:12px;font-size:12px;padding:6px}
 
 #language { width: auto; min-height: 30px; padding: 4px 6px; border-radius: 8px; font-size: 12px; max-width: 100px; }
 .brand img { filter: grayscale(1); }

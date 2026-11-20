@@ -57,10 +57,10 @@
     <div id="account-verification" hidden><p id="account-status" class="muted">来源账号未核对；可保存资料，暂不能后台检查。</p><button id="verify-account" class="secondary" type="button">核对当前网页账号</button></div>
     <p class="muted">资料仅自己可见；登录会话留在 Chrome。</p>
   </div>
-  <div id="monitor-options"><label class="monitor-toggle"><input id="auto-monitor" type="checkbox" checked>保存后定期监测</label><select id="monitor-interval" aria-label="监测周期"><option value="1800">每30分钟</option><option value="3600">每1小时</option><option value="7200">每2小时</option></select><p id="monitor-explanation" class="muted">此标签页将作为专用监测页并自动刷新。请保留网页，使用一个站点账号；登录会话留在Chrome，同页规则共用所选周期。</p></div>
+  <div id="monitor-options"><label class="monitor-toggle"><input id="auto-monitor" type="checkbox" checked>保存后定期监测</label><select id="monitor-interval" aria-label="监测周期"><option value="1800">每30分钟</option><option value="3600">每1小时</option><option value="7200">每2小时</option></select></div>
   <section id="results" aria-label="保存结果" aria-live="polite" hidden></section>
   <button id="save" class="primary full" type="button" disabled hidden>保存匹配结果</button>
   <div class="receipt-actions"><button id="retry" class="primary" type="button" hidden>重试原提交</button><button id="receipt-settings" class="secondary" type="button" hidden>检查连接</button><button id="workbench" class="secondary" type="button" hidden>在工作台查看</button><button id="continue" class="primary" type="button" hidden>继续提取</button></div>
-  <button id="refresh" class="text-button refresh-button" type="button" hidden>查询保存结果</button><p id="save-hint" class="footer-hint">预览确认后再保存，不会自动采集整页。</p>
+  <button id="refresh" class="text-button refresh-button" type="button" hidden>查询保存结果</button><p id="save-hint" class="footer-hint"></p>
 </footer>
 </main><script type="module" src="popup.js"></script></body></html>

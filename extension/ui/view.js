@@ -23,7 +23,6 @@ export class CaptureView extends DomView {
     Object.assign(this, {busy: saving, reading, historical, closed});
     this.$('auto-monitor').disabled = saving || Boolean(this.submitted);
     this.$('monitor-interval').disabled = saving || Boolean(this.submitted) || !this.$('auto-monitor').checked;
-    this.$('monitor-explanation').hidden = !this.$('auto-monitor').checked;
     this.$('query').disabled = !this.initialized || saving || historical;
     this.$('clear-query').disabled = !this.initialized || saving || historical;
     this.$('capture').disabled = !this.initialized || saving || reading || historical || closed || this.restricted || this.authBlocked || !this.cfg?.uid || !this.$('query').value.trim();
@@ -83,7 +82,7 @@ export class CaptureView extends DomView {
     this.submitted=false;this.$('monitor-options').hidden=false;
     this.preview.clear(); this.$('save').disabled = true; this.$('save').hidden = true;
     this.$('refresh').hidden = true;
-    this.source.render(); this.$('save-hint').textContent = t('预览确认后再保存，不会自动采集整页。');
+    this.source.render(); this.$('save-hint').textContent = '';
     this.receipt(null, this.cfg || {});
   }
   task(task, options = {}) {
@@ -106,7 +105,7 @@ export class CaptureView extends DomView {
       : submitted ? t('已提交原预览，正在核对保存结果。')
       : options.monitoring && p.count ? t('先保存资料，自动刷新验证后启动；首次检查失败会显示原因，已有资料保留。')
       : p.count ? p.timeline ? t('仅保存当前已加载的活动摘要及详情链接，不含作业完整正文；来源检查在工作台设置。') : p.generic ? t`${p.count} 个网页片段合为一份资料，非完整文章或邮件；来源检查在工作台设置。` : t('仅保存完整且身份明确的匹配事项；不启用监测。')
-      : t('预览确认后再保存，不会自动采集整页。');
+      : '';
     this.controls({saving: Boolean(options.saving), reading});
     return p;
   }
