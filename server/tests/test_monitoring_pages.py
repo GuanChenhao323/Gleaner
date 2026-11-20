@@ -337,3 +337,20 @@ async def test_debug_upstream_only_accepts_loopback_origin_and_reports_no_secret
     finally:
         await harness.close()
     assert len(harness.context.jar) == 0
+
+
+async def test_recovery_rechecks_only_after_persisted_site_and_profile_budget():
+    monitor, auth, ctx, clock, requests, _, _, task = setup()
+    assert (await monitor.tick())["state"] == "delivered"
+    budget = monitor.access_not_before
+    assert budget == clock.utc() + monitor.policy.min_interval_s
+    host_budget = budget + 120
+    assert monitor.queue_recovery(host_budget) == host_budget
+    clock.advance(host_budget - clock.utc() - 1)
+    assert await monitor.tick(authorized_offline=True) is None
+    clock.advance(1)
+    assert (await monitor.tick(authorized_offline=True))["state"] == "delivered"
+    await auth.revoke(ctx.auth_id, ctx.revision)
+    clock.advance(task.interval_s)
+    assert (await monitor.tick(authorized_offline=True))["state"] == "waiting_browser"
+    assert len(requests) == 2

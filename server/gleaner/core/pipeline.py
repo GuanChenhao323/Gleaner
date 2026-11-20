@@ -312,7 +312,9 @@ class Pipeline:
         # 类型与活动时间、地点：来源或插件明确给出的优先，其余由规则补全（core/classify.py）；
         # 规则判断不了就为空，不猜
         given = {k: snap.get(k) for k in EVENT_FIELDS if snap.get(k) not in ("", None)}
-        if snap.get("kind") == "teacher":
+        if attrs.get("saved_from") == "intent-template" and snap.get("item_type") in ITEM_TYPES:
+            item_type = snap["item_type"]
+        elif snap.get("kind") == "teacher":
             item_type = "notice"
         else:
             c = classify_item(

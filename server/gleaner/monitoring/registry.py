@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
@@ -16,6 +17,7 @@ class Registry:
     def __init__(
         self, store: Store, auth: AuthManager, policy: SitePolicy, clock: Clock | None = None
     ) -> None:
+        self.on_change: Callable[[], None] = lambda: None
         self.store, self.auth, self.policy, self.clock = store, auth, policy, clock or Clock()
         self.auth.persist_metadata = lambda meta: self.store.put_meta(
             "auth:" + meta["auth_id"], meta
@@ -95,6 +97,7 @@ class Registry:
         self.store.save_source(source)
         if auth_id:
             self.store.put_meta("auth:" + auth_id, self.auth.metadata(auth_id))
+        self.on_change()
         return source
 
     def configure(
@@ -119,6 +122,7 @@ class Registry:
             source.interval_s = interval_s
         source.revision += 1
         self.store.save_source(source)
+        self.on_change()
         return source
 
     def request_check(self, source_id: str, owner_id: int, request_id: str) -> dict[str, Any]:
@@ -149,4 +153,6 @@ class Registry:
             "last_checked_at": None,
         }
         self.store.save_request(key, check)
+        if not request_id.startswith("timer:"):
+            self.on_change()
         return check

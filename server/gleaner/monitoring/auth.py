@@ -8,7 +8,8 @@ import hmac
 import json
 import math
 import secrets
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,6 +19,47 @@ from ..net.http.cookies import Cookie, CookieJar, default_path
 from .models import AuthLease, Clock, MonitorError, SitePolicy
 
 SessionInvalidator = Callable[[], asyncio.Future[None] | None]
+
+
+class SessionGate:
+    """Legacy callers take the exclusive lock. Verified read-only checks can share it."""
+
+    def __init__(self) -> None:
+        self._entrance = asyncio.Lock()
+        self._resource = asyncio.Lock()
+        self._readers = 0
+
+    def locked(self) -> bool:
+        return self._entrance.locked() or self._resource.locked()
+
+    def readable(self) -> bool:
+        return not self._entrance.locked() and (self._readers > 0 or not self._resource.locked())
+
+    async def acquire(self) -> bool:
+        async with self._entrance:
+            return await self._resource.acquire()
+
+    def release(self) -> None:
+        self._resource.release()
+
+    async def __aenter__(self) -> None:
+        await self.acquire()
+
+    async def __aexit__(self, *exc: object) -> None:
+        self.release()
+
+    @asynccontextmanager
+    async def read(self) -> AsyncIterator[None]:
+        async with self._entrance:
+            if not self._readers:
+                await self._resource.acquire()
+            self._readers += 1
+        try:
+            yield
+        finally:
+            self._readers -= 1
+            if not self._readers:
+                self._resource.release()
 
 
 @dataclass
@@ -33,7 +75,8 @@ class AuthContext:
     confirmed_same_account: bool = False
     was_verified: bool = False
     jar: CookieJar = field(default_factory=CookieJar, repr=False)
-    network_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    serial_only: bool = False
+    network_lock: SessionGate = field(default_factory=SessionGate, repr=False)
     lease_handle: object = field(default_factory=object, repr=False)
 
 
@@ -119,6 +162,7 @@ class AuthManager:
             "revision": c.revision,
             "generation": c.generation,
             "was_verified": c.was_verified,
+            "serial_only": c.serial_only,
         }
 
     def restore(self, metadata: dict[str, Any]) -> AuthContext:
@@ -128,9 +172,11 @@ class AuthManager:
             metadata["owner_id"],
             metadata["bridge_id"],
             metadata["cookie_store_id"],
+            state="revoked" if metadata.get("state") == "revoked" else "needs_credentials",
             revision=metadata["revision"] + 1,
             generation=metadata["generation"] + 1,
             was_verified=metadata["was_verified"],
+            serial_only=metadata.get("serial_only", False),
         )
         self.contexts[c.auth_id] = c
         self._save(c.auth_id)
@@ -150,6 +196,8 @@ class AuthManager:
         c = self.context(auth_id)
         if backend_epoch != self.backend_epoch:
             raise MonitorError("stale_backend")
+        if c.state == "revoked" and reason != "manual_reauthorize":
+            raise MonitorError("revoked")
         if not request_id or reason not in (
             "initial",
             "backend_restart",
@@ -247,18 +295,41 @@ class AuthManager:
         self._save(auth_id)
         return reply
 
-    async def acquire(self, auth_id: str) -> AuthLease:
+    def can_share_reads(self, auth_id: str) -> bool:
+        ctx = self.context(auth_id)
+        return (
+            self.policy.concurrent_session_reads
+            and ctx.state == "valid"
+            and ctx.principal_key is not None
+            and not ctx.serial_only
+        )
+
+    async def acquire(self, auth_id: str, *, read_only: bool = False) -> AuthLease:
         c = self.context(auth_id)
+        if c.state == "revoked":
+            raise MonitorError("revoked")
         if c.state not in ("unverified", "valid") or not len(c.jar):
             c.state = "auth_required"
             self._save(auth_id)
             self._invalidate_resource(auth_id)
             raise MonitorError("auth_required")
-        return AuthLease(auth_id, c.generation, self.policy.origin, c.lease_handle)
+        if read_only and not self.can_share_reads(auth_id):
+            raise MonitorError("superseded")
+        return AuthLease(
+            auth_id,
+            c.generation,
+            self.policy.origin,
+            c.lease_handle,
+            c.revision if read_only else None,
+        )
 
     def current(self, lease: AuthLease) -> AuthContext:
         c = self.context(lease.auth_id)
-        if lease.opaque_handle is not c.lease_handle or c.generation != lease.generation:
+        if (
+            lease.opaque_handle is not c.lease_handle
+            or c.generation != lease.generation
+            or (lease.read_revision is not None and lease.read_revision != c.revision)
+        ):
             raise MonitorError("superseded")
         if c.state not in ("valid", "unverified"):
             raise MonitorError("auth_required")
@@ -310,6 +381,16 @@ class AuthManager:
                 continue
             if c.jar.set_from_header(header, self.policy.host, urlsplit(url).path, True):
                 c.revision += 1
+        if lease.read_revision is not None and c.revision != lease.read_revision:
+            # The provider rotated a credential during a nominally immutable read.
+            # Discard all outstanding responses and verify the new session exclusively.
+            c.serial_only = True
+            c.generation += 1
+            c.lease_handle = object()
+            c.state = "unverified" if len(c.jar) else "auth_required"
+            self._save(c.auth_id)
+            self._invalidate_resource(c.auth_id)
+            raise MonitorError("superseded")
         if not len(c.jar):
             c.state = "auth_required"
             self._invalidate_resource(c.auth_id)
@@ -317,6 +398,14 @@ class AuthManager:
 
     def verify(self, lease: AuthLease, principal_key: str | None) -> None:
         c = self.current(lease)
+        if lease.read_revision is not None and not principal_key:
+            c.serial_only = True
+            c.state = "unverified"
+            c.generation += 1
+            c.lease_handle = object()
+            self._save(c.auth_id)
+            self._invalidate_resource(c.auth_id)
+            raise MonitorError("account_confirmation_required")
         if c.principal_key and principal_key and c.principal_key != principal_key:
             c.jar.clear()
             c.state = "auth_required"
@@ -338,9 +427,20 @@ class AuthManager:
         self._save(c.auth_id)
 
     def require_auth(self, auth_id: str) -> None:
+        if self.context(auth_id).state == "revoked":
+            return
         self.context(auth_id).state = "auth_required"
         self._save(auth_id)
         self._invalidate_resource(auth_id)
+
+    def approve_reauthorization(self, auth_id: str) -> None:
+        context = self.context(auth_id)
+        if context.state == "revoked":
+            context.state = "needs_credentials"
+            context.revision += 1
+            context.generation += 1
+            context.lease_handle = object()
+            self._save(auth_id)
 
     async def revoke(self, auth_id: str, expected_revision: int) -> None:
         c = self.context(auth_id)
@@ -355,6 +455,7 @@ class AuthManager:
         c.generation += 1
         c.revision += 1
         c.state = "revoked"
+        self._imports = {k: v for k, v in self._imports.items() if k[0] != auth_id}
         c.lease_handle = object()
         self._save(auth_id)
         cleanup = self._invalidate_resource(auth_id)
@@ -365,7 +466,8 @@ class AuthManager:
         cleanup_failed = False
         for c in self.contexts.values():
             c.jar.clear()
-            c.state = "needs_credentials"
+            if c.state != "revoked":
+                c.state = "needs_credentials"
             c.generation += 1
             c.lease_handle = object()
             self._save(c.auth_id)

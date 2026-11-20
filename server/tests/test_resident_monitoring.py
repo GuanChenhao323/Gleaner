@@ -306,3 +306,17 @@ async def test_checking_healthy_rule_does_not_reactivate_failed_peer(setup):
     assert "companions" not in job
     failed = await svc.own(1, rb["reading_source_id"])
     assert not failed["pending"] and failed["paused"] and not failed["verified"]
+
+
+async def test_presence_expires_and_foreign_device_cannot_write(setup, monkeypatch):
+    svc, web, _, _ = setup
+    req = request()
+    await web.capture(1, req)
+    device, page = req["device_id"], req["reading"]["resident"]["page_id"]
+    now = 2_000_000_000.0
+    monkeypatch.setattr("gleaner.core.reading_sources.time.time", lambda: now)
+    await svc.heartbeat(1, {"device_id": device, "pages": {page: "absent"}})
+    await svc.heartbeat(1, {"device_id": "another-device", "pages": {page: "present"}})
+    assert (await svc.list_sources(1))["sources"][0]["page_presence"] == "absent"
+    now += 151
+    assert (await svc.list_sources(1))["sources"][0]["page_presence"] == "unknown"

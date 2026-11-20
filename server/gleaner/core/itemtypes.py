@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-ITEM_TYPES = ("todo", "event", "notice")
+ITEM_TYPES = ("todo", "event", "notice", "reference")
 
 # 每种类型可用的状态值；第一个是初始状态
 STATUSES: dict[str, tuple[str, str]] = {
@@ -52,4 +52,5 @@ def status_sql(status: str, type_is: Callable[[str], str]) -> str:
         "read": ("notice", "st.read_at IS NOT NULL"),
     }
     t, c = cond[status]
-    return f"({type_is(t)} AND {c})"
+    types = f"({type_is(t)} OR {type_is('reference')})" if t == "notice" else type_is(t)
+    return f"({types} AND {c})"

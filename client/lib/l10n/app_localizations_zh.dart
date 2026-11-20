@@ -407,6 +407,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get typeNotice => '通知';
 
   @override
+  String get typeReference => '资料';
+
+  @override
   String get markOpen => '标为待完成';
 
   @override
@@ -1059,6 +1062,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get rrStarting => '自动监测启动中 · 等待首次刷新';
+
+  @override
+  String get rrProtocolUnavailable => '本地后端暂时无法读取网页';
+
+  @override
+  String get rrProtocolAccountRequired => '请核对本地会话的网站账号';
+
+  @override
+  String get rrProtocolUnsupported => '此页需要浏览器读取';
+
+  @override
+  String get rrWaitingPage => '等待重新打开监测页';
 
   @override
   String get rrUserBusy => '监测页正在编辑 · 延后刷新';
@@ -2234,6 +2249,9 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get typeNotice => '通知';
 
   @override
+  String get typeReference => '資料';
+
+  @override
   String get markOpen => '標為待完成';
 
   @override
@@ -2886,6 +2904,18 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get rrStarting => '自動監測啟動中 · 等待首次刷新';
+
+  @override
+  String get rrProtocolUnavailable => '本機後端暫時無法讀取網頁';
+
+  @override
+  String get rrProtocolAccountRequired => '請核對本機工作階段使用的網站帳號';
+
+  @override
+  String get rrProtocolUnsupported => '此頁需要由瀏覽器讀取';
+
+  @override
+  String get rrWaitingPage => '等待重新開啟監測頁面';
 
   @override
   String get rrUserBusy => '監測頁正在編輯 · 延後刷新';

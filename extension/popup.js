@@ -9,3 +9,9 @@ const view=new CaptureView(document);
 const controller=new CaptureController({browser:chrome,client:new ExtensionClient(chrome),forms:new CaptureFormStore(chrome.storage.local),view,location});
 controller.init().catch(e=>view.status(errorText(e.message),true));
 window.addEventListener('pagehide',()=>controller.dispose());
+
+import {bindIntentPanel} from './ui/intent-panel.js';
+bindIntentPanel(document,chrome,new ExtensionClient(chrome));
+
+import {bindPageControl} from './ui/page-control.js';
+bindPageControl(document,chrome,new ExtensionClient(chrome));

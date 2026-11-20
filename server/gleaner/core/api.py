@@ -323,7 +323,7 @@ def _capture_snap(
         raise invalid(f"{name}.url", "只能是 http / https 链接")
     item_type = it.get("type")
     if item_type is not None and item_type not in ITEM_TYPES:
-        raise invalid(f"{name}.type", "只能是 todo / event / notice")
+        raise invalid(f"{name}.type", "只能是 todo / event / notice / reference")
     fields = as_dict(it.get("fields"), f"{name}.fields", default={})
 
     def ts(k: str) -> float | None:
@@ -495,6 +495,7 @@ class API:
         add("GET", "/api/templates", self.templates)
         add("GET", "/api/sources", a(self.list_sources))
         add("POST", "/api/sources", a(self.add_source))
+        add("POST", "/api/v1/intent-captures", a(self.save_intent_capture))
         add("POST", "/api/clips", a(self.save_clip))
         add("POST", "/api/captures", a(self.save_captures))
         add("GET", "/api/monitor/due", a(self.monitor_due))
@@ -997,7 +998,9 @@ class API:
             params.append(q["kind"])
         if q.get("type"):
             if q["type"] not in ITEM_TYPES:
-                return Response.error(422, "type 只能是 todo / event / notice", "invalid")
+                return Response.error(
+                    422, "type 只能是 todo / event / notice / reference", "invalid"
+                )
             where += " AND " + _effective_type_is(q["type"])
         if q.get("status"):
             if q["status"] not in ALL_STATUSES:
@@ -1594,6 +1597,102 @@ class API:
         return Response.json_body({"ok": True})
 
     # ---- 浏览器插件：保存当前页面 -----------------------------------------------
+
+    async def save_intent_capture(self, req: Request, user: dict[str, Any]) -> Response:
+        from urllib.parse import parse_qsl, urlsplit
+        from uuid import UUID
+
+        from .monitors import ContractError, web_url
+
+        body = body_of(req)
+        purpose = body.get("purpose")
+        if purpose not in ("todo", "event", "notice", "reference"):
+            raise invalid("purpose", "请选择用途")
+        try:
+            url = web_url(body.get("url"))
+            parsed = urlsplit(url)
+            if (
+                parsed.fragment and not re.fullmatch(r"[/\w.-]+", parsed.fragment, re.ASCII)
+            ) or any(
+                re.search(
+                    r"token|ticket|session|password|secret|authorization|^(sid|auth|code|access_key|sesskey)$",
+                    key,
+                    re.I,
+                )
+                for key, _ in parse_qsl(parsed.query)
+            ):
+                raise ValueError
+            request_id = str(UUID(as_str(body.get("request_id"), "request_id", max_len=36)))
+        except (ValueError, ContractError):
+            raise invalid("capture", "链接或请求编号无效") from None
+        title = as_str(body.get("title"), "title", max_len=300).strip()
+        text = as_str(body.get("text"), "text", max_len=20000, default="")
+        publisher = as_str(body.get("publisher"), "publisher", max_len=200, default="")
+        when = body.get("date")
+        if when is not None:
+            when = as_float(when, "date", lo=0, hi=4102444800)
+        if not title or (publisher and purpose != "notice") or (when and purpose == "reference"):
+            raise invalid("capture", "请核对标题和用途字段")
+        key = f"intent:{request_id}"
+        activity = body.get("activity")
+        if activity is not None:
+            if not (
+                isinstance(activity, dict)
+                and set(activity) == {"id", "account", "detail"}
+                and re.fullmatch(r"[0-9]{1,18}", str(activity["id"]))
+                and re.fullmatch(r"[0-9a-f]{64}", str(activity["account"]))
+                and type(activity["detail"]) is bool
+                and purpose == "todo"
+                and parsed.path == "/mod/assign/view.php"
+                and parsed.query == "id=" + str(activity["id"])
+            ):
+                raise invalid("activity", "作业来源无效")
+            key = f"intent:moodle:{parsed.scheme}://{parsed.netloc}:{activity['account']}:{activity['id']}"
+        snap = {
+            "key": key,
+            "dedupe_url": key,
+            "kind": "clip",
+            "title": title,
+            "body": text,
+            "url": url,
+            "item_type": purpose,
+            "attrs": {
+                "saved_from": "intent-template",
+                "capture_purpose": purpose,
+                "suppress_deadline": True,
+                "publisher": publisher,
+            },
+        }
+        date_field = {"todo": "deadline_at", "event": "start_at", "notice": "published_at"}.get(
+            purpose
+        )
+        if date_field and when is not None:
+            snap[date_field] = when
+        async with self.db.transaction():
+            await self.db.execute(
+                "UPDATE users SET capture_generation=capture_generation WHERE id=?", user["id"]
+            )
+            if activity:
+                old = await self.db.fetchone(
+                    "SELECT id, body, deadline_at FROM items WHERE identity_key=? AND deleted=0",
+                    owner_prefix(user["id"]) + key,
+                )
+                if old and not activity["detail"]:
+                    return Response.json_body(
+                        {"ok": True, "schema_version": 1, "item_id": old["id"]}
+                    )
+                if old and not text.strip():
+                    snap["body"] = old["body"]
+                if old and when is None:
+                    snap["deadline_at"] = old["deadline_at"]
+            src = await self._clip_source(user)
+            await self.pipeline.ingest({"source_id": src["id"], "status": "ok", "items": [snap]})
+            item_id = await self.db.fetchval(
+                "SELECT id FROM items WHERE identity_key=?", owner_prefix(user["id"]) + key
+            )
+            if item_id is None:
+                raise RuntimeError("事项没有写入")
+        return Response.json_body({"ok": True, "schema_version": 1, "item_id": item_id})
 
     async def save_clip(self, req: Request, user: dict[str, Any]) -> Response:
         """插件“保存到收件箱”：页面正文由插件在用户浏览器里读取后上传（登录后才能看的页面也能存）。

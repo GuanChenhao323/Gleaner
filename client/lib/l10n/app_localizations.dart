@@ -837,6 +837,12 @@ abstract class AppLocalizations {
   /// **'Notice'**
   String get typeNotice;
 
+  /// No description provided for @typeReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference'**
+  String get typeReference;
+
   /// No description provided for @markOpen.
   ///
   /// In en, this message translates to:
@@ -2048,6 +2054,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Auto-monitor starting · waiting for first refresh'**
   String get rrStarting;
+
+  /// No description provided for @rrProtocolUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The local backend is temporarily unable to read this page'**
+  String get rrProtocolUnavailable;
+
+  /// No description provided for @rrProtocolAccountRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify the website account used by the local session'**
+  String get rrProtocolAccountRequired;
+
+  /// No description provided for @rrProtocolUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This page needs to be read in the browser'**
+  String get rrProtocolUnsupported;
+
+  /// No description provided for @rrWaitingPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the monitored page to reopen'**
+  String get rrWaitingPage;
 
   /// No description provided for @rrUserBusy.
   ///

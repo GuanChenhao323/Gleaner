@@ -12,6 +12,7 @@ import '../../widgets/common.dart';
 String typeLabel(String t, BuildContext context) {
   final l10n = AppLocalizations.of(context);
   return switch (t) {
+    'reference' => l10n.typeReference,
     'todo' => l10n.typeTodo,
     'event' => l10n.typeEvent,
     _ => l10n.typeNotice,
@@ -19,6 +20,7 @@ String typeLabel(String t, BuildContext context) {
 }
 
 IconData typeIcon(String t) => switch (t) {
+      'reference' => Icons.bookmark_outline,
       'todo' => Icons.task_alt,
       'event' => Icons.event,
       _ => Icons.campaign_outlined,
@@ -306,6 +308,7 @@ Future<void> showEditFields(BuildContext context, WidgetRef ref, Item item) asyn
                     segments: [
                       ButtonSegment(value: 'todo', label: Text(dlg.typeTodo), icon: const Icon(Icons.task_alt)),
                       ButtonSegment(value: 'event', label: Text(dlg.typeEvent), icon: const Icon(Icons.event)),
+                      ButtonSegment(value: 'reference', label: Text(dlg.typeReference)),
                       ButtonSegment(value: 'notice', label: Text(dlg.typeNotice), icon: const Icon(Icons.campaign_outlined)),
                     ],
                     selected: {type},

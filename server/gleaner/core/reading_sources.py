@@ -13,6 +13,7 @@ from ..storage.db import Database, loads
 from .capture_context import CaptureFence
 from .capture_snapshot import CaptureSnapshotProjector
 from .monitors import BrowserMonitorService, ContractError, digest, string
+from .protocol_reading import ProtocolReading
 from .reading_contract import FAILURES, INTERVALS, ReadingRecipe, semantic_snapshot
 from .reading_schedule import ReadingSchedule
 from .resident_contract import ResidentContract
@@ -50,6 +51,7 @@ class ReadingSourceService:
         schedule: ReadingSchedule | None = None,
     ) -> None:
         self.db, self.web, self.native, self.timeline = db, web, native, timeline
+        self.protocol = ProtocolReading(self)
         self.recipes = ReadingRecipe()
         self.snapshots = CaptureSnapshotProjector()
         self.fence = CaptureFence(db)
@@ -498,6 +500,14 @@ class ReadingSourceService:
         )
         values = []
         now = time.time()
+        recent_presence = {
+            (p["device_id"], p["page_id"]): p["state"]
+            for p in await self.db.fetch(
+                "SELECT device_id, page_id, state FROM reading_page_presence WHERE owner_id = ? AND seen_at > ?",
+                uid,
+                now - 150,
+            )
+        }
         for row in rows:
             recipe = loads(row["recipe"])
             baseline = loads(row["last_snapshot"])
@@ -549,6 +559,9 @@ class ReadingSourceService:
                     "match_count": len(baseline.get("fragments", baseline.get("targets", []))),
                     "capability": capability,
                     "items": items,
+                    "page_presence": recent_presence.get(
+                        (row["device_id"], ResidentContract.group(recipe)), "unknown"
+                    ),
                     "device_online": bool(device and device["last_seen_at"] > now - 150),
                     "effective_interval_s": self.schedule.interval(row),
                     "active_job": None if expired else job,
@@ -570,13 +583,43 @@ class ReadingSourceService:
         return string(body["device_id"], 100)
 
     async def heartbeat(self, uid: int, body: Any) -> dict[str, Any]:
-        device = self.device_request(body)
-        await self.db.execute(
-            "INSERT INTO reading_devices (owner_id, device_id, last_seen_at) VALUES (?, ?, ?) ON CONFLICT(owner_id, device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
-            uid,
-            device,
-            time.time(),
-        )
+        if not isinstance(body, dict):
+            raise ContractError("invalid_request")
+        device = self.device_request({k: v for k, v in body.items() if k != "pages"})
+        pages = body.get("pages", {})
+        if (
+            not isinstance(pages, dict)
+            or len(pages) > 2000
+            or any(
+                not isinstance(k, str) or len(k) != 36 or v not in ("present", "absent", "unknown")
+                for k, v in pages.items()
+            )
+        ):
+            raise ContractError("invalid_request")
+        now = time.time()
+        async with self.db.transaction():
+            await self.fence.lock(uid)
+            await self.db.execute(
+                "INSERT INTO reading_devices (owner_id, device_id, last_seen_at) VALUES (?, ?, ?) ON CONFLICT(owner_id, device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
+                uid,
+                device,
+                now,
+            )
+            await self.db.execute(
+                "DELETE FROM reading_page_presence WHERE owner_id = ? AND device_id = ?",
+                uid,
+                device,
+            )
+            for page, state in pages.items():
+                await self.db.execute(
+                    "INSERT INTO reading_page_presence (owner_id, device_id, page_id, state, seen_at) "
+                    "SELECT owner_id, device_id, page_id, ?, ? FROM reading_pages WHERE owner_id = ? AND device_id = ? AND page_id = ?",
+                    state,
+                    now,
+                    uid,
+                    device,
+                    page,
+                )
         return self.envelope(device_id=device)
 
     async def configure(self, uid: int, sid: int, body: Any) -> dict[str, Any]:
@@ -676,6 +719,8 @@ class ReadingSourceService:
             row["id"],
             row["revision"],
         )
+        if previous and previous["expires_at"] > now:
+            return None
         if previous and previous["attempts"] >= 3:
             await self.finish(row, previous, "worker_interrupted", {}, now)
             return None
@@ -729,6 +774,7 @@ class ReadingSourceService:
         device = self.device_request(body)
         now = time.time()
         async with self.db.transaction():
+            await self.fence.lock(uid)
             if await self.db.fetchone(
                 "SELECT j.id FROM reading_jobs j JOIN reading_sources s ON s.id = j.reading_id WHERE j.owner_id = ? AND j.device_id = ? AND j.finished_at IS NULL AND j.expires_at > ? AND j.revision = s.revision AND s.deleted = 0",
                 uid,
@@ -761,6 +807,8 @@ class ReadingSourceService:
                     row["id"],
                     row["revision"],
                 )
+                if await self.protocol.eligible(row, now):
+                    continue
                 if self.due(row, now) or previous:
                     eligible.append(row)
             if not eligible:
@@ -774,6 +822,7 @@ class ReadingSourceService:
                 for r in peers
                 if r["id"] != first["id"]
                 and not r["paused"]
+                and not await self.protocol.eligible(r, now)
                 and r["mode"] == "periodic"
                 and await self.has_items(r["id"])
             ]
@@ -864,7 +913,19 @@ class ReadingSourceService:
         }
         resident = "resident" in loads(row["recipe"]) or job["purpose"] == "activate"
         success = result in {"verified", "changed", "unchanged"}
-        count = 0 if success or result == "user_busy" else row.get("failure_count", 0) + 1
+        count = (
+            0
+            if success
+            or result
+            in {
+                "user_busy",
+                "waiting_page",
+                "protocol_unavailable",
+                "protocol_account_required",
+                "protocol_unsupported",
+            }
+            else row.get("failure_count", 0) + 1
+        )
         pause = invalidates or (resident and count >= 3)
         next_at = now + (60 if result == "user_busy" else self.schedule.interval(row))
         if resident and success:

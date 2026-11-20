@@ -412,6 +412,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get typeNotice => 'Notice';
 
   @override
+  String get typeReference => 'Reference';
+
+  @override
   String get markOpen => 'Mark open';
 
   @override
@@ -1073,6 +1076,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get rrStarting => 'Auto-monitor starting · waiting for first refresh';
+
+  @override
+  String get rrProtocolUnavailable =>
+      'The local backend is temporarily unable to read this page';
+
+  @override
+  String get rrProtocolAccountRequired =>
+      'Verify the website account used by the local session';
+
+  @override
+  String get rrProtocolUnsupported =>
+      'This page needs to be read in the browser';
+
+  @override
+  String get rrWaitingPage => 'Waiting for the monitored page to reopen';
 
   @override
   String get rrUserBusy => 'Monitor page is being edited · refresh deferred';
