@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import {projectPage,resolveTemplates} from '../templates/resolve.js';
 
 export function bindIntentPanel(document,browser,client) {
@@ -16,22 +17,22 @@ export function bindIntentPanel(document,browser,client) {
     const current=version,purpose=el('kind').value;
     try {
       const cfg=await client.send({type:'config'});
-      if(!cfg.uid)throw Error('请先登录工作台');
+      if(!cfg.uid)throw Error(t('请先登录工作台'));
       const [tab]=await browser.tabs.query({active:true,currentWindow:true});
       const response=await fetch(browser.runtime.getURL('templates/catalog.json'));
       const rules=resolveTemplates(await response.json(),purpose,new URL(tab.url).hostname);
       const [entry]=await browser.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},func:projectPage,args:[rules,purpose]});
       if(current!==version)return;
       const page=entry.result;
-      if(!page || new URL(page.url).origin!==new URL(tab.url).origin)throw Error('页面已变化，请重新读取');
+      if(!page || new URL(page.url).origin!==new URL(tab.url).origin)throw Error(t('页面已变化，请重新读取'));
       owner={uid:cfg.uid,server:cfg.server};
       draft={request_id:crypto.randomUUID(),purpose,url:page.url,activity:page.activity};
       el('title').value=page.title;
       el('text').value=page.text;
       el('url').textContent=page.url;
       el('date-row').hidden=!dates[purpose];
-      el('date-label').textContent=dates[purpose] || '';
-      el('original-date').textContent=dates[purpose] && page.date?'页面原文 '+page.date:'';
+      el('date-label').textContent=t(dates[purpose] || '');
+      el('original-date').textContent=dates[purpose] && page.date?t`页面原文 ${page.date}`:'';
       el('date').value='';
       // Preserve local wall time only when the page supplies it unambiguously.
       if(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(page.date))el('date').value=page.date;
@@ -52,8 +53,8 @@ export function bindIntentPanel(document,browser,client) {
       const result=await client.send({type:'intent.save',owner,capture:{...draft,title:el('title').value,text:el('text').value,
         date:dates[draft.purpose] && el('date').value?new Date(el('date').value).getTime()/1000:null,
         publisher:draft.purpose==='notice'?el('publisher').value:''}});
-      if(!Number.isInteger(result.item_id))throw Error('未收到保存回执');
-      if(current===version){reset();el('status').textContent='已保存到收件箱';}
+      if(!Number.isInteger(result.item_id))throw Error(t('未收到保存回执'));
+      if(current===version){reset();el('status').textContent=t('已保存到收件箱');}
     } catch(e) {if(current===version)el('status').textContent=e.message;}
     finally {el('save').disabled=false;}
   });

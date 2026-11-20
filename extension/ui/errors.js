@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 
 const ERRORS={query_required:'请输入想抓取的内容。',query_too_long:'条件请控制在 200 字以内。',unsupported_query:'暂支持课程名、标题关键词及人员联系方式。可写“课程：网络编程；关键词：实验”，复杂时间和语义条件暂不支持。',
   wrong_section:'这个条件与当前页面类型不符，请打开对应网页后重试。',need_login:'请先在原站自行登录，再点击提取。',unsupported:'当前网页尚未适配。',unsupported_dom:'尚未可靠识别此页面结构，未抓取内容。',
@@ -12,7 +13,7 @@ Object.assign(ERRORS,{unsupported_region:'指定区块不存在、未显示或�
 Object.assign(ERRORS,{unsupported:'此页面不能注入网页读取脚本，请打开普通 HTTP(S) 网页。',page_too_large:'页面结构过大，未完成读取。请在内容更集中的页面重试。',source_label_required:'请选择公开网页，或填写私人来源标签并点确定，再保存资料。',specialized_source_required:'这个站点须使用校园专用读取规则。'});
 ERRORS.restricted_page='浏览器限制在此页面运行扩展读取脚本，请打开普通网站页面。';
 Object.assign(ERRORS,{reading_unavailable:'后端尚未支持原条件来源，请更新并重启本地环境后重试原提交。',invalid_reading_recipe:'原条件上下文不完整，保存尚未确认，请在原网页重新提取。'});
-export const errorText=code=>ERRORS[code] || `操作未完成：${code}`;
+export const errorText=code=>ERRORS[code] ? t(ERRORS[code]) : t`操作未完成：${code}`;
 
 
 Object.assign(ERRORS,{bad_credentials:'工作台邮箱或密码错误，请核对后重试。',invalid_server:'请输入有效的 HTTP(S) 后端地址。',unauthorized:'工作台登录已失效，请重新登录后重试原提交。',invalid_session_response:'工作台身份响应异常，请检查后端连接。',outbox_full:'待提交内容已达容量上限，请先处理未确认记录。'});

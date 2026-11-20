@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import {errorText} from './errors.js';
 import {SiteRegistry} from '../extraction/sites.js';
 
@@ -54,7 +55,7 @@ export class CaptureController {
     catch (e) {
       if (e.message !== 'draft_not_found') throw e;
       this.form = {...this.form, taskId: null, phase: 'editing'}; this.task = null;
-      await this.persist(); this.render(); this.view.status('上次预览已过期或已删除，条件保留，请重新提取。');
+      await this.persist(); this.render(); this.view.status(t('上次预览已过期或已删除，条件保留，请重新提取。'));
     }
   }
   openSettings() {
@@ -91,9 +92,9 @@ export class CaptureController {
       const generation=this.generation;
       const {identity}=await this.client.send({type:'extract.verifyAccount',id:this.task.id});
       if(generation!==this.generation)return;
-      if(!this.view.document.defaultView.confirm(`将当前来源绑定到 ${identity.display}？以后重读必须核对同一账号。别名只是备注。`))return;
+      if(!this.view.document.defaultView.confirm(t`将当前来源绑定到 ${identity.display}？以后重读必须核对同一账号。别名只是备注。`))return;
       this.actionError = null;this.view.source.setIdentity(identity);this.bindingChanged();
-      this.view.status('来源账号已核对。保存后请在工作台测试后台重读。');
+      this.view.status(t('来源账号已核对。保存后请在工作台测试后台重读。'));
     });
     $('source-kind').onchange = () => {this.view.source.choose();this.bindingChanged();};
     $('source-label').oninput = () => this.bindingChanged();
@@ -134,7 +135,7 @@ export class CaptureController {
     this.generation++; this.task = null; this.entry = null; this.receiptPending = false;
     this.form = {...this.form, query: this.view.$('query').value, match_scope: this.view.$('match-scope').value || 'content', taskId: null, phase: 'editing', pending_save: false, read_error: null};this.uncertainSave = false;
     void this.persist().catch(() => {}); this.view.clear(); this.render();
-    this.view.status(this.form.query ? '条件已修改，点击提取生成新预览。' : '');
+    this.view.status(this.form.query ? t('条件已修改，点击提取生成新预览。') : '');
   }
   confirmBinding() { this.view.source.confirm(); return this.bindingChanged(); }
   bindingChanged() {
@@ -146,7 +147,7 @@ export class CaptureController {
     if (this.connecting) return;
     const $ = id => this.view.$(id), previous = this.owner();
     if ($('login-fields').hidden) {
-      $('login-fields').hidden = false;$('login').textContent = '登录工作台';$('password').focus();return;
+      $('login-fields').hidden = false;$('login').textContent = t('登录工作台');$('password').focus();return;
     }
     const url = new URL($('server').value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw Error('invalid_server');
@@ -235,7 +236,7 @@ export class CaptureController {
     this.form = {...this.form, query, match_scope: this.view.$('match-scope').value || 'content', choice, taskId: crypto.randomUUID(), phase: 'prepared', pending_save: false, read_error: null};
     const generation = this.generation, form = {...this.form}, persisted = this.persist();
     const permitted = this.browser.permissions.request({origins: [new URL(form.url).origin + '/*']});
-    this.view.controls({reading: true});this.view.status('正在确认权限并提取匹配内容…');
+    this.view.controls({reading: true});this.view.status(t('正在确认权限并提取匹配内容…'));
     return Promise.all([persisted, permitted]).then(async ([, allowed]) => {
       if (generation !== this.generation) return;
       if (!allowed) throw Error('permission_denied');
@@ -268,7 +269,7 @@ export class CaptureController {
       this.generation++;this.task = null;this.entry = null;this.receiptPending = false;this.uncertainSave = false;
       this.form = {tabId: tab.id, url: tab.url, query: this.view.$('query').value, match_scope: 'content', taskId: null, phase: 'editing'};
       this.view.select('match-scope','content');this.view.restoreBinding(null);this.view.clear();await this.persist();
-      this.view.status('原网页地址或视图已变化，请重新提取。', true);
+      this.view.status(t('原网页地址或视图已变化，请重新提取。'), true);
     }
     this.showPage({...tab, url: tab.url || this.form.url});this.render();
   }
@@ -284,7 +285,7 @@ export class CaptureController {
     try {
       const cfg = await this.client.send({type: 'config'});
       if (generation !== this.generation) return;
-      if (this.owner(cfg) !== this.owner()) {await this.changeOwner(cfg);this.view.status('工作台账号已变化，已切换到该账号的本地记录。');return;}
+      if (this.owner(cfg) !== this.owner()) {await this.changeOwner(cfg);this.view.status(t('工作台账号已变化，已切换到该账号的本地记录。'));return;}
       if (!cfg.uid || !this.form.taskId) return;
       let task;
       try {task = await this.client.send({type: 'extract.get', id: this.form.taskId});}
@@ -302,7 +303,7 @@ export class CaptureController {
       } else this.receiptPending = false;
       this.renderTask(task);
       if (['failed','interrupted'].includes(task.state)) this.view.status(errorText(task.error || 'page_read_failed'), true);
-      else if (task.state === 'needs_choice') this.view.status('请确认课程范围，再继续提取。');
+      else if (task.state === 'needs_choice') this.view.status(t('请确认课程范围，再继续提取。'));
       else this.view.status(this.actionError ? errorText(this.actionError) : '', Boolean(this.actionError));
     } finally {this.refreshing = false;}
   }
@@ -310,21 +311,21 @@ export class CaptureController {
     const generation = this.generation, {tasks} = await this.client.send({type: 'extract.list'});
     if (generation !== this.generation) return;
     const root = this.view.$('history');root.replaceChildren();
-    const states = {queued:'等待提取', running:'正在提取', succeeded:'已提取', failed:'提取失败', interrupted:'读取中断', needs_choice:'待确认课程'};
+    const states = {queued:t('等待提取'), running:t('正在提取'), succeeded:t('已提取'), failed:t('提取失败'), interrupted:t('读取中断'), needs_choice:t('待确认课程')};
     for (const t of tasks) {
-      const row = this.view.node('div','', 'history-row');row.append(this.view.node('span',t.query || '旧版预览'));
+      const row = this.view.node('div','', 'history-row');row.append(this.view.node('span',t.query || t('旧版预览')));
       let domain = '';try {domain = new URL(t.url).hostname;}catch { /* old draft */ }
-      row.append(this.view.node('p', `${domain} · ${t.submission ? '已提交 · 可查询结果' : states[t.state] || '旧版只读记录'}`));
-      if (t.schema_version === 2) row.append(this.view.button('查看预览', this.guard(() => this.openHistory(t)), 'text-button'));
-      row.append(this.view.button('删除本地预览', this.guard(async () => {
-        if (!this.view.document.defaultView.confirm('删除这条本地预览？已保存资料和已提交请求会保留。')) return;
+      row.append(this.view.node('p', `${domain} · ${t.submission ? t('已提交 · 可查询结果') : states[t.state] || t('旧版只读记录')}`));
+      if (t.schema_version === 2) row.append(this.view.button(t('查看预览'), this.guard(() => this.openHistory(t)), 'text-button'));
+      row.append(this.view.button(t('删除本地预览'), this.guard(async () => {
+        if (!this.view.document.defaultView.confirm(t('删除这条本地预览？已保存资料和已提交请求会保留。'))) return;
         await this.client.send({type: 'extract.delete', id: t.id});
         if (this.form.taskId === t.id) {this.task = null;this.entry = null;this.receiptPending = false;this.form.taskId = null;await this.persist();this.view.clear();this.render();}
         await this.history();
       }), 'text-button'));
       root.append(row);
     }
-    if (!tasks.length) root.append(this.view.node('p','没有本地预览记录。','muted'));
+    if (!tasks.length) root.append(this.view.node('p',t('没有本地预览记录。'),'muted'));
   }
   async openHistory(summary) {
     if (this.busy()) return;
@@ -337,7 +338,7 @@ export class CaptureController {
     this.uncertainSave = Boolean(this.form.pending_save);
     if (this.uncertainSave) this.entry = {state:'failed',error:'worker_timeout'};
     this.view.$('query').value = summary.query;this.view.select('match-scope', this.form.match_scope);
-    this.view.$('auto-monitor').checked=this.form.auto_monitor !== false;this.view.select('monitor-interval',String(this.form.monitor_interval || 1800));this.view.restoreBinding(this.form.source_binding, this.form.binding_draft);this.view.clear();this.showPage({url: summary.url, title: '历史预览 · ' + summary.query});
+    this.view.$('auto-monitor').checked=this.form.auto_monitor !== false;this.view.select('monitor-interval',String(this.form.monitor_interval || 1800));this.view.restoreBinding(this.form.source_binding, this.form.binding_draft);this.view.clear();this.showPage({url: summary.url, title: t('历史预览 · ') + summary.query});
     await this.refresh(true);
     this.view.$('history-panel').hidden = true;this.view.$('drafts').setAttribute('aria-expanded','false');
   }
@@ -379,7 +380,7 @@ export class CaptureController {
     const displayTask = !task.submission && this.uncertainSave ? {...task, submission: {request_id: task.id}} : task;
     this.view.task(displayTask, {stale, monitoring:this.view.$('auto-monitor').checked, saving: this.busy(), onDetail: c => this.guard(() => this.readAssignment(c))(), onChoice: id => this.guard(() => this.capture(id))()});
     const receipt = this.view.receipt(this.entry, this.cfg, Boolean(task.submission || this.uncertainSave));
-    if(receipt.rejected)this.view.$('save-hint').textContent='本次提交已被拒绝，处理原因后请重新提取；查询不会再次提交。';
+    if(receipt.rejected)this.view.$('save-hint').textContent=t('本次提交已被拒绝，处理原因后请重新提取；查询不会再次提交。');
     this.view.$('refresh').hidden = !task.submission && !this.uncertainSave;
     if (receipt.state === 'unconfirmed') {
       if (receipt.auth) this.view.connection({state: 'expired', error: this.entry?.error});
@@ -388,7 +389,7 @@ export class CaptureController {
   }
   showPage(tab) {
     let source;try {source = new SiteRegistry().resolve(tab.url).source;}catch {source = 'restricted';}
-    this.view.page({...tab, title: this.closed && !this.historical ? '原网页已关闭（查看已完成预览）' : tab.title || (this.task?.result?.url === tab.url ? this.task?.result?.title : '')}, {source, historical: this.historical, closed: this.closed});
+    this.view.page({...tab, title: this.closed && !this.historical ? t('原网页已关闭（查看已完成预览）') : tab.title || (this.task?.result?.url === tab.url ? this.task?.result?.title : '')}, {source, historical: this.historical, closed: this.closed});
   }
   dispose() {this.disposed = true;this.connectionGeneration++;clearInterval(this.timer);}
 }

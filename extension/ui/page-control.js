@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 export function bindPageControl(document,browser,client) {
   const panel=document.getElementById('page-control-panel'),select=document.getElementById('protocol-source');
   const message=document.getElementById('protocol-message');
@@ -13,17 +14,17 @@ export function bindPageControl(document,browser,client) {
       const rows=await client.send({type:'page-control.sources'});
       sources=rows;
       select.replaceChildren(...rows.map(row=>new Option(row.query+' · '+row.url,row.id)));
-      message.textContent=rows.length?'页面关闭后，已授权的本地服务可检查作业。':'还没有已验证的 Moodle 作业来源。';
+      message.textContent=rows.length?t('页面关闭后，已授权的本地服务可检查作业。'):t('还没有已验证的 Moodle 作业来源。');
     } catch(e){message.textContent=e.message;}
   });
   for(const action of ['authorize','status','revoke']) {
     document.getElementById('protocol-'+action).addEventListener('click',async()=>{
       if(!select.value)return;
       try {
-        if(!await browser.permissions.request({origins:['http://127.0.0.1/*']}))throw Error('未授权连接本地服务');
+        if(!await browser.permissions.request({origins:['http://127.0.0.1/*']}))throw Error(t('未授权连接本地服务'));
         const [tab]=await browser.tabs.query({active:true,currentWindow:true});
         const state=await client.send({type:'page-control.run',source_id:Number(select.value),action,tabId:tab.id});
-        message.textContent=(labels[state.state] || state.state)+(state.next_allowed_at>Date.now()/1000?' · 最早检查 '+new Date(state.next_allowed_at*1000).toLocaleString():'');
+        message.textContent=state.next_allowed_at>Date.now()/1000 ? t`${t(labels[state.state] || state.state)} · 最早检查 ${new Date(state.next_allowed_at*1000).toLocaleString()}` : t(labels[state.state] || state.state);
       }catch(e){message.textContent=e.message;}
     });
   }
