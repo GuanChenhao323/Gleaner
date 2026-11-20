@@ -1,10 +1,10 @@
 # Gleaner｜产品营销视频英文旁白草案
 
-> **版本**：v0.1 · 2026-11-19  
+> **版本**：v0.2 · 2026-11-19  
 > **状态**：可编辑讨论稿，旁白、文案与时间点均未最终锁定  
 > **对应文档**：[视频叙事大纲](./video-narrative-outline.md) · [详细分镜](./video-storyboard-detailed.md)  
 > **目标**：先通过语言确定每一段要讲的核心信息，再依据旁白长度调整关键帧和镜头节奏。  
-> **建议形式**：英文旁白为主，辅以少量屏幕短句、操作音效及音乐；全片暂按约 84 秒规划。
+> **建议形式**：英文旁白为主，辅以少量屏幕短句、操作音效及音乐；全片暂按约 88 秒规划。
 
 ## 整体叙事
 
@@ -29,34 +29,31 @@
 
 ## 02｜Problem
 
-**参考时间**：00:04–00:14 · [查看分镜](./video-storyboard-detailed.md#scene-02)
+**参考时间**：00:04–00:18 · [查看分镜](./video-storyboard-detailed.md#scene-02)
 
-**主版本（英文）**
+**旁白（英文）**
 
-> Course pages. Emails. Group chats. Calendars. The list keeps growing. Finding what's important means searching, switching, and checking—again and again.
+> Course pages. Announcements. Emails. The list keeps growing. Finding what matters takes time. Organizing it takes effort. And when something changes—will you even notice?
 
-**中文意思**：课程网页、邮件、群聊、日历，还有不断增加的其他信息入口。为了找出真正重要的信息，我们需要反复查找、切换和核对。
+**中文意思**：课程网页、公告、邮件，信息来源远不止这些，而且还在增加。找到重要信息需要时间，整理它需要精力。如果原始信息后来发生变化，你能注意到吗？
 
-**这段要表达的问题**：信息来源的种类和数量持续增加；关键困难在于**找、切、核对**带来的重复成本。画面里只需依次展示几个典型 App，不能让旁白暗示现实世界里只有三个信息源。
+**配合画面的节奏**
 
-**配合镜头的建议节奏**：
-
-| 镜头 | 屏幕正在做什么 | 旁白对应部分 |
+| 镜头 | 视觉呈现 | 对应旁白 |
 | --- | --- | --- |
-| 02A | 进入课程网页 | `Course pages.` |
-| 02B | 切到邮件 | `Emails.` |
-| 02C | 切到日历；可用极短的消息界面切镜作为信息来源补充 | `Group chats. Calendars.` |
-| 02D | 在应用间快速往返，最终回到作业页 | `The list keeps growing. Finding what's important means searching, switching, and checking—again and again.` |
+| 02A | 打开课程网页 | Course pages. |
+| 02B | 单独切到公告网页 | Announcements. |
+| 02C | 单独切到邮件窗口 | Emails. |
+| 02D | 快切更多来源；展示搜索和手动记录的重复操作 | The list keeps growing. Finding what matters takes time. Organizing it takes effort. |
+| **02E** | **深色背景，大号居中字幕，与旁白内容直接一致** | **And when something changes—will you even notice?** |
 
-**备选版本（强调信息变更风险，未选定）**
+**02E 的画面要求**：旁白直接写在屏幕中央，字号稍大、对比明确，必要时分为两行。文字淡入并停留到语句结束，随后简洁淡出，连接下一段居中的 **Introducing Gleaner**。不再安排公告页面出现 Updated 标记或此前手工记录未更新的独立镜头；无需额外特效去强化最后的反问。
 
-> Assignments, messages, emails, calendars—and countless other places to check. You find something important, save it somewhere, and then wonder: has anything changed?
-
-此版更容易为后面的来源监测埋伏笔，但对“重复切换与查找”的直接表达略弱。**目前优先使用主版本**，待听过实际配音后决定是否替换。
+**节奏重点**：信息来源只是举例，并非只有三个；情绪逐步从“很多地方”过渡到“寻找和整理有成本”，最后用字幕留下“原始信息可能变化”的悬念。参考时间可在试配音后微调。
 
 ## 03｜Meet Gleaner
 
-**参考时间**：00:14–00:20 · [查看分镜](./video-storyboard-detailed.md#scene-03)
+**参考时间**：00:18–00:24 · [查看分镜](./video-storyboard-detailed.md#scene-03)
 
 **旁白（英文）**
 
@@ -72,7 +69,7 @@
 
 ## 04｜Capture
 
-**参考时间**：00:20–00:38 · [查看分镜](./video-storyboard-detailed.md#scene-04)
+**参考时间**：00:24–00:42 · [查看分镜](./video-storyboard-detailed.md#scene-04)
 
 **旁白（英文）**
 
@@ -84,7 +81,7 @@
 
 ## 05｜Organize
 
-**参考时间**：00:38–00:55 · [查看分镜](./video-storyboard-detailed.md#scene-05)
+**参考时间**：00:42–00:59 · [查看分镜](./video-storyboard-detailed.md#scene-05)
 
 **旁白（英文）**
 
@@ -96,7 +93,7 @@
 
 ## 06｜Stay Updated
 
-**参考时间**：00:55–01:16 · [查看分镜](./video-storyboard-detailed.md#scene-06)
+**参考时间**：00:59–01:20 · [查看分镜](./video-storyboard-detailed.md#scene-06)
 
 **旁白（英文）**
 
@@ -110,7 +107,7 @@
 
 ## 07｜Brand Ending
 
-**参考时间**：01:16–01:24 · [查看分镜](./video-storyboard-detailed.md#scene-07)
+**参考时间**：01:20–01:28 · [查看分镜](./video-storyboard-detailed.md#scene-07)
 
 **旁白（英文）**
 
@@ -126,7 +123,7 @@
 
 > Information is everywhere.
 >
-> Course pages. Emails. Group chats. Calendars. The list keeps growing. Finding what's important means searching, switching, and checking—again and again.
+> Course pages. Announcements. Emails. The list keeps growing. Finding what matters takes time. Organizing it takes effort. And when something changes—will you even notice?
 >
 > Introducing Gleaner. Capture what matters. Keep it organized. Follow what changes.
 >
@@ -140,7 +137,7 @@
 
 ## 后续校对重点
 
-1. **Problem 是否足够有说服力**：仅列举来源还不够，要听出反复查找、切换、核对的时间与注意力成本。
+1. **Problem 是否足够有说服力**：在列举来源后，清晰表达查找、手动整理和后续变化风险；最后的反问直接用大字字幕呈现。
 2. **品牌登场的朗读长度**：如第三段配音覆盖不了六秒镜头，可自然接到 Capture，不要牺牲可听性。
 3. **演示范围与措辞一致**：产品当前支持的来源和监测条件必须与实际画面一致。
 4. **语速与停顿**：先制作低成本配音测试，再调整每段实际时长和关键帧，不预设每个字幕都必须逐字上屏。
