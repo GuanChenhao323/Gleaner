@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
-import '../core/store.dart';
+import '../l10n/app_localizations.dart';
 import '../theme.dart';
 
 class EmptyState extends StatelessWidget {
@@ -90,17 +89,19 @@ class Pill extends StatelessWidget {
 
 class CourseTag extends StatelessWidget {
   final String course;
-  const CourseTag(this.course, {super.key});
+  final bool muted;
+  const CourseTag(this.course, {super.key, this.muted = false});
   @override
   Widget build(BuildContext context) {
     if (course.isEmpty) return const SizedBox.shrink();
-    final c = Brand.course(course);
+    final cs = Theme.of(context).colorScheme;
+    final c = muted ? cs.outline : Brand.course(course);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
       const SizedBox(width: 6),
       Flexible(
         child: Text(shortCourse(course),
-            overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
       ),
     ]);
   }
@@ -113,11 +114,13 @@ class DeadlineBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (done) return Pill('已完成', color: Brand.ok, icon: Icons.check);
+    final l10n = AppLocalizations.of(context);
+    if (done) return Pill(l10n.completed, color: Brand.ok, icon: Icons.check);
     final u = urgencyOf(due);
-    return Pill(countdown(due), color: urgencyColor(context, u), icon: Icons.schedule, filled: u == Urgency.critical);
+    return Pill(countdown(due, context), color: urgencyColor(context, u), icon: Icons.schedule, filled: u == Urgency.critical);
   }
 }
+
 
 /// 截止时间变化等重要变更的醒目标记。
 class ChangeBadge extends StatelessWidget {
@@ -133,37 +136,10 @@ class ChangeBadge extends StatelessWidget {
         Icon(Icons.auto_awesome, size: 14, color: cs.onTertiaryContainer),
         const SizedBox(width: 4),
         Flexible(
-          child: Text(note,
+          child: Text(localizeChangeNote(note, context),
               maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontSize: 12, fontWeight: FontWeight.w700)),
         ),
       ]),
-    );
-  }
-}
-
-class ConnectionDot extends ConsumerWidget {
-  final bool showLabel;
-  const ConnectionDot({super.key, this.showLabel = false});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final st = ref.watch(feedProvider.select((s) => (s.conn, s.pending, s.node)));
-    final (conn, pending, node) = st;
-    final color = switch (conn) { Conn.online => Brand.ok, Conn.connecting => Brand.wheat, Conn.offline => Theme.of(context).colorScheme.outline };
-    final label = switch (conn) {
-      Conn.online => '实时同步中${node != null ? ' · $node' : ''}',
-      Conn.connecting => '正在连接…',
-      Conn.offline => pending > 0 ? '离线 · $pending 个操作待同步' : '离线 · 显示缓存内容',
-    };
-    final dot = Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)]));
-    if (!showLabel) return Tooltip(message: label, child: dot);
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: conn == Conn.online ? null : () => ref.read(feedProvider.notifier).reconnectNow(),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [dot, const SizedBox(width: 8), Text(label, style: Theme.of(context).textTheme.labelMedium)]),
-      ),
     );
   }
 }
@@ -185,7 +161,7 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ch = name.isEmpty ? '拾' : name.characters.first;
+    final ch = name.isEmpty ? AppLocalizations.of(context).brandFallback : name.characters.first;
     return Container(
       width: size,
       height: size,
@@ -199,54 +175,15 @@ class Avatar extends StatelessWidget {
   }
 }
 
-/// 品牌标志：一束麦穗。
+/// 应用品牌标志。
 class GleanerLogo extends StatelessWidget {
   final double size;
   const GleanerLogo({super.key, this.size = 40});
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.3),
-        gradient: LinearGradient(colors: [cs.primary, Color.lerp(cs.primary, Colors.black, 0.25)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
-      ),
-      child: CustomPaint(painter: _WheatPainter(Brand.wheat)),
-    );
-  }
-}
-
-class _WheatPainter extends CustomPainter {
-  final Color color;
-  _WheatPainter(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final stem = Paint()
-      ..color = color
-      ..strokeWidth = w * 0.06
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    final grain = Paint()..color = color;
-    final cx = w * 0.5;
-    canvas.drawLine(Offset(cx, w * 0.82), Offset(cx, w * 0.22), stem);
-    for (var i = 0; i < 4; i++) {
-      final y = w * (0.28 + i * 0.13);
-      for (final dir in [-1.0, 1.0]) {
-        canvas.save();
-        canvas.translate(cx + dir * w * 0.09, y);
-        canvas.rotate(dir * 0.6);
-        canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: w * 0.12, height: w * 0.22), grain);
-        canvas.restore();
-      }
-    }
-    canvas.drawOval(Rect.fromCenter(center: Offset(cx, w * 0.17), width: w * 0.1, height: w * 0.18), grain);
-  }
-
-  @override
-  bool shouldRepaint(covariant _WheatPainter old) => old.color != color;
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.2),
+        child: Image.asset('assets/logo.png', width: size, height: size, semanticLabel: AppLocalizations.of(context).appTitle),
+      );
 }
 
 void toast(BuildContext context, String msg, {bool error = false}) {

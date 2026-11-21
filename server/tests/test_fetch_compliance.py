@@ -18,7 +18,6 @@ from gleaner.collector.fetcher import (
     parse_robots,
 )
 from gleaner.gateway.app import _host_allowed, _origin_allowed
-
 from gleaner.net.http import CookieJar, Headers, HTTPClient
 from gleaner.net.http.cookies import MAX_PER_DOMAIN, default_path, parse_cookie_date, path_match
 

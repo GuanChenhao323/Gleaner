@@ -32,9 +32,13 @@ from ..storage.db import Database, is_unique_violation, loads
 from ..storage.migrations import share_key
 from . import edits, monitor
 from .itemtypes import ALL_STATUSES, ITEM_TYPES, status_of, status_sql
+from .monitors import BrowserMonitorService
 from .pipeline import Pipeline, item_public, owner_prefix
+from .reading_schedule import ReadingSchedule
+from .reading_sources import ReadingSourceService
 from .templates import get_template, list_templates
 from .throttle import Throttle
+from .timeline_captures import TimelineCaptureContract
 from .validate import (
     BadRequest,
     Handler,
@@ -48,6 +52,7 @@ from .validate import (
     invalid,
     path_id,
 )
+from .web_captures import WebCaptureService
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +136,7 @@ def _courses_of(v: Any) -> list[str]:
 
 
 ITEM_KINDS = ("assignment", "notice", "mail", "rss", "teacher", "clip", "page")
-FEED_FILTERS = ("unread", "starred", "todo", "important")
+FEED_FILTERS = ("unread", "starred", "todo", "important", "trash", "labeled")
 
 
 def _like(text: str) -> str:
@@ -318,7 +323,7 @@ def _capture_snap(
         raise invalid(f"{name}.url", "只能是 http / https 链接")
     item_type = it.get("type")
     if item_type is not None and item_type not in ITEM_TYPES:
-        raise invalid(f"{name}.type", "只能是 todo / event / notice")
+        raise invalid(f"{name}.type", "只能是 todo / event / notice / reference")
     fields = as_dict(it.get("fields"), f"{name}.fields", default={})
 
     def ts(k: str) -> float | None:
@@ -362,8 +367,10 @@ class API:
         *,
         fetcher: Fetcher | None = None,
         data_dir: str = "",
+        reading_schedule: ReadingSchedule | None = None,
     ) -> None:
         self.db = db
+        self.reading_schedule = reading_schedule
         self.pipeline = pipeline
         self.publish = publish
         self.fetcher = fetcher or Fetcher(min_interval=0.2)
@@ -380,6 +387,7 @@ class API:
         # “立即检查”冷却：公共来源大家共用，60 秒内只受理一次（私有来源不限，采集端已按主机限速）
         self.refresh_shared = Throttle(limit=0, window=60, base_block=60, max_block=60)
         self._stats_cache: tuple[float, dict[str, Any]] | None = None
+        self.reading: ReadingSourceService | None = None
 
     # ---- 鉴权 ------------------------------------------------------------------
 
@@ -439,6 +447,24 @@ class API:
 
     def register(self, r: Router) -> None:
         a = self.authed
+        native = BrowserMonitorService(self.db, self.pipeline)
+        web = WebCaptureService(self.db, self.pipeline)
+        timeline = WebCaptureService(self.db, self.pipeline, TimelineCaptureContract())
+        reading = ReadingSourceService(
+            self.db, web, native, timeline, schedule=self.reading_schedule
+        )
+        self.reading = reading
+        reading.change_state = self.apply_state
+        reading.notify_purge = self.publish
+        native.guard_reading = web.guard_reading = timeline.guard_reading = reading.guard_capture
+        native.on_capture = web.on_capture = timeline.on_capture = reading.attach
+        native.validate_reading = web.validate_reading = timeline.validate_reading = (
+            reading.validate_capture
+        )
+        native.register(r, a)
+        web.register(r, a)
+        timeline.register(r, a)
+        reading.register(r, a)
 
         def add(method: str, path: str, handler: Handler) -> None:
             r.add(method, path, guard(handler))
@@ -469,6 +495,7 @@ class API:
         add("GET", "/api/templates", self.templates)
         add("GET", "/api/sources", a(self.list_sources))
         add("POST", "/api/sources", a(self.add_source))
+        add("POST", "/api/v1/intent-captures", a(self.save_intent_capture))
         add("POST", "/api/clips", a(self.save_clip))
         add("POST", "/api/captures", a(self.save_captures))
         add("GET", "/api/monitor/due", a(self.monitor_due))
@@ -487,6 +514,11 @@ class API:
         add("PUT", "/api/dashboard", a(self.put_dashboard))
         add("GET", "/api/rules", a(self.get_rules))
         add("PUT", "/api/rules", a(self.put_rules))
+        add("GET", "/api/labels", a(self.list_labels))
+        add("POST", "/api/labels", a(self.create_label))
+        add("PUT", "/api/labels/{id}", a(self.update_label))
+        add("DELETE", "/api/labels/{id}", a(self.delete_label))
+        add("PUT", "/api/items/{id}/labels", a(self.put_item_labels))
         add("GET", "/api/stats", self.stats)
 
     # ---- 账号 ------------------------------------------------------------------
@@ -608,7 +640,6 @@ class API:
                         "created_at": time.time(),
                     },
                 )
-                await self._subscribe_shared_defaults(uid)
         except Exception as e:
             if is_unique_violation(e):  # 并发注册同一邮箱
                 return Response.error(409, "该邮箱已注册", "exists")
@@ -617,19 +648,6 @@ class API:
         user = await self.db.fetchone("SELECT * FROM users WHERE id = ?", uid)
         assert user
         return await self._session_response(req, user, 201)
-
-    async def _subscribe_shared_defaults(self, uid: int) -> None:
-        """新用户默认订阅已存在的公共来源（学院通知、教师信息），降低上手成本。"""
-        for s in await self.db.fetch(
-            "SELECT id, template FROM sources WHERE owner_id IS NULL AND template IN ('college_news','faculty')"
-        ):
-            await self.db.execute(
-                "INSERT INTO subscriptions (user_id, source_id, weight, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                uid,
-                s["id"],
-                0.6,
-                time.time(),
-            )
 
     async def login(self, req: Request) -> Response:
         b = body_of(req)
@@ -823,6 +841,8 @@ class API:
                 "user_item_state",
                 "user_item_edits",
                 "item_monitors",
+                "item_labels",
+                "labels",
                 "op_log",
                 "rules",
                 "sent_mails",
@@ -870,6 +890,7 @@ class API:
         ids = list(dict.fromkeys(r["id"] for r in rows))
         all_edits = await edits.load(self.db, uid, ids)
         all_mons = await monitor.load(self.db, uid, ids)
+        label_map = await self._label_ids_for(uid, ids)
         out = []
         seen: set[int] = set()
         for r in rows:
@@ -902,8 +923,23 @@ class API:
             state["priority"] = state["priority"] or "low"
             it = item_public(r, state, src)
             it["state"]["archived"] = r.get("archived_at") is not None
+            it["label_ids"] = label_map.get(r["id"], [])
             self._decorate(it, r, all_edits.get(r["id"], {}), all_mons.get(r["id"]))
             out.append(it)
+        return out
+
+    async def _label_ids_for(self, uid: int, item_ids: list[int]) -> dict[int, list[int]]:
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = await self.db.fetch(
+            f"SELECT item_id, label_id FROM item_labels WHERE user_id = ? AND item_id IN ({marks}) ORDER BY label_id",
+            uid,
+            *item_ids,
+        )
+        out: dict[int, list[int]] = {}
+        for r in rows:
+            out.setdefault(r["item_id"], []).append(r["label_id"])
         return out
 
     @staticmethod
@@ -916,7 +952,7 @@ class API:
         """新基线的事项字段（IC-002 4.1）：生效值、修改明细与冲突、类型与状态、来源定位、监测状态。"""
         values, detail, conflicts = edits.effective(r, item_edits, r.get("deadline_override"))
         attrs = loads(r.get("attrs"), {})
-        origin = "capture" if r.get("src_type") == "clip" else "source"
+        origin = "capture" if r.get("src_type") in ("clip", "browser") else "source"
         it.update(
             {
                 "type": values["type"],
@@ -951,7 +987,9 @@ class API:
     async def feed(self, req: Request, user: dict[str, Any]) -> Response:
         """分页收件箱。cursor = ``排序时间:id``（键集分页，翻页期间有新数据也不会重复或遗漏）。"""
         q = req.query
-        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0"
+        where = " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = " + (
+            "1" if q.get("filter") == "trash" else "0"
+        )
         params: list[Any] = []
         if q.get("kind"):
             if q["kind"] not in ITEM_KINDS:
@@ -960,7 +998,9 @@ class API:
             params.append(q["kind"])
         if q.get("type"):
             if q["type"] not in ITEM_TYPES:
-                return Response.error(422, "type 只能是 todo / event / notice", "invalid")
+                return Response.error(
+                    422, "type 只能是 todo / event / notice / reference", "invalid"
+                )
             where += " AND " + _effective_type_is(q["type"])
         if q.get("status"):
             if q["status"] not in ALL_STATUSES:
@@ -970,7 +1010,9 @@ class API:
             if q["origin"] not in ("capture", "source"):
                 return Response.error(422, "origin 只能是 capture / source", "invalid")
             where += (
-                " AND src.type = 'clip'" if q["origin"] == "capture" else " AND src.type != 'clip'"
+                " AND src.type IN ('clip', 'browser')"
+                if q["origin"] == "capture"
+                else " AND src.type NOT IN ('clip', 'browser')"
             )
         if q.get("course"):
             where += " AND LOWER(i.course) LIKE ? ESCAPE '!'"
@@ -986,6 +1028,21 @@ class API:
             where += " AND COALESCE(st.todo_status, '') IN ('todo', 'doing')"
         elif f == "important":
             where += " AND COALESCE(st.priority, 'low') != 'low'"
+        elif f == "labeled":
+            try:
+                label_id = int(q.get("label_id", ""))
+            except (TypeError, ValueError):
+                return Response.error(422, "labeled 筛选需要 label_id", "invalid")
+            owns = await self.db.fetchval(
+                "SELECT id FROM labels WHERE id = ? AND user_id = ?", label_id, user["id"]
+            )
+            if owns is None:
+                return Response.error(404, "标签不存在", "not_found")
+            where += (
+                " AND EXISTS (SELECT 1 FROM item_labels il "
+                "WHERE il.user_id = ? AND il.item_id = i.id AND il.label_id = ?)"
+            )
+            params += [user["id"], label_id]
         if q.get("q"):
             where += (
                 " AND (LOWER(i.title) LIKE ? ESCAPE '!' OR LOWER(i.summary) LIKE ? ESCAPE '!'"
@@ -1052,6 +1109,19 @@ class API:
         it = items[0]
         row = await self.db.fetchone("SELECT body FROM items WHERE id = ?", it["id"])
         it["body"] = row["body"] if row else ""
+        it["browser_monitor"] = await self.db.fetchone(
+            "SELECT id, enabled, supported, last_result, last_success_at, error FROM browser_monitors WHERE owner_id = ? AND item_id = ? AND deleted = 0",
+            user["id"],
+            it["id"],
+        )
+        if it["browser_monitor"]:
+            for flag in ("enabled", "supported"):
+                it["browser_monitor"][flag] = bool(it["browser_monitor"][flag])
+        it["reading_source"] = await self.db.fetchone(
+            "SELECT r.id, r.last_result, r.last_success_at FROM reading_sources r JOIN reading_source_items link ON link.reading_id = r.id WHERE r.owner_id = ? AND r.deleted = 0 AND link.item_id = ? ORDER BY r.id DESC LIMIT 1",
+            user["id"],
+            it["id"],
+        )
         return Response.json_body(it)
 
     async def versions(self, req: Request, user: dict[str, Any]) -> Response:
@@ -1085,6 +1155,8 @@ class API:
           客户端的键加 ``c:`` 前缀，与服务端内部键（如 ``digest:日期``）分开；同一个键换了内容返回 422。
         - 冲突处理“后写胜出”：以客户端操作时间 ts 为准（夹在 [现在 - 30 天, 现在 + 5 分钟]），无论是否带 op_id。
         """
+        if "hidden" in b and type(b["hidden"]) is not bool:
+            return 422, {"error": "invalid_state"}
         vals = _state_values(b)
         now = time.time()
         client_ts = as_float(b.get("ts"), "ts", default=now)
@@ -1169,6 +1241,11 @@ class API:
                         "note": st["note"],
                     },
                 }
+                if "hidden" in vals and self.reading is not None:
+                    if vals["hidden"]:
+                        await self.reading.pause_empty(uid, item_id)
+                    else:
+                        await self.reading.mark_documents_visible(uid, item_id)
             if key:
                 await self.db.execute(
                     "UPDATE op_log SET result = ? WHERE user_id = ? AND op_id = ?",
@@ -1245,7 +1322,7 @@ class API:
             return Response.error(422, "时间范围不正确（最长 400 天）", "invalid")
         items = await self._items_for(
             user["id"],
-            " AND i.deleted = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND COALESCE(st.deadline_override, i.deadline_at) BETWEEN ? AND ?",
             (frm, to),
             "ORDER BY COALESCE(st.deadline_override, i.deadline_at)",
             500,
@@ -1255,7 +1332,11 @@ class API:
     async def courses(self, req: Request, user: dict[str, Any]) -> Response:
         """课程主页：未完成作业、近期通知、来自官网的教师信息（场景 6）。"""
         items = await self._items_for(
-            user["id"], " AND i.deleted = 0 AND i.course != ''", (), "ORDER BY i.deadline_at", 500
+            user["id"],
+            " AND i.deleted = 0 AND COALESCE(st.hidden, 0) = 0 AND i.course != ''",
+            (),
+            "ORDER BY i.deadline_at",
+            500,
         )
         # 只看自己订阅的来源里的教师信息（自定义教师来源是私有的）
         teachers = await self.db.fetch(
@@ -1516,6 +1597,102 @@ class API:
         return Response.json_body({"ok": True})
 
     # ---- 浏览器插件：保存当前页面 -----------------------------------------------
+
+    async def save_intent_capture(self, req: Request, user: dict[str, Any]) -> Response:
+        from urllib.parse import parse_qsl, urlsplit
+        from uuid import UUID
+
+        from .monitors import ContractError, web_url
+
+        body = body_of(req)
+        purpose = body.get("purpose")
+        if purpose not in ("todo", "event", "notice", "reference"):
+            raise invalid("purpose", "请选择用途")
+        try:
+            url = web_url(body.get("url"))
+            parsed = urlsplit(url)
+            if (
+                parsed.fragment and not re.fullmatch(r"[/\w.-]+", parsed.fragment, re.ASCII)
+            ) or any(
+                re.search(
+                    r"token|ticket|session|password|secret|authorization|^(sid|auth|code|access_key|sesskey)$",
+                    key,
+                    re.I,
+                )
+                for key, _ in parse_qsl(parsed.query)
+            ):
+                raise ValueError
+            request_id = str(UUID(as_str(body.get("request_id"), "request_id", max_len=36)))
+        except (ValueError, ContractError):
+            raise invalid("capture", "链接或请求编号无效") from None
+        title = as_str(body.get("title"), "title", max_len=300).strip()
+        text = as_str(body.get("text"), "text", max_len=20000, default="")
+        publisher = as_str(body.get("publisher"), "publisher", max_len=200, default="")
+        when = body.get("date")
+        if when is not None:
+            when = as_float(when, "date", lo=0, hi=4102444800)
+        if not title or (publisher and purpose != "notice") or (when and purpose == "reference"):
+            raise invalid("capture", "请核对标题和用途字段")
+        key = f"intent:{request_id}"
+        activity = body.get("activity")
+        if activity is not None:
+            if not (
+                isinstance(activity, dict)
+                and set(activity) == {"id", "account", "detail"}
+                and re.fullmatch(r"[0-9]{1,18}", str(activity["id"]))
+                and re.fullmatch(r"[0-9a-f]{64}", str(activity["account"]))
+                and type(activity["detail"]) is bool
+                and purpose == "todo"
+                and parsed.path == "/mod/assign/view.php"
+                and parsed.query == "id=" + str(activity["id"])
+            ):
+                raise invalid("activity", "作业来源无效")
+            key = f"intent:moodle:{parsed.scheme}://{parsed.netloc}:{activity['account']}:{activity['id']}"
+        snap = {
+            "key": key,
+            "dedupe_url": key,
+            "kind": "clip",
+            "title": title,
+            "body": text,
+            "url": url,
+            "item_type": purpose,
+            "attrs": {
+                "saved_from": "intent-template",
+                "capture_purpose": purpose,
+                "suppress_deadline": True,
+                "publisher": publisher,
+            },
+        }
+        date_field = {"todo": "deadline_at", "event": "start_at", "notice": "published_at"}.get(
+            purpose
+        )
+        if date_field and when is not None:
+            snap[date_field] = when
+        async with self.db.transaction():
+            await self.db.execute(
+                "UPDATE users SET capture_generation=capture_generation WHERE id=?", user["id"]
+            )
+            if activity:
+                old = await self.db.fetchone(
+                    "SELECT id, body, deadline_at FROM items WHERE identity_key=? AND deleted=0",
+                    owner_prefix(user["id"]) + key,
+                )
+                if old and not activity["detail"]:
+                    return Response.json_body(
+                        {"ok": True, "schema_version": 1, "item_id": old["id"]}
+                    )
+                if old and not text.strip():
+                    snap["body"] = old["body"]
+                if old and when is None:
+                    snap["deadline_at"] = old["deadline_at"]
+            src = await self._clip_source(user)
+            await self.pipeline.ingest({"source_id": src["id"], "status": "ok", "items": [snap]})
+            item_id = await self.db.fetchval(
+                "SELECT id FROM items WHERE identity_key=?", owner_prefix(user["id"]) + key
+            )
+            if item_id is None:
+                raise RuntimeError("事项没有写入")
+        return Response.json_body({"ok": True, "schema_version": 1, "item_id": item_id})
 
     async def save_clip(self, req: Request, user: dict[str, Any]) -> Response:
         """插件“保存到收件箱”：页面正文由插件在用户浏览器里读取后上传（登录后才能看的页面也能存）。
@@ -1979,6 +2156,124 @@ class API:
             time.time(),
         )
         return Response.json_body({"ok": True})
+
+    async def list_labels(self, req: Request, user: dict[str, Any]) -> Response:
+        rows = await self.db.fetch(
+            "SELECT id, name, color, created_at FROM labels WHERE user_id = ? ORDER BY id",
+            user["id"],
+        )
+        return Response.json_body({"labels": [dict(r) for r in rows]})
+
+    async def create_label(self, req: Request, user: dict[str, Any]) -> Response:
+        b = body_of(req)
+        name = as_str(b.get("name"), "name", max_len=40, default="").strip()
+        if not name:
+            return Response.error(422, "标签名不能为空", "invalid")
+        color = as_str(b.get("color"), "color", max_len=20, default="").strip()
+        count = await self.db.fetchval("SELECT COUNT(*) FROM labels WHERE user_id = ?", user["id"])
+        if (count or 0) >= 50:
+            return Response.error(422, "标签最多 50 个", "limit")
+        exists = await self.db.fetchval(
+            "SELECT id FROM labels WHERE user_id = ? AND name = ?", user["id"], name
+        )
+        if exists is not None:
+            return Response.error(409, "已有同名标签", "conflict")
+        now = time.time()
+        lid = await self.db.insert(
+            "labels",
+            {"user_id": user["id"], "name": name, "color": color, "created_at": now},
+        )
+        return Response.json_body(
+            {"id": lid, "name": name, "color": color, "created_at": now}, status=201
+        )
+
+    async def update_label(self, req: Request, user: dict[str, Any]) -> Response:
+        lid = path_id(req)
+        row = await self.db.fetchone(
+            "SELECT id, name, color, created_at FROM labels WHERE id = ? AND user_id = ?",
+            lid,
+            user["id"],
+        )
+        if row is None:
+            return Response.error(404, "标签不存在", "not_found")
+        b = body_of(req)
+        name = row["name"]
+        color = row["color"]
+        if "name" in b:
+            name = as_str(b.get("name"), "name", max_len=40, default="").strip()
+            if not name:
+                return Response.error(422, "标签名不能为空", "invalid")
+            clash = await self.db.fetchval(
+                "SELECT id FROM labels WHERE user_id = ? AND name = ? AND id != ?",
+                user["id"],
+                name,
+                lid,
+            )
+            if clash is not None:
+                return Response.error(409, "已有同名标签", "conflict")
+        if "color" in b:
+            color = as_str(b.get("color"), "color", max_len=20, default="").strip()
+        await self.db.execute(
+            "UPDATE labels SET name = ?, color = ? WHERE id = ? AND user_id = ?",
+            name,
+            color,
+            lid,
+            user["id"],
+        )
+        return Response.json_body(
+            {"id": lid, "name": name, "color": color, "created_at": row["created_at"]}
+        )
+
+    async def delete_label(self, req: Request, user: dict[str, Any]) -> Response:
+        lid = path_id(req)
+        row = await self.db.fetchone(
+            "SELECT id FROM labels WHERE id = ? AND user_id = ?", lid, user["id"]
+        )
+        if row is None:
+            return Response.error(404, "标签不存在", "not_found")
+        async with self.db.transaction():
+            await self.db.execute(
+                "DELETE FROM item_labels WHERE user_id = ? AND label_id = ?", user["id"], lid
+            )
+            await self.db.execute(
+                "DELETE FROM labels WHERE id = ? AND user_id = ?", lid, user["id"]
+            )
+        return Response.json_body({"ok": True})
+
+    async def put_item_labels(self, req: Request, user: dict[str, Any]) -> Response:
+        iid = path_id(req)
+        owned = await self._items_for(user["id"], " AND i.id = ?", (iid,), limit=1)
+        if not owned:
+            return Response.error(404, "事项不存在", "not_found")
+        b = body_of(req)
+        raw_ids = as_list(b.get("label_ids"), "label_ids", max_len=50, default=[])
+        label_ids: list[int] = []
+        for i, v in enumerate(raw_ids):
+            try:
+                label_ids.append(int(v))
+            except (TypeError, ValueError):
+                return Response.error(422, f"第 {i + 1} 个 label_id 不正确", "invalid")
+        label_ids = list(dict.fromkeys(label_ids))
+        if label_ids:
+            marks = ",".join("?" * len(label_ids))
+            found = await self.db.fetch(
+                f"SELECT id FROM labels WHERE user_id = ? AND id IN ({marks})",
+                user["id"],
+                *label_ids,
+            )
+            if len(found) != len(label_ids):
+                return Response.error(422, "含有不属于你的标签", "invalid")
+        now = time.time()
+        async with self.db.transaction():
+            await self.db.execute(
+                "DELETE FROM item_labels WHERE user_id = ? AND item_id = ?", user["id"], iid
+            )
+            if label_ids:
+                await self.db.executemany(
+                    "INSERT INTO item_labels (user_id, item_id, label_id, created_at) VALUES (?, ?, ?, ?)",
+                    [(user["id"], iid, lid, now) for lid in label_ids],
+                )
+        return Response.json_body({"item_id": iid, "label_ids": label_ids})
 
     async def get_rules(self, req: Request, user: dict[str, Any]) -> Response:
         rows = await self.db.fetch(

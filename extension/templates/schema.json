@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "type":"array",
+  "items":{
+    "type":"object","additionalProperties":false,"required":["id","overrides"],
+    "properties":{
+      "id":{"type":"string","minLength":1},"label":{"type":"string"},"extends":{"type":"string"},
+      "host":{"type":"string"},"match":{"type":"string"},
+      "overrides":{"type":"object","additionalProperties":false,"properties":{
+        "title":{"type":"string"},"text":{"type":"string"},"date":{"type":"string"},"publisher":{"type":"string"}
+      }}
+    }
+  }
+}

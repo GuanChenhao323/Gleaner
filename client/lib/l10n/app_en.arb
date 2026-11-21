@@ -1,0 +1,1087 @@
+{
+  "@@locale": "en",
+  "appTitle": "拾课 Gleaner",
+  "navDesk": "Desk",
+  "navInbox": "Inbox",
+  "navCourses": "Courses",
+  "navSources": "Sources",
+  "navSettings": "Settings",
+  "navCompose": "Compose",
+  "navTransfer": "Transfer",
+  "navAccount": "Account",
+  "navMore": "More",
+  "actionView": "View",
+  "actionClose": "Close",
+  "actionSave": "Save",
+  "actionCancel": "Cancel",
+  "actionGotIt": "Got it",
+  "actionSyncNow": "Sync now",
+  "login": "Sign in",
+  "loginOrRegister": "Sign in or register",
+  "register": "Create account",
+  "registerAndStart": "Register and start",
+  "email": "Email",
+  "password": "Password",
+  "passwordMin8": "Password (at least 8 characters)",
+  "emailCode": "Email code",
+  "getCode": "Get code",
+  "resendInSeconds": "{seconds}s to resend",
+  "@resendInSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "nickname": "Display name",
+  "grade": "Year",
+  "major": "Major",
+  "agreePrivacy": "I have read the privacy notice",
+  "privacyAgreeDetail": "拾课 Gleaner stores Moodle session cookies, not SSO passwords. School mailbox app passwords are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account anytime.",
+  "serverAddress": "Server URL",
+  "haveAccountSignIn": "Already have an account? Sign in",
+  "noAccountRegister": "No account yet? Register",
+  "codeSent": "Code sent to {email}. Valid for 10 minutes.",
+  "@codeSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "guestDesk": "Sign in to see today’s tasks and deadlines this week.",
+  "guestInbox": "Sign in to see assignments, notices, and page updates.",
+  "guestCourses": "Sign in to browse assignments and deadlines by course.",
+  "guestSources": "Sign in to manage campus pages and Moodle sources.",
+  "guestSettings": "Sign in to manage your profile and notification settings.",
+  "sectionNotifications": "Notifications",
+  "sectionConnection": "Connection",
+  "sectionAccount": "Account",
+  "quietHours": "Do not disturb",
+  "dailyDigest": "Daily digest",
+  "dailyDigestAt": "Every day at {time}",
+  "@dailyDigestAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "digestAlsoEmail": "Also email the digest",
+  "personalRules": "Personal rules",
+  "pushStatus": "Push status",
+  "connected": "Connected",
+  "connecting": "Connecting…",
+  "disconnected": "Disconnected",
+  "sync": "Sync",
+  "syncPending": "{count} pending",
+  "@syncPending": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncUpToDate": "Up to date",
+  "server": "Server",
+  "privacy": "Privacy",
+  "privacyBody": "Moodle and similar sources keep login sessions only, not SSO passwords. School mailbox app passwords and sessions are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account and all data anytime.",
+  "changePassword": "Change password",
+  "signOut": "Sign out",
+  "deleteAccount": "Delete account",
+  "language": "Language",
+  "languageEnglish": "English",
+  "languageSimplified": "简体中文",
+  "languageTraditional": "繁體中文",
+  "inboxUnread": "Unread",
+  "inboxStarred": "Starred",
+  "inboxTodo": "To-do",
+  "inboxEvent": "Events",
+  "inboxNotice": "Notices",
+  "inboxTrash": "Trash",
+  "statusOpen": "Open",
+  "statusDone": "Done",
+  "statusActive": "Active",
+  "statusArchived": "Archived",
+  "statusUnread": "Unread",
+  "statusRead": "Read",
+  "statusAll": "All",
+  "newLabel": "New label",
+  "labels": "Labels",
+  "pinSidebar": "Pin sidebar",
+  "unpinSidebar": "Unpin sidebar",
+  "saved": "Saved",
+  "classmate": "there",
+  "justNow": "Just now",
+  "never": "Never",
+  "minutesAgo": "{count} min ago",
+  "@minutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursAgo": "{count} h ago",
+  "@hoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "yesterdayAt": "Yesterday {time}",
+  "@yesterdayAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "today": "Today",
+  "tomorrow": "Tomorrow",
+  "dayAfterTomorrow": "In 2 days",
+  "yesterday": "Yesterday",
+  "overdueHours": "Overdue {count} h",
+  "@overdueHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "overdueDays": "Overdue {count} d",
+  "@overdueDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "remainingMinutes": "{count} min left",
+  "@remainingMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "remainingHours": "{count} h left",
+  "@remainingHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "remainingDaysHours": "{days} d {hours} h left",
+  "@remainingDaysHours": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "remainingDays": "{count} d left",
+  "@remainingDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "kindAssignment": "Assignment",
+  "kindEvent": "Event",
+  "kindNotice": "Notice",
+  "kindMail": "Mail",
+  "kindClip": "Clip",
+  "kindPage": "Page",
+  "kindItem": "Item",
+  "channelWeb": "Website",
+  "channelMail": "Mail",
+  "sourceOk": "OK",
+  "sourceFailed": "Check failed",
+  "sourceNeedLogin": "Sign in again",
+  "sourceWaiting": "Waiting for first check",
+  "greetingLateNight": "Still up",
+  "greetingMorning": "Good morning",
+  "greetingNoon": "Good noon",
+  "greetingAfternoon": "Good afternoon",
+  "greetingEvening": "Good evening",
+  "priorityUrgent": "Urgent",
+  "priorityNormal": "Normal",
+  "priorityLow": "Low",
+  "typeTodo": "To-do",
+  "typeEvent": "Event",
+  "typeNotice": "Notice",
+  "typeReference": "Reference",
+  "markOpen": "Mark open",
+  "markDone": "Mark done",
+  "unarchive": "Unarchive",
+  "archive": "Archive",
+  "markUnread": "Mark unread",
+  "markRead": "Mark read",
+  "fieldTitle": "Title",
+  "fieldSummary": "Summary",
+  "fieldType": "Type",
+  "fieldDeadline": "Deadline",
+  "fieldStart": "Start",
+  "fieldEnd": "End",
+  "fieldLocation": "Location",
+  "fieldRequirements": "Requirements",
+  "emptyValue": "(empty)",
+  "done": "Done",
+  "deskTodayFocus": "Today",
+  "deskThisWeek": "This week",
+  "deskNeedsAttention": "Needs attention",
+  "deskCalendar": "Calendar",
+  "deskHideCalendar": "Hide calendar",
+  "deskDueIn7Days": "Due in 7 days",
+  "deskSourceIssues": "Source issues",
+  "deskShowMore": "Show more",
+  "deskInboxLink": "Inbox",
+  "filterAll": "All",
+  "summary": "Summary",
+  "requirements": "Requirements",
+  "originalContent": "Original",
+  "sourceMonitor": "Source monitoring",
+  "deadlineAt": "Due {when}",
+  "@deadlineAt": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "openSource": "Open source",
+  "edit": "Edit",
+  "notImportant": "Not important",
+  "copyLink": "Copy link",
+  "star": "Star",
+  "unstar": "Unstar",
+  "weekdayMon": "Mon",
+  "weekdayTue": "Tue",
+  "weekdayWed": "Wed",
+  "weekdayThu": "Thu",
+  "weekdayFri": "Fri",
+  "weekdaySat": "Sat",
+  "weekdaySun": "Sun",
+  "generateQr": "Generate QR code",
+  "orEnterCode": "Or enter pairing code",
+  "codeHint": "6-digit code",
+  "join": "Join",
+  "scanQr": "Scan QR code",
+  "codeValid30m": "Code valid for 30 minutes",
+  "paired": "Paired",
+  "waitingPair": "Waiting…",
+  "sendFile": "Send file",
+  "files": "Files",
+  "noFilesYet": "No files yet",
+  "send": "Send",
+  "to": "To",
+  "ccOptional": "Cc (optional)",
+  "subject": "Subject",
+  "bodyHint": "Message",
+  "addAttachment": "Attach",
+  "recentSent": "Recently sent",
+  "noSubject": "(no subject)",
+  "pleaseFillRecipient": "Enter a recipient",
+  "sent": "Sent",
+  "duplicateSend": "Already sent; not sent again",
+  "sendFailed": "Send failed: {error}",
+  "@sendFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "lastCheckFailed": "Last check failed",
+  "lastSuccessCheck": "Last successful check",
+  "reason": "Reason",
+  "failedAt": "Failed",
+  "nextCheck": "Next check",
+  "goHandle": "Fix",
+  "fieldBody": "Body",
+  "operationFailed": "Failed: {error}",
+  "@operationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginCapture": "Extension capture",
+  "alreadyStarted": "Started",
+  "conflictBanner": "Source content you edited also changed. Choose which version to keep.",
+  "mineValue": "Mine: {value}",
+  "@mineValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "sourceValue": "Source: {value}",
+  "@sourceValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "keepMine": "Keep mine",
+  "useSource": "Use source",
+  "monitorUnsupported": "Auto-check not supported; open the source to verify manually",
+  "monitorDisabled": "Auto-check is off",
+  "monitorPending": "On; waiting for first check",
+  "monitorUnchanged": "Last check: no change",
+  "monitorChanged": "Last check: changes found",
+  "monitorFailed": "Last check failed",
+  "errAuthExpired": "Login expired: sign in again in the browser",
+  "errForbidden": "No permission to open this page",
+  "errNetwork": "Network error",
+  "errNotFound": "Item not found on the page",
+  "errParseFailed": "Page structure changed; cannot parse yet",
+  "errUnsupported": "This page no longer supports auto-check",
+  "lastSuccessNever": "none yet",
+  "lastSuccessCheckLine": "Last successful check: {when}",
+  "@lastSuccessCheckLine": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "reasonLine": "Reason: {reason}",
+  "@reasonLine": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "failedAtLine": "Failed: {when}",
+  "@failedAtLine": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "nextCheckLine": "Next check: {when} (needs Chrome and local backend)",
+  "@nextCheckLine": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "restoreSourceValue": "Restore source",
+  "willRestoreSource": "Will restore source",
+  "notSet": "Not set",
+  "choose": "Choose",
+  "clear": "Clear",
+  "editItem": "Edit item",
+  "editItemHint": "Edits only affect what you see. Source updates won’t overwrite them; you’ll be asked if the source also changes.",
+  "editsSaved": "Changes saved",
+  "oldValue": "Old: {value}",
+  "@oldValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "newValue": "New: {value}",
+  "@newValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "filterTodoTasks": "To-dos",
+  "filterEvents": "Events",
+  "filterNotices": "Notices",
+  "todayShort": "Today",
+  "monthDay": "{month}/{day}",
+  "@monthDay": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      }
+    }
+  },
+  "scorePoints": "{score} pts",
+  "@scorePoints": {
+    "placeholders": {
+      "score": {
+        "type": "num"
+      }
+    }
+  },
+  "webMaterial": "Web clip",
+  "sourceDeleted": "Removed at source",
+  "originalTitle": "Original title: {title}",
+  "@originalTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "sourceAndReliability": "Source & reliability",
+  "unknownSource": "Unknown source",
+  "lastSaved": "Last saved",
+  "crossChannelMerge": "Merged across channels",
+  "sameItemMerged": "Same item appeared in {channels}; merged into one",
+  "@sameItemMerged": {
+    "placeholders": {
+      "channels": {
+        "type": "String"
+      }
+    }
+  },
+  "whyPushed": "Why you got this",
+  "changedToType": "Changed to {type}",
+  "@changedToType": {
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "goWorkbench": "Open desk",
+  "changeTypeFailed": "Couldn’t change type; try again",
+  "notImportantToast": "Lowered this source’s weight; suggestions will adapt",
+  "copiedTitleLink": "Title and link copied",
+  "changeTypeCurrent": "Change type (now {type})",
+  "@changeTypeCurrent": {
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "completed": "Completed",
+  "manuallyCorrected": "(manually corrected)",
+  "editHistory": "Edit history",
+  "versionsCount": "{count} versions",
+  "@versionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "firstSeen": "First seen",
+  "contentUpdated": "Content updated",
+  "noDeadlines": "No deadlines",
+  "unreadStatus": "Unread",
+  "attachmentsCount": "{count} attachments",
+  "@attachmentsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deskEmptyToday": "Nothing urgent today",
+  "deskEmptyFilter": "No {filter}",
+  "@deskEmptyFilter": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "statusChanged": "Changed",
+  "statusUrgent": "Urgent",
+  "sourceNeedLoginNamed": "“{name}” needs sign-in again",
+  "@sourceNeedLoginNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sourceCheckFailedNamed": "“{name}” check failed",
+  "@sourceCheckFailedNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "andMoreItems": "+{count} more",
+  "@andMoreItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "summaryLlmHint": "Generated by model · guidance only; original text wins",
+  "summaryRuleHint": "Rule extract · guidance only; original text wins",
+  "attachments": "Attachments",
+  "sourceRawFields": "Source fields",
+  "sfCourse": "Course",
+  "sfSemester": "Term",
+  "sfWeek": "Week",
+  "sfWeekday": "Weekday",
+  "sfPeriod": "Period",
+  "sfDatetime": "Original time",
+  "sfOffice": "Office",
+  "sfDepartment": "Department",
+  "sfRole": "Role",
+  "sfPhone": "Phone",
+  "sfEmail": "Email",
+  "sfSubtype": "Category",
+  "conditionSourceCheck": "Conditional source check",
+  "viewSourceCheckSettings": "View source & check settings",
+  "browserSourceCheck": "Browser source check",
+  "snapshotOnlyNoBg": "Snapshot only · background check not supported",
+  "myNotes": "My notes (source updates won’t overwrite)",
+  "groupOverdue": "Overdue",
+  "groupNextWeek": "Next week",
+  "groupLater": "Later",
+  "groupNoDeadline": "No deadline",
+  "assignments": "Assignments",
+  "noAssignmentsYet": "No assignments yet",
+  "doneCount": "{count} completed",
+  "noNotices": "No notices",
+  "@doneCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "statusPending": "Open",
+  "courseNeedNetwork": "Course info needs a network connection",
+  "courseNotFound": "Course not found",
+  "backToCourses": "Back to courses",
+  "markReadShort": "Mark read",
+  "markUnreadShort": "Mark unread",
+  "addTodo": "Add to-do",
+  "removeTodo": "Remove to-do",
+  "calMonth": "Month",
+  "calTwoWeeks": "2 weeks",
+  "calWeek": "Week",
+  "brandFallback": "CR",
+  "bcNotExecuted": "Awaiting first check",
+  "bcUnchanged": "Check OK · no change",
+  "bcChanged": "Source changed",
+  "bcNeedLogin": "Sign in again on the school site",
+  "bcAccountMismatch": "School account switched · old binding stopped",
+  "bcSelectionMissing": "Original selection lost · recapture needed",
+  "bcViewMismatch": "Term/week view invalid · recapture needed",
+  "bcRouteMismatch": "Source route changed · recapture needed",
+  "bcRenderTimeout": "Page load timed out",
+  "bcPermissionDenied": "Browser source permission denied",
+  "bcUnsupported": "Monitoring not supported",
+  "bcFailed": "Check failed",
+  "rrRejected": "Check result rejected · data kept, monitoring paused",
+  "rrPurged": "Linked docs deleted · extract again from the page",
+  "rrStarting": "Auto-monitor starting · waiting for first refresh",
+  "rrProtocolUnavailable": "The local backend is temporarily unable to read this page",
+  "rrProtocolAccountRequired": "Verify the website account used by the local session",
+  "rrProtocolUnsupported": "This page needs to be read in the browser",
+  "rrWaitingPage": "Waiting for the monitored page to reopen",
+  "rrUserBusy": "Monitor page is being edited · refresh deferred",
+  "rrTabMissing": "Monitor tab closed · open the page and rebind",
+  "rrTabRebind": "Browser session restarted · rebind the monitor tab",
+  "rrTabAmbiguous": "Multiple same pages open · keep one monitor tab",
+  "rrSingleAccount": "Another account bound on this site · paused",
+  "rrRestored": "Source restored · check paused until retested",
+  "rrDocsRestored": "Docs restored · source check still paused",
+  "rrDocsTrashed": "Linked docs moved to trash · check paused",
+  "rrPrivateRequired": "Login detected · recapture as a signed-in source",
+  "rrVerified": "Reread verified · awaiting check",
+  "rrAccountUnknown": "Cannot verify source account · keep manual capture",
+  "rrAccountMismatch": "Source account mismatch · paused",
+  "rrNoMatch": "No match this time · kept previous data",
+  "rrPreviewOnly": "Incomplete content · data not overwritten",
+  "rrUnsupported": "Background reread not supported",
+  "rrWorkerInterrupted": "Browser task interrupted · retry",
+  "deadlineCalendar": "Deadline calendar",
+  "rsExpired": "Check timed out · waiting for browser retry",
+  "rsQueued": "Queued · waiting to run",
+  "rsChecking": "Checking in browser",
+  "rsWaitChrome": "Waiting for local Chrome",
+  "rsLoginReuse": "Reuse current Chrome session (confirmed)",
+  "rsLoginNone": "No login required (declared)",
+  "rsLoginRequired": "Login required",
+  "rsIdResidentGeneric": "Dedicated monitor tab · single-account session",
+  "rsIdResidentSchool": "School account · dedicated monitor tab",
+  "rsIdPublic": "No login (user declared)",
+  "rsAccountUnchecked": "account unchecked",
+  "rsIdSchoolChrome": "School account · local Chrome",
+  "rsTitleTimeline": "Moodle activity summary",
+  "rsTitleTeacher": "Faculty profile",
+  "rsTitleWeb": "Web clip",
+  "rsScopeTitle": "Title and link titles",
+  "rsScopeTimeline": "Loaded activities · full summary set",
+  "rsScopeBody": "Body and lists · full match set",
+  "rsScopeOriginal": "Original conditions and agreed view",
+  "rsWaitLocalChrome": "Waiting for local Chrome",
+  "rsStartingCheck": "Starting / checking",
+  "rsPeriodicPaused": "Periodic monitoring paused",
+  "rsPartialPaused": "Some rules paused",
+  "rsPeriodicOn": "Periodic monitoring on",
+  "rsManualOnly": "Manual check only",
+  "rsAwaitFirstRefresh": "Waiting for first refresh",
+  "rsDedicatedMonitor": "Dedicated monitor page",
+  "labelCreated": "Created “{name}”",
+  "labelDeleted": "Deleted “{name}”",
+  "deleteLabelTitle": "Delete “{name}”?",
+  "deleteLabelBody": "This label will be removed from items. Stars are unchanged.",
+  "actionDelete": "Delete",
+  "searchInboxHint": "Search title, course, or source",
+  "inboxEmptyFilter": "No items for this filter",
+  "@labelCreated": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@labelDeleted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@deleteLabelTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "tagItem": "Label this item",
+  "loadingLabels": "Loading labels",
+  "labelsLoadFailed": "Couldn’t load labels",
+  "retry": "Retry",
+  "noLabelsYet": "No labels yet. Create one first.",
+  "newLabelAction": "New label",
+  "labelNameHint": "e.g. Starred, Homework, Club",
+  "color": "Color",
+  "create": "Create",
+  "movedToTrash": "Moved to trash. Content and history kept.",
+  "restoredItem": "Restored. Source checks stay paused.",
+  "undo": "Undo",
+  "accountChanged": "Desk account changed",
+  "restoreIncomplete": "Restore incomplete: {error}",
+  "@restoreIncomplete": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "actionUnconfirmed": "Action not confirmed: {error}",
+  "@actionUnconfirmed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "restoreToInbox": "Restore to inbox",
+  "moveToTrash": "Move to trash",
+  "cannotOpenItem": "Can’t open this item",
+  "itemNotFound": "Item missing or not yours. Use the same 拾课 Gleaner account in desk and extension.",
+  "loginExpired": "Session expired. Sign in again on the desk.",
+  "detailLoadFailed": "Couldn’t load details. Check the backend and retry.",
+  "currentDeskAccount": "Current desk account: {email}",
+  "@currentDeskAccount": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "notSignedIn": "Not signed in",
+  "backToSources": "Back to sources",
+  "notProvided": "Not provided",
+  "sourceDeadline": "Source deadline",
+  "submitRequirements": "Submission requirements",
+  "sourceFields": "Source fields",
+  "beforeChange": "Before:\n{value}",
+  "@beforeChange": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "afterChange": "After:\n{value}",
+  "@afterChange": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "timelineMaterial": "Activity summary · {count} activities",
+  "@timelineMaterial": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "webSnapshot": "Web snapshot · {count} fragments",
+  "@webSnapshot": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activityN": "Activity {n}: {title}",
+  "@activityN": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "fragmentN": "Fragment {n}: {title}",
+  "@fragmentN": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "openActivity": "Open activity",
+  "courseField": "Course: {value}",
+  "@courseField": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcCond": "Query: {value}",
+  "@wcCond": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcIdentitySchool": "Source identity: school account · local Chrome",
+  "wcScopeTimeline": "Scope: currently loaded Timeline activities",
+  "wcMatchTitle": "Match: titles and link titles",
+  "wcMatchBody": "Match: body and lists",
+  "wcAlias": "Source alias: {value}",
+  "@wcAlias": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcLoginNone": "Site login: not required (user declared)",
+  "wcLoginRequired": "Site login: required",
+  "wcAccount": "Source account: {value}",
+  "@wcAccount": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcAccountUnchecked": "unchecked",
+  "wcPrivateOnly": "Visibility: only me",
+  "wcTimelineHint": "Activity reminder summary only; detail bodies were not read. Dates/times stay as original text; missing values are not guessed.",
+  "wcLinkedHint": "Matched fragments in the agreed view only—not a full article or email. Linked to a source; check method and status under Sources.",
+  "wcUnlinkedHint": "Currently loaded content only—not a full article or email. Alias is user-declared; source checks are off.",
+  "wcUpdateOnChange": "When a check succeeds and content changes, the same item’s source version updates; personal notes and status stay.",
+  "wcUpdateOnRecapture": "Re-extract and save with the same source tag, URL, query, and scope to update this item’s version.",
+  "wcDateText": "Date text: {value}",
+  "@wcDateText": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcTimeText": "Time text: {value}",
+  "@wcTimeText": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "wcDomEvidence": "DOM evidence: {value}",
+  "@wcDomEvidence": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "aliasMissing": "not provided",
+  "changeNoteSep": "; ",
+  "changeNameSep": ", ",
+  "changeDays": "{count} d",
+  "@changeDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "changeHours": "{count} h",
+  "@changeHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "changeDeadlineAdvanced": "Deadline moved earlier by {span} ({from} → {to})",
+  "@changeDeadlineAdvanced": {
+    "placeholders": {
+      "span": { "type": "String" },
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "changeDeadlinePostponed": "Deadline postponed by {span} ({from} → {to})",
+  "@changeDeadlinePostponed": {
+    "placeholders": {
+      "span": { "type": "String" },
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "changeDeadlineAdded": "Deadline added {when}",
+  "@changeDeadlineAdded": {
+    "placeholders": {
+      "when": { "type": "String" }
+    }
+  },
+  "changeDeadlineRemoved": "Deadline removed",
+  "changeAttachmentReplaced": "Attachments replaced: {names}",
+  "@changeAttachmentReplaced": {
+    "placeholders": {
+      "names": { "type": "String" }
+    }
+  },
+  "changeAttachmentAdded": "Attachments added: {names}",
+  "@changeAttachmentAdded": {
+    "placeholders": {
+      "names": { "type": "String" }
+    }
+  },
+  "changeAttachmentRemoved": "Attachments removed: {names}",
+  "@changeAttachmentRemoved": {
+    "placeholders": {
+      "names": { "type": "String" }
+    }
+  },
+  "changeAttachmentUpdated": "Attachment content updated",
+  "changeRequirements": "Submission requirements changed",
+  "changeEventTime": "Event time changed",
+  "changeLocation": "Location changed",
+  "changeType": "Type changed",
+  "changeTitle": "Title changed",
+  "changeWording": "Wording updated",
+  "sourceSessionExpired": "Session expired. Sign in again under Sources.",
+  "eventReminder": "Deadline reminder",
+  "eventImportantChange": "Important change",
+  "eventNewItem": "New item",
+  "digestTitle": "Daily digest",
+  "digestBody": "Past 24 hours: {newCount} new items, {upcoming} due soon",
+  "@digestBody": {
+    "placeholders": {
+      "newCount": { "type": "int" },
+      "upcoming": { "type": "int" }
+    }
+  },
+  "reasonBlocked": "Matched a blocked word",
+  "reasonKeyword": "Keywords: {words}",
+  "@reasonKeyword": {
+    "placeholders": {
+      "words": { "type": "String" }
+    }
+  },
+  "reasonDue24h": "Due within 24 hours",
+  "reasonDue7d": "Due within 7 days",
+  "reasonYourCourse": "Your course",
+  "reasonCourseItem": "Course item",
+  "reasonGradeMajorMatch": "Matches your year/major",
+  "reasonOtherAudience": "For another year or major",
+  "reasonImportantChange": "Important change",
+  "errMoodleNeedLogin": "Not signed into this Moodle source yet",
+  "courseOpenCount": "Open",
+  "noCoursesYet": "No courses yet",
+  "noCoursesHint": "Add a Moodle source to get a home page per course. Add the Faculty directory template for office and email.",
+  "noCourseTodos": "Nothing open",
+  "addFacultySourceHint": "Add a Faculty directory source to show teacher contacts",
+  "captureFromWeb": "Capture from web",
+  "refreshSourceListTooltip": "Refresh list status (does not open source pages)",
+  "cannotReadSources": "Could not read sources",
+  "retry": "Retry",
+  "savedPages": "Saved pages",
+  "periodicRules": "Periodic rules",
+  "needsAttention": "Needs attention",
+  "changesFound": "Changes found",
+  "mySources": "My sources",
+  "noReadingSources": "No sources with saved conditions yet. Extract, preview, and save from the original page with the extension.",
+  "monitorTabHint": "Keep the dedicated monitoring tab open; you can close the desk page. Keep Chrome, the extension, and the local service running—checks may be delayed.",
+  "deletedSourcesTitle": "Deleted sources ({count})",
+  "@deletedSourcesTitle": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "deletedSourcesSubtitle": "Restored sources stay paused; permanent delete clears linked docs and history.",
+  "deletedSourcesUnavailable": "Deleted sources unavailable: {error}",
+  "@deletedSourcesUnavailable": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "legacyDemoTitle": "Legacy data & demo subscriptions",
+  "legacyDemoSubtitle": "Existing data is kept; if conditions are missing, open the original page and capture again.",
+  "chromeConnectedHint": "Local Chrome connected recently · original-site sign-in is checked per source",
+  "chromeDisconnectedHint": "No recent executor connection · last successful results kept",
+  "checkQueued": "Check queued; status updates after confirmation.",
+  "periodicResumed": "Periodic checks resumed.",
+  "periodicPaused": "Periodic checks paused; manual checks still work.",
+  "pageCheckQueued": "Full-page check queued; rules on the same page share the refresh.",
+  "pagePlanUpdated": "Full-page monitoring plan updated.",
+  "sourceDeletedKeep": "Source deleted; docs and history kept.",
+  "sourceDeletedTrash": "Source deleted; linked docs moved to trash.",
+  "deleteSourceTitle": "Delete this source?",
+  "deleteSourceBody": "Stops manual and periodic checks. Saved docs, notes, and history stay by default. Restore from Deleted sources; old jobs won’t auto-resume.",
+  "deleteSourceAlsoTrash": "Also move linked docs to personal trash",
+  "deleteSourceAlsoTrashHint": "Also hides them in other sources that reference them; restore from Inbox trash.",
+  "deleteSourceAction": "Delete source",
+  "restoreSourceAction": "Restore source",
+  "purgeForever": "Delete permanently",
+  "checkStoppedKept": "Checks stopped · docs and history kept as chosen",
+  "sourceRestoredPaused": "Source restored and paused; retest re-read.",
+  "manageLegacySources": "Manage legacy templates / demo sources",
+  "legacyCaptureSubtitle": "Legacy capture · not auto-migrated to condition monitoring",
+  "legacyCapturesFailed": "Could not read legacy data: {error}",
+  "@legacyCapturesFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "statusRefreshFailed": "Status refresh failed: {error}",
+  "@statusRefreshFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "profileTitle": "Profile",
+  "coursesCommaHint": "My courses (comma-separated)",
+  "coursesHintSample": "Network Programming, Operating Systems",
+  "gradeHintSample": "Class of 2024",
+  "majorHintSample": "Computer Science",
+  "profileMatchHint": "Year, major, and courses help decide if a notice is relevant to you.",
+  "quietStartHelp": "Do-not-disturb start",
+  "quietEndHelp": "Do-not-disturb end",
+  "digestTimeHelp": "Daily digest time",
+  "currentPassword": "Current password",
+  "newPasswordMin8": "New password (at least 8 characters)",
+  "passwordChangedToast": "Password changed. Other devices need to sign in again.",
+  "confirmChangePassword": "Update password",
+  "deleteAccountTitle": "Delete account?",
+  "deleteAccountBody": "This permanently deletes your account, subscriptions, sessions, personal state, and sent mail. Enter your password to confirm.",
+  "deleteForever": "Delete permanently",
+  "rulesSavedToast": "Rules saved. They apply to new items going forward.",
+  "priorityFormula": "Priority = 100 × (0.30 source weight + 0.25 keywords + 0.25 deadline proximity + 0.20 match)",
+  "priorityBands": "≥ 80 urgent (push) · 40–79 normal · < 40 feed & digest only",
+  "ruleKeyword": "Keywords",
+  "ruleSenderWhitelist": "Sender allowlist",
+  "ruleKeywordHint": "e.g. scholarship, internship",
+  "ruleBlock": "Block",
+  "actionAdd": "Add",
+  "noCustomRules": "No custom rules yet",
+  "defaultKeywordsHint": "Default keywords: deadline, exam, reschedule, cancel.",
+  "teachersHeader": "Faculty",
+  "generateQr": "Generate QR code",
+  "orEnterPairCode": "Or enter a pairing code",
+  "pairCodeHint": "6-character code",
+  "joinPair": "Join",
+  "scanQr": "Scan QR code",
+  "pairCodeTtl": "Pairing code is valid for 30 minutes",
+  "waitingPair": "Waiting to pair…",
+  "sendFile": "Send file",
+  "filesHeader": "Files",
+  "noFilesYet": "No files yet",
+  "transferCorrupt": "“{name}” failed checksum. Please resend.",
+  "@transferCorrupt": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "transferPaused": "Network interrupted. “{name}” paused.",
+  "@transferPaused": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deviceBrowser": "Browser",
+  "purgeTitle": "Permanently delete “{title}”?",
+  "@purgeTitle": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "purgeBody": "Permanently deletes this source, {items} linked docs, {versions} history versions, and {checks} check logs—including linked inbox/trash docs, notes, and state.",
+  "@purgeBody": {
+    "placeholders": {
+      "items": { "type": "int" },
+      "versions": { "type": "int" },
+      "checks": { "type": "int" }
+    }
+  },
+  "purgeRemovedRules": "Also removes {count} rules that only reference these docs.",
+  "@purgeRemovedRules": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "purgePausedRules": "Also pauses {count} rules that include these docs and requires recapture; other docs stay.",
+  "@purgePausedRules": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "purgePreviewInvalidate": "Unfinished capture previews for this account will expire and need recapture. Other saved docs stay. Offline extension caches clear on reconnect.",
+  "purgeIrreversible": "This cannot be undone. You can capture the same page and query again later as new docs.",
+  "purgeConfirmCheck": "I confirm permanent deletion of these docs and history",
+  "sourcePurgedOk": "Source, linked docs, and history permanently deleted. Capture again to save.",
+  "sourcePurgedPartial": "Server deleted permanently; local cache cleanup pending retry: {error}",
+  "@sourcePurgedPartial": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "accountChangedConfirm": "Desk account changed. Please confirm again."
+}

@@ -11,6 +11,7 @@ from .extract import TZ
 
 # 参与比较的字段；仅措辞调整（summary/body）只记入历史
 TRACKED = (
+    "source_fields",
     "title",
     "deadline_at",
     "attachments",

@@ -20,6 +20,7 @@ from .core.agent_hub import AgentHub
 from .core.api import API
 from .core.maintenance import run_maintenance
 from .core.pipeline import Pipeline
+from .core.reading_schedule import ReadingSchedule
 from .core.reminders import publish_digests, send_due_reminders
 from .core.validate import BadRequest, as_int
 from .gateway.app import Gateway
@@ -83,7 +84,13 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
         await hub.publish(topic, payload)
 
     pipe = Pipeline(db, route)
-    api = API(db, pipe, route, data_dir=cfg.data_dir)
+    api = API(
+        db,
+        pipe,
+        route,
+        data_dir=cfg.data_dir,
+        reading_schedule=ReadingSchedule(cfg.fixture_reading_interval),
+    )
     router = Router()
     api.register(router)
 
@@ -129,6 +136,21 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
     bus_port = await hub.start(host, cfg.bus_port)
     srv = HTTPServer(router, ServerConfig(host=host, port=cfg.core_port))
     await srv.start()
+    page_host = None
+    control_port = int(os.environ.get("GLEANER_LOCAL_PAGE_PORT", "0"))
+    if control_port:
+        from pathlib import Path
+
+        from .monitoring.host import LocalPageHost
+
+        page_host = LocalPageHost(
+            api.reading,
+            Path(cfg.data_dir),
+            control_port,
+            os.environ["GLEANER_LOCAL_EXTENSION_ID"],
+        )
+        router.add("POST", "/api/v1/page-control-ticket", api.authed(page_host.ticket))
+        await page_host.start()
     tasks = [
         asyncio.get_running_loop().create_task(
             _loop_every(60, lambda: send_due_reminders(db, pipe))
@@ -145,6 +167,8 @@ async def start_core(cfg: Config, db: Database | None = None, *, host: str = "0.
             t.cancel()
 
     run.closers += [db.close, hub.close, srv.close, stop_tasks]
+    if page_host:
+        run.closers.append(page_host.close)
     run.info.update(port=srv.port, bus_port=bus_port, hub=hub, db=db, pipeline=pipe, api=api)
     return run
 

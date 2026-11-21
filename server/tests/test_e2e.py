@@ -296,6 +296,11 @@ async def test_notices_rss_teachers_and_preview(stack):
             json_body={"email": "jie@test.edu", "password": "password1", "agree_privacy": True},
         )
         auth2 = {"Authorization": f"Bearer {r.json()['token']}"}
+        # New users see no unselected demo sources; explicit subscription still backfills.
+        assert (await c.get(gw + "/api/feed", headers=auth2)).json()["items"] == []
+        assert (
+            await c.post(gw + "/api/sources", json_body={"template": "college_news"}, headers=auth2)
+        ).status == 201
         f2 = (await c.get(gw + "/api/feed", headers=auth2)).json()
         assert len(f2["items"]) >= 4
 
@@ -739,3 +744,56 @@ async def test_large_backlog_gets_resync_hint_instead_of_replay(stack, monkeypat
     welcome = await recv_until(ws, lambda m: m["type"] == "welcome")
     assert welcome["replayed"] == 0
     await ws.close()
+
+
+async def test_intent_captures_keep_dates_and_account_identities_separate(stack):
+    import uuid
+
+    gw = f"http://127.0.0.1:{stack['gw'].info['port']}"
+    async with HTTPClient() as client:
+        r = await client.post(
+            gw + "/api/auth/register",
+            json_body={
+                "email": "intent@test.edu",
+                "password": "password1",
+                "agree_privacy": True,
+                "name": "test",
+            },
+        )
+        auth = {"Authorization": f"Bearer {r.json()['token']}"}
+
+        async def save(purpose, **changes):
+            payload = {
+                "request_id": str(uuid.uuid4()),
+                "url": "https://example.test/exhibit",
+                "title": "展览",
+                "text": "12月31日截止展示",
+                "purpose": purpose,
+                **changes,
+            }
+            r = await client.post(gw + "/api/v1/intent-captures", json_body=payload, headers=auth)
+            assert r.status == 200, r.text()
+            return r.json()["item_id"]
+
+        todo = await save("todo", date=1810000000)
+        event = await save("event", date=1810086400)
+        notice = await save("notice", date=1800000000, publisher="Museum")
+        reference = await save("reference", text="")
+        assert len({todo, event, notice, reference}) == 4
+        db = stack["core"].info["db"]
+        assert await db.fetchval("SELECT deadline_at FROM items WHERE id=?", todo) == 1810000000
+        assert await db.fetchval("SELECT deadline_at FROM items WHERE id=?", notice) is None
+        assert await db.fetchval("SELECT published_at FROM items WHERE id=?", notice) == 1800000000
+        assert await db.fetchval("SELECT item_type FROM items WHERE id=?", event) == "event"
+        url = "https://school.test/mod/assign/view.php?id=7"
+        activity = {"id": "7", "account": "a" * 64, "detail": False}
+        link = await save("todo", url=url, activity=activity, text="")
+        assert (
+            await save(
+                "todo", url=url, activity={**activity, "detail": True}, text="Complete lab 7"
+            )
+            == link
+        )
+        assert await save("todo", url=url, activity=activity, text="") == link
+        assert await db.fetchval("SELECT body FROM items WHERE id=?", link) == "Complete lab 7"
+        assert await save("todo", url=url, activity={**activity, "account": "b" * 64}) != link

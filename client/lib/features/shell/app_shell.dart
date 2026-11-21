@@ -4,34 +4,45 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/format.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../auth/login_page.dart';
 
 class Dest {
   final String path;
-  final String label;
   final IconData icon;
   final IconData selected;
-  const Dest(this.path, this.label, this.icon, this.selected);
+  const Dest(this.path, this.icon, this.selected);
+
+  String labelOf(AppLocalizations l10n) => switch (path) {
+        '/' => l10n.navDesk,
+        '/inbox' => l10n.navInbox,
+        '/courses' => l10n.navCourses,
+        '/sources' => l10n.navSources,
+        '/settings' => l10n.navSettings,
+        _ => path,
+      };
 }
 
 /// 侧栏第一段：主功能
 const destinations = [
-  Dest('/', '工作台', Icons.space_dashboard_outlined, Icons.space_dashboard),
-  Dest('/inbox', '收件箱', Icons.inbox_outlined, Icons.inbox),
-  Dest('/assignments', '作业', Icons.assignment_outlined, Icons.assignment),
-  Dest('/courses', '课程', Icons.class_outlined, Icons.class_),
-  Dest('/sources', '信息源', Icons.hub_outlined, Icons.hub),
+  Dest('/', Icons.space_dashboard_outlined, Icons.space_dashboard),
+  Dest('/inbox', Icons.inbox_outlined, Icons.inbox),
+  Dest('/courses', Icons.class_outlined, Icons.class_),
+  Dest('/sources', Icons.hub_outlined, Icons.hub),
 ];
 
 /// 侧栏第三段：设置单独一行
-const settingsDest = Dest('/settings', '设置', Icons.settings_outlined, Icons.settings);
+const settingsDest = Dest('/settings', Icons.settings_outlined, Icons.settings);
 
 const _railCollapsed = 72.0;
 const _railExpanded = 220.0;
+const _railLabelsAt = 168.0;
 
 /// 自适应外壳：手机底栏；桌面侧栏默认收起（仅图标），悬停展开（Gmail 逻辑）。
 class AppShell extends ConsumerStatefulWidget {
@@ -50,14 +61,6 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool get _expanded => pinned || hovering;
 
   @override
-  void initState() {
-    super.initState();
-    ref.read(mqttProvider);
-    ref.read(systemNotifierProvider);
-    _sub = ref.read(feedProvider.notifier).events.listen(_onEvent);
-  }
-
-  @override
   void dispose() {
     _sub?.cancel();
     super.dispose();
@@ -66,7 +69,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   void _onEvent(AppEvent e) {
     if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
     final urgent = e.priority == 'urgent';
+    final (title, body) = _localizedEvent(e, l10n);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -77,17 +82,52 @@ class _AppShellState extends ConsumerState<AppShell> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(e.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
-              if (e.body.isNotEmpty) Text(e.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+              if (body.isNotEmpty) Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
             ]),
           ),
         ]),
         action: e.itemId != null
-            ? SnackBarAction(label: '查看', onPressed: () => context.push('/item/${e.itemId}'))
+            ? SnackBarAction(label: l10n.actionView, onPressed: () => context.push('/item/${e.itemId}'))
             : e.type == 'source_status'
-                ? SnackBarAction(label: '去处理', onPressed: () => context.go('/sources'))
+                ? SnackBarAction(label: l10n.goHandle, onPressed: () => context.go('/sources'))
                 : null,
       ));
+  }
+
+  (String, String) _localizedEvent(AppEvent e, AppLocalizations l10n) {
+    switch (e.type) {
+      case 'source_status':
+        final name = '${e.data['name'] ?? ''}';
+        if (e.data['status'] == 'need_login') {
+          return (l10n.sourceNeedLoginNamed(name), l10n.sourceSessionExpired);
+        }
+        return (l10n.sourceCheckFailedNamed(name), '${e.data['error'] ?? e.body}');
+      case 'digest':
+        final upcoming = e.data['upcoming'];
+        final upcomingCount = upcoming is List ? upcoming.length : 0;
+        final newCount = e.data['new_count'];
+        return (
+          l10n.digestTitle,
+          l10n.digestBody(newCount is int ? newCount : 0, upcomingCount),
+        );
+      case 'reminder':
+      case 'change':
+      case 'item':
+        if (e.priority == 'urgent') {
+          final kind = switch (e.type) {
+            'reminder' => l10n.eventReminder,
+            'change' => l10n.eventImportantChange,
+            _ => l10n.eventNewItem,
+          };
+          final sep = e.title.indexOf(' · ');
+          final itemTitle = sep >= 0 ? e.title.substring(sep + 3) : e.title;
+          return ('$kind · $itemTitle', localizeChangeNote(e.body, context));
+        }
+        return (e.title, localizeChangeNote(e.body, context));
+      default:
+        return (e.title, e.body);
+    }
   }
 
   int _index() {
@@ -100,20 +140,53 @@ class _AppShellState extends ConsumerState<AppShell> {
     return 0;
   }
 
+  Future<void> _account({String? action}) async {
+    if (!ref.read(sessionProvider).loggedIn) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => LoginDialog(onClose: () => Navigator.pop(dialogContext)),
+      );
+      if (!mounted || !ref.read(sessionProvider).loggedIn || action == null) return;
+    }
+    if (action == null) {
+      context.go(settingsDest.path);
+    } else {
+      context.push(action);
+    }
+  }
+
   bool get _onSettings => widget.location.startsWith(settingsDest.path);
 
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     final idx = _index();
-    final unread = ref.watch(feedProvider.select((s) => s.unread));
+    final signedIn = ref.watch(sessionProvider.select((s) => s.loggedIn));
+    if (signedIn) {
+      ref.watch(mqttProvider);
+      ref.watch(systemNotifierProvider);
+      final events = ref.watch(feedProvider.notifier).events;
+      _sub ??= events.listen(_onEvent);
+    } else {
+      _sub?.cancel();
+      _sub = null;
+    }
+    final unread = signedIn ? ref.watch(feedProvider.select((s) => s.unread)) : 0;
+    final current = _onSettings ? settingsDest : destinations[idx];
+    final body = signedIn ? widget.child : _GuestSection(current);
     final me = ref.watch(sessionProvider.select((s) => s.me));
+    final l10n = AppLocalizations.of(context);
 
     if (w < 600) {
       const primary = [0, 1, 2, 3];
       final sel = primary.contains(idx) ? primary.indexOf(idx) : 4;
       return Scaffold(
-        body: widget.child,
+        appBar: signedIn ? null : AppBar(
+          leading: const Center(child: GleanerLogo(size: 32)),
+          title: Text(current.labelOf(l10n)),
+          actions: [IconButton(tooltip: l10n.loginOrRegister, onPressed: _account, icon: const Icon(Icons.account_circle_outlined))],
+        ),
+        body: body,
         bottomNavigationBar: NavigationBar(
           selectedIndex: sel,
           onDestinationSelected: (i) {
@@ -128,9 +201,9 @@ class _AppShellState extends ConsumerState<AppShell> {
               NavigationDestination(
                 icon: _badge(i, unread, Icon(destinations[i].icon)),
                 selectedIcon: _badge(i, unread, Icon(destinations[i].selected)),
-                label: destinations[i].label,
+                label: destinations[i].labelOf(l10n),
               ),
-            const NavigationDestination(icon: Icon(Icons.more_horiz), label: '更多'),
+            NavigationDestination(icon: const Icon(Icons.more_horiz), label: l10n.navMore),
           ],
         ),
       );
@@ -138,47 +211,42 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      body: Stack(children: [
-        Row(children: [
-          const SizedBox(width: _railCollapsed),
-          Expanded(child: widget.child),
-        ]),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          child: MouseRegion(
-            onEnter: (_) => setState(() => hovering = true),
-            onExit: (_) => setState(() => hovering = false),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOutCubic,
-              width: _expanded ? _railExpanded : _railCollapsed,
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerLow,
-                border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45))),
-                boxShadow: _expanded && !pinned
-                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 18, offset: const Offset(4, 0))]
-                    : null,
-              ),
-              child: _SideRail(
-                expanded: _expanded,
-                pinned: pinned,
-                selected: idx,
-                settingsSelected: _onSettings,
-                unread: unread,
-                meName: me?.name ?? '',
-                meEmail: me?.email ?? '',
-                onPin: () => setState(() => pinned = !pinned),
-                onSelect: (i) => context.go(destinations[i].path),
-                onSettings: () => context.go(settingsDest.path),
-                onCompose: () => context.push('/compose'),
-                onTransfer: () => context.push('/transfer'),
-                onAvatar: () => context.go('/settings'),
-              ),
+      body: Row(children: [
+        MouseRegion(
+          onEnter: (_) => setState(() => hovering = true),
+          onExit: (_) => setState(() => hovering = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            width: _expanded ? _railExpanded : _railCollapsed,
+            clipBehavior: Clip.hardEdge,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45))),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final showLabels = constraints.maxWidth >= _railLabelsAt;
+                return _SideRail(
+                  expanded: showLabels,
+                  pinned: pinned,
+                  selected: idx,
+                  settingsSelected: _onSettings,
+                  unread: unread,
+                  meName: me?.name ?? '',
+                  meEmail: me?.email ?? '',
+                  onPin: () => setState(() => pinned = !pinned),
+                  onSelect: (i) => context.go(destinations[i].path),
+                  onSettings: () => context.go(settingsDest.path),
+                  onCompose: () => _account(action: '/compose'),
+                  onTransfer: () => _account(action: '/transfer'),
+                  onAvatar: _account,
+                );
+              },
             ),
           ),
         ),
+        Expanded(child: body),
       ]),
     );
   }
@@ -187,46 +255,89 @@ class _AppShellState extends ConsumerState<AppShell> {
       i == 1 && unread > 0 ? Badge(label: Text(unread > 99 ? '99+' : '$unread'), child: icon) : icon;
 
   void _more(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     showModalBottomSheet<void>(
       context: context,
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: Icon(destinations[4].icon),
-            title: Text(destinations[4].label),
-            onTap: () {
-              Navigator.pop(c);
-              context.go(destinations[4].path);
-            },
-          ),
+          if (ref.read(sessionProvider).loggedIn)
+            ListTile(
+              leading: const Icon(Icons.account_circle_outlined),
+              title: Text(l10n.navAccount),
+              onTap: () { Navigator.pop(c); _account(); },
+            ),
           ListTile(
             leading: const Icon(Icons.edit_note),
-            title: const Text('写邮件'),
+            title: Text(l10n.navCompose),
             onTap: () {
               Navigator.pop(c);
-              context.push('/compose');
+              _account(action: '/compose');
             },
           ),
           ListTile(
             leading: const Icon(Icons.qr_code_2),
-            title: const Text('扫码传输'),
+            title: Text(l10n.navTransfer),
             onTap: () {
               Navigator.pop(c);
-              context.push('/transfer');
+              _account(action: '/transfer');
             },
           ),
           ListTile(
             leading: Icon(settingsDest.icon),
-            title: Text(settingsDest.label),
+            title: Text(settingsDest.labelOf(l10n)),
             onTap: () {
               Navigator.pop(c);
               context.go(settingsDest.path);
             },
           ),
-          const Padding(padding: EdgeInsets.all(12), child: ConnectionDot(showLabel: true)),
         ]),
       ),
     );
+  }
+}
+
+class _GuestSection extends StatelessWidget {
+  final Dest section;
+  const _GuestSection(this.section);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    final description = switch (section.path) {
+      '/inbox' => l10n.guestInbox,
+      '/courses' => l10n.guestCourses,
+      '/sources' => l10n.guestSources,
+      '/settings' => l10n.guestSettings,
+      _ => l10n.guestDesk,
+    };
+    return SafeArea(child: ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        if (MediaQuery.sizeOf(context).width >= 600)
+          Text(section.labelOf(l10n), style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 24),
+        Card(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(section.icon, color: theme.colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(description, style: theme.textTheme.titleMedium),
+            if (section.path == '/') ...[
+              const Divider(height: 32),
+              for (final dest in destinations.skip(1))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(dest.icon),
+                  title: Text(dest.labelOf(l10n)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.go(dest.path),
+                ),
+            ],
+          ]),
+        )),
+      ],
+    ));
   }
 }
 
@@ -265,31 +376,37 @@ class _SideRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
+    final l10n = AppLocalizations.of(context);
     final padH = expanded ? 10.0 : 8.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: EdgeInsets.fromLTRB(expanded ? 12 : 8, 12, expanded ? 12 : 8, 8),
-        child: Row(children: [
-          SizedBox(
-            width: 48,
-            height: 48,
-            child: IconButton(
-              tooltip: pinned ? '收起侧栏' : '固定侧栏',
-              onPressed: onPin,
-              padding: EdgeInsets.zero,
-              icon: _PinMorphIcon(pinned: pinned, color: IconTheme.of(context).color ?? cs.onSurface),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+        child: Tooltip(
+          message: pinned ? l10n.unpinSidebar : l10n.pinSidebar,
+          child: TextButton(
+            onPressed: onPin,
+            style: TextButton.styleFrom(
+              foregroundColor: cs.onSurface,
+              padding: const EdgeInsets.only(left: 12, right: 8),
+              minimumSize: const Size(0, 48),
             ),
+            child: Row(children: [
+              const GleanerLogo(size: 32),
+              if (expanded) ...[
+                const SizedBox(width: 2),
+                Expanded(
+                  child: ExcludeSemantics(
+                    child: Text('leaner', maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: t.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                _PinMorphIcon(pinned: pinned, color: cs.onSurface),
+              ],
+            ]),
           ),
-          if (expanded) ...[
-            const SizedBox(width: 4),
-            const GleanerLogo(size: 28),
-            const SizedBox(width: 8),
-            Expanded(child: Text('拾课', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis)),
-          ],
-        ]),
+        ),
       ),
       const SizedBox(height: 4),
-      // ① 主功能
       Expanded(
         child: ListView(
           padding: EdgeInsets.symmetric(horizontal: padH),
@@ -299,23 +416,21 @@ class _SideRail extends StatelessWidget {
                 expanded: expanded,
                 selected: selected == i,
                 icon: selected == i ? destinations[i].selected : destinations[i].icon,
-                label: destinations[i].label,
+                label: destinations[i].labelOf(l10n),
                 badge: i == 1 && unread > 0 ? unread : null,
                 onTap: () => onSelect(i),
               ),
           ],
         ),
       ),
-      // ② 工具
       Padding(
         padding: EdgeInsets.symmetric(horizontal: padH),
         child: Column(children: [
           Divider(color: cs.outlineVariant.withValues(alpha: 0.5)),
-          _NavTile(expanded: expanded, selected: false, icon: Icons.edit_note, label: '写邮件', onTap: onCompose),
-          _NavTile(expanded: expanded, selected: false, icon: Icons.qr_code_2, label: '扫码传输', onTap: onTransfer),
+          _NavTile(expanded: expanded, selected: false, icon: Icons.edit_note, label: l10n.navCompose, onTap: onCompose),
+          _NavTile(expanded: expanded, selected: false, icon: Icons.qr_code_2, label: l10n.navTransfer, onTap: onTransfer),
         ]),
       ),
-      // ③ 设置
       Padding(
         padding: EdgeInsets.fromLTRB(padH, 0, padH, 4),
         child: Column(children: [
@@ -324,25 +439,21 @@ class _SideRail extends StatelessWidget {
             expanded: expanded,
             selected: settingsSelected,
             icon: settingsSelected ? settingsDest.selected : settingsDest.icon,
-            label: settingsDest.label,
+            label: settingsDest.labelOf(l10n),
             onTap: onSettings,
           ),
         ]),
       ),
       Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-        child: Column(children: [
-          if (expanded) const ConnectionDot(showLabel: true) else const ConnectionDot(),
-          const SizedBox(height: 10),
-          Tooltip(
-            message: meEmail,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onAvatar,
-              child: Avatar(meName, size: 36),
-            ),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+        child: Tooltip(
+          message: meEmail.isEmpty ? l10n.loginOrRegister : meEmail,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onAvatar,
+            child: meEmail.isEmpty ? const Icon(Icons.account_circle_outlined, size: 36) : Avatar(meName, size: 36),
           ),
-        ]),
+        ),
       ),
     ]);
   }
@@ -420,8 +531,7 @@ class _NavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final fg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
-    final child = AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+    final child = Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
       padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0, vertical: 10),
       decoration: BoxDecoration(

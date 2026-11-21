@@ -3,15 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/locale.dart';
 import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/providers.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/common.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
+
+  String _languageLabel(AppLocalizations l10n, Locale locale) {
+    if (locale.languageCode == 'zh' && locale.countryCode == 'TW') return l10n.languageTraditional;
+    if (locale.languageCode == 'zh') return l10n.languageSimplified;
+    return l10n.languageEnglish;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -19,93 +27,117 @@ class SettingsPage extends ConsumerWidget {
     final me = s.me;
     final feed = ref.watch(feedProvider);
     final mqtt = ref.watch(mqttProvider);
+    final locale = ref.watch(localeProvider);
+    final l10n = AppLocalizations.of(context);
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
       body: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 96), children: [
+          child: ListView(padding: const EdgeInsets.fromLTRB(20, 20, 20, 96), children: [
             Card(
               child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
+                contentPadding: const EdgeInsets.all(18),
                 leading: Avatar(me?.name ?? '', size: 52),
                 title: Text(me?.name ?? '', style: Theme.of(context).textTheme.titleMedium),
-                subtitle: Text([me?.email, me?.grade, me?.major].where((e) => e != null && e.isNotEmpty).join(' · ')),
+                subtitle: Text(me?.email ?? ''),
                 trailing: const Icon(Icons.edit_outlined),
                 onTap: () => _editProfile(context, ref),
               ),
             ),
-            const SectionHeader('通知'),
+            const SizedBox(height: 8),
+            SectionHeader(l10n.language),
+            Card(
+              child: Column(children: [
+                for (final option in supportedAppLocales)
+                  ListTile(
+                    leading: const Icon(Icons.translate_outlined),
+                    title: Text(_languageLabel(l10n, option)),
+                    trailing: encodeAppLocale(locale) == encodeAppLocale(option)
+                        ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                        : null,
+                    onTap: () => ref.read(localeProvider.notifier).setLocale(option),
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            SectionHeader(l10n.sectionNotifications),
             Card(
               child: Column(children: [
                 ListTile(
                   leading: const Icon(Icons.bedtime_outlined),
-                  title: const Text('免打扰时段'),
-                  subtitle: Text('${me?.quietStart ?? '23:00'} – ${me?.quietEnd ?? '07:00'}，只放行紧急通知'),
+                  title: Text(l10n.quietHours),
+                  subtitle: Text('${me?.quietStart ?? '23:00'} – ${me?.quietEnd ?? '07:00'}'),
                   onTap: () => _editTimes(context, ref),
                 ),
                 ListTile(
                   leading: const Icon(Icons.wb_twilight),
-                  title: const Text('每日摘要时间'),
-                  subtitle: Text('每天 ${me?.digestTime ?? '08:00'} 推送一次摘要（MQTT 保留消息）'),
+                  title: Text(l10n.dailyDigest),
+                  subtitle: Text(l10n.dailyDigestAt(me?.digestTime ?? '08:00')),
                   onTap: () => _editTimes(context, ref),
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.forward_to_inbox),
-                  title: const Text('每日摘要邮件'),
-                  subtitle: Text('同时把摘要发到 ${me?.email ?? '注册邮箱'}（默认关闭）'),
+                  title: Text(l10n.digestAlsoEmail),
                   value: me?.digestEmail ?? false,
                   onChanged: (v) => _save(context, ref, {'digest_email': v}),
                 ),
                 ListTile(
                   leading: const Icon(Icons.tune),
-                  title: const Text('个性化规则'),
-                  subtitle: const Text('加分关键词、屏蔽词、白名单发件人'),
+                  title: Text(l10n.personalRules),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/settings/rules'),
                 ),
               ]),
             ),
-            const SectionHeader('连接与同步'),
+            const SizedBox(height: 8),
+            SectionHeader(l10n.sectionConnection),
             Card(
               child: Column(children: [
-                const ListTile(leading: Icon(Icons.bolt_outlined), title: Text('实时推送（WebSocket）'), trailing: ConnectionDot(showLabel: true)),
                 ListTile(
                   leading: const Icon(Icons.notifications_active_outlined),
-                  title: const Text('系统通知（MQTT）'),
-                  subtitle: Text(switch (mqtt) { MqttConn.on => '已连接，紧急通知会推送到本设备', MqttConn.connecting => '连接中…', MqttConn.off => '未连接' }),
+                  title: Text(l10n.pushStatus),
+                  subtitle: Text(switch (mqtt) {
+                    MqttConn.on => l10n.connected,
+                    MqttConn.connecting => l10n.connecting,
+                    MqttConn.off => l10n.disconnected,
+                  }),
                 ),
                 ListTile(
                   leading: const Icon(Icons.sync),
-                  title: const Text('同步游标'),
-                  subtitle: Text('seq ${feed.cursor} · 本地缓存 ${feed.items.length} 条 · 待同步操作 ${feed.pending} 个'),
-                  trailing: TextButton(onPressed: () => ref.read(feedProvider.notifier).syncNow(), child: const Text('立即同步')),
+                  title: Text(l10n.sync),
+                  subtitle: Text(feed.pending > 0 ? l10n.syncPending(feed.pending) : l10n.syncUpToDate),
+                  trailing: TextButton(onPressed: () => ref.read(feedProvider.notifier).syncNow(), child: Text(l10n.actionSyncNow)),
                 ),
-                ListTile(leading: const Icon(Icons.dns_outlined), title: const Text('服务器'), subtitle: Text(s.server)),
+                ListTile(leading: const Icon(Icons.dns_outlined), title: Text(l10n.server), subtitle: Text(s.server)),
               ]),
             ),
-            const SectionHeader('隐私与账号'),
+            const SizedBox(height: 8),
+            SectionHeader(l10n.sectionAccount),
             Card(
               child: Column(children: [
-                const ListTile(
-                  leading: Icon(Icons.shield_outlined),
-                  title: Text('隐私说明'),
-                  subtitle: Text(
-                    'Moodle 等来源只保存登录会话，不保存统一认证密码；学校邮箱的应用专用密码与会话均用 AES-GCM 加密保存；'
-                    '邮件只保存标题、发件人、摘要与链接；可随时删除账号与全部数据。',
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: Text(l10n.privacy),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: Text(l10n.privacy),
+                      content: Text(l10n.privacyBody),
+                      actions: [FilledButton(onPressed: () => Navigator.pop(c), child: Text(l10n.actionGotIt))],
+                    ),
                   ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.password),
-                  title: const Text('修改密码'),
-                  subtitle: const Text('修改后其他设备需要重新登录'),
+                  title: Text(l10n.changePassword),
                   onTap: () => _changePassword(context, ref),
                 ),
                 ListTile(
                   leading: const Icon(Icons.logout),
-                  title: const Text('退出登录'),
+                  title: Text(l10n.signOut),
                   onTap: () async {
                     try {
                       await ref.read(apiProvider).logout();
@@ -116,7 +148,7 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: Icon(Icons.delete_forever_outlined, color: cs.error),
-                  title: Text('删除账号及全部数据', style: TextStyle(color: cs.error)),
+                  title: Text(l10n.deleteAccount, style: TextStyle(color: cs.error)),
                   onTap: () => _delete(context, ref),
                 ),
               ]),
@@ -132,27 +164,33 @@ class SettingsPage extends ConsumerWidget {
     final name = TextEditingController(text: me.name);
     final grade = TextEditingController(text: me.grade);
     final major = TextEditingController(text: me.major);
-    final courses = TextEditingController(text: me.courses.join('、'));
+    final courses = TextEditingController(text: me.courses.join(', '));
     final ok = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('个人资料'),
+      builder: (c) {
+        final loc = AppLocalizations.of(c);
+        return AlertDialog(
+        title: Text(loc.profileTitle),
         content: SizedBox(
           width: 400,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: '昵称')),
+            TextField(controller: name, decoration: InputDecoration(labelText: loc.nickname)),
             const SizedBox(height: 10),
-            TextField(controller: grade, decoration: const InputDecoration(labelText: '年级', hintText: '2024级')),
+            TextField(controller: grade, decoration: InputDecoration(labelText: loc.grade, hintText: loc.gradeHintSample)),
             const SizedBox(height: 10),
-            TextField(controller: major, decoration: const InputDecoration(labelText: '专业', hintText: '计算机')),
+            TextField(controller: major, decoration: InputDecoration(labelText: loc.major, hintText: loc.majorHintSample)),
             const SizedBox(height: 10),
-            TextField(controller: courses, decoration: const InputDecoration(labelText: '我的课程（用、分隔）', hintText: '网络编程、操作系统')),
+            TextField(controller: courses, decoration: InputDecoration(labelText: loc.coursesCommaHint, hintText: loc.coursesHintSample)),
             const SizedBox(height: 8),
-            Text('年级、专业与课程用于判断通知是否与你相关。', style: TextStyle(fontSize: 12, color: Theme.of(c).colorScheme.onSurfaceVariant)),
+            Text(loc.profileMatchHint, style: TextStyle(fontSize: 12, color: Theme.of(c).colorScheme.onSurfaceVariant)),
           ]),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('保存'))],
-      ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(loc.actionCancel)),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(loc.actionSave)),
+        ],
+      );
+      },
     );
     if (ok != true || !context.mounted) return;
     await _save(context, ref, {
@@ -167,11 +205,12 @@ class SettingsPage extends ConsumerWidget {
     final me = ref.read(sessionProvider).me!;
     TimeOfDay parse(String s) => TimeOfDay(hour: int.parse(s.split(':')[0]), minute: int.parse(s.split(':')[1]));
     String fmt(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    final qs = await showTimePicker(context: context, initialTime: parse(me.quietStart), helpText: '免打扰开始');
+    final l10n = AppLocalizations.of(context);
+    final qs = await showTimePicker(context: context, initialTime: parse(me.quietStart), helpText: l10n.quietStartHelp);
     if (qs == null || !context.mounted) return;
-    final qe = await showTimePicker(context: context, initialTime: parse(me.quietEnd), helpText: '免打扰结束');
+    final qe = await showTimePicker(context: context, initialTime: parse(me.quietEnd), helpText: l10n.quietEndHelp);
     if (qe == null || !context.mounted) return;
-    final dg = await showTimePicker(context: context, initialTime: parse(me.digestTime), helpText: '每日摘要时间');
+    final dg = await showTimePicker(context: context, initialTime: parse(me.digestTime), helpText: l10n.digestTimeHelp);
     if (dg == null || !context.mounted) return;
     await _save(context, ref, {'quiet_start': fmt(qs), 'quiet_end': fmt(qe), 'digest_time': fmt(dg)});
   }
@@ -182,7 +221,7 @@ class SettingsPage extends ConsumerWidget {
       final me = await api.updateMe(body);
       final raw = await api.dio.get('/api/me');
       await ref.read(sessionProvider.notifier).updateMe(me, Map<String, dynamic>.from(raw.data as Map));
-      if (context.mounted) toast(context, '已保存');
+      if (context.mounted) toast(context, AppLocalizations.of(context).saved);
     } on ApiException catch (e) {
       if (context.mounted) toast(context, e.message, error: true);
     }
@@ -195,34 +234,37 @@ class SettingsPage extends ConsumerWidget {
     await showDialog<void>(
       context: context,
       builder: (c) => StatefulBuilder(
-        builder: (c, set) => AlertDialog(
-          title: const Text('修改密码'),
+        builder: (c, set) {
+          final loc = AppLocalizations.of(c);
+          return AlertDialog(
+          title: Text(loc.changePassword),
           content: SizedBox(
             width: 360,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: oldPw, obscureText: true, decoration: const InputDecoration(labelText: '当前密码')),
+              TextField(controller: oldPw, obscureText: true, decoration: InputDecoration(labelText: loc.currentPassword)),
               const SizedBox(height: 10),
-              TextField(controller: newPw, obscureText: true, decoration: const InputDecoration(labelText: '新密码（至少 8 位）')),
+              TextField(controller: newPw, obscureText: true, decoration: InputDecoration(labelText: loc.newPasswordMin8)),
               if (err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(err!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+            TextButton(onPressed: () => Navigator.pop(c), child: Text(loc.actionCancel)),
             FilledButton(
               onPressed: () async {
                 try {
                   final resp = await ref.read(apiProvider).changePassword(oldPw.text, newPw.text);
                   await ref.read(sessionProvider.notifier).signedIn(resp);
                   if (c.mounted) Navigator.pop(c);
-                  if (context.mounted) toast(context, '密码已修改，其他设备需要重新登录');
+                  if (context.mounted) toast(context, AppLocalizations.of(context).passwordChangedToast);
                 } on ApiException catch (e) {
                   set(() => err = e.message);
                 }
               },
-              child: const Text('确认修改'),
+              child: Text(loc.confirmChangePassword),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -233,20 +275,22 @@ class SettingsPage extends ConsumerWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
-        builder: (c, set) => AlertDialog(
+        builder: (c, set) {
+          final loc = AppLocalizations.of(c);
+          return AlertDialog(
           icon: const Icon(Icons.warning_amber_rounded),
-          title: const Text('删除账号？'),
+          title: Text(loc.deleteAccountTitle),
           content: SizedBox(
             width: 380,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('将删除你的账号、订阅、登录会话、个人状态与发信记录，且无法恢复。请输入密码确认。'),
+              Text(loc.deleteAccountBody),
               const SizedBox(height: 12),
-              TextField(controller: pw, obscureText: true, decoration: const InputDecoration(labelText: '密码')),
+              TextField(controller: pw, obscureText: true, decoration: InputDecoration(labelText: loc.password)),
               if (err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(err!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(loc.actionCancel)),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
               onPressed: () async {
@@ -257,10 +301,11 @@ class SettingsPage extends ConsumerWidget {
                   set(() => err = e.message);
                 }
               },
-              child: const Text('永久删除'),
+              child: Text(loc.deleteForever),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
     if (ok != true) return;
@@ -283,21 +328,22 @@ class _RulesPageState extends ConsumerState<RulesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final async = ref.watch(rulesProvider);
     rules ??= async.asData?.value.toList();
     final list = rules ?? [];
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('个性化规则'), actions: [
+      appBar: AppBar(actions: [
         TextButton(
           onPressed: rules == null
               ? null
               : () async {
                   await ref.read(apiProvider).saveRules(list);
                   ref.invalidate(rulesProvider);
-                  if (context.mounted) toast(context, '规则已保存，对之后的新事项生效');
+                  if (context.mounted) toast(context, AppLocalizations.of(context).rulesSavedToast);
                 },
-          child: const Text('保存'),
+          child: Text(l10n.actionSave),
         ),
         const SizedBox(width: 8),
       ]),
@@ -306,19 +352,22 @@ class _RulesPageState extends ConsumerState<RulesPage> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('优先级 = 100 ×（0.30 来源权重 + 0.25 关键词 + 0.25 截止临近 + 0.20 与你匹配）', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              Text(l10n.priorityFormula, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
               const SizedBox(height: 4),
-              Text('≥ 80 紧急（推送到手机）· 40–79 普通 · < 40 只进信息流与摘要', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              Text(l10n.priorityBands, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
               const SizedBox(height: 14),
               SegmentedButton<String>(
-                segments: const [ButtonSegment(value: 'keyword', label: Text('关键词')), ButtonSegment(value: 'sender', label: Text('白名单发件人'))],
+                segments: [
+                  ButtonSegment(value: 'keyword', label: Text(l10n.ruleKeyword)),
+                  ButtonSegment(value: 'sender', label: Text(l10n.ruleSenderWhitelist)),
+                ],
                 selected: {kind},
                 onSelectionChanged: (v) => setState(() => kind = v.first),
               ),
               const SizedBox(height: 10),
               Row(children: [
-                Expanded(child: TextField(controller: ctl, decoration: InputDecoration(hintText: kind == 'keyword' ? '例如：保研、奖学金' : 'teacher@school.edu'))),
-                if (kind == 'keyword') ...[const SizedBox(width: 8), FilterChip(label: const Text('屏蔽'), selected: block, onSelected: (v) => setState(() => block = v))],
+                Expanded(child: TextField(controller: ctl, decoration: InputDecoration(hintText: kind == 'keyword' ? l10n.ruleKeywordHint : 'teacher@school.edu'))),
+                if (kind == 'keyword') ...[const SizedBox(width: 8), FilterChip(label: Text(l10n.ruleBlock), selected: block, onSelected: (v) => setState(() => block = v))],
                 const SizedBox(width: 8),
                 FilledButton(
                   onPressed: () {
@@ -328,14 +377,14 @@ class _RulesPageState extends ConsumerState<RulesPage> {
                       ctl.clear();
                     });
                   },
-                  child: const Text('添加'),
+                  child: Text(l10n.actionAdd),
                 ),
               ]),
             ]),
           ),
         ),
         const SizedBox(height: 12),
-        if (list.isEmpty) const EmptyState(icon: Icons.rule, title: '还没有自定义规则', message: '默认关键词：截止、deadline、考试、调课、取消。'),
+        if (list.isEmpty) EmptyState(icon: Icons.rule, title: l10n.noCustomRules, message: l10n.defaultKeywordsHint),
         Wrap(spacing: 8, runSpacing: 8, children: [
           for (var i = 0; i < list.length; i++)
             InputChip(

@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'api.dart';
 import 'db.dart';
+import 'document_lifecycle.dart';
 import 'models.dart';
 import 'session.dart';
 
@@ -59,6 +60,7 @@ class FeedState {
       );
 
   List<Item> get visible => items.values.where((i) => !i.deleted && !i.state.hidden).toList()..sort((a, b) => b.sortTime.compareTo(a.sortTime));
+  List<Item> get trashed => items.values.where((i) => !i.deleted && i.state.hidden).toList()..sort((a, b) => b.sortTime.compareTo(a.sortTime));
   int get unread => items.values.where((i) => !i.deleted && !i.state.hidden && !i.state.read).length;
 }
 
@@ -77,40 +79,63 @@ class FeedStore extends Notifier<FeedState> {
   Timer? _reconnect;
   Timer? _syncDebounce;
   Timer? _ackTimer;
+  Timer? _erasureTimer;
   int _backoff = 1;
   int _pendingAck = 0;
   bool _disposed = false;
+  int _sessionGeneration = 0;
   final _uuid = const Uuid();
+  final Set<int> _erasedIds = {};
+  Future<void>? _erasureSync;
 
   Api get _api => ref.read(apiProvider);
   LocalDb get _db => ref.read(localDbProvider);
 
   @override
   FeedState build() {
+    _disposed = false;
+    final generation = ++_sessionGeneration;
+    _erasedIds.clear();
+    _erasureSync = null;
+    _backoff = 1;
+    _pendingAck = 0;
     ref.onDispose(() {
       _disposed = true;
+      _ackTimer?.cancel();
+      _ackTimer = null;
       _reconnect?.cancel();
       _syncDebounce?.cancel();
+      _erasureTimer?.cancel();
       _wsSub?.cancel();
       _ws?.sink.close();
     });
     final token = ref.watch(sessionProvider.select((s) => s.token));
     if (token != null) {
-      Future.microtask(_bootstrap);
+      _erasureTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+        reconcileErasure().catchError((Object e) {
+          debugPrint('erasure reconciliation failed: $e');
+        });
+      });
+      Future.microtask(() => _bootstrap(generation));
     }
     return const FeedState();
   }
 
-  Future<void> _bootstrap() async {
+  bool _current(int generation) => !_disposed && generation == _sessionGeneration;
+
+  Future<void> _bootstrap(int generation) async {
+    if (!_current(generation)) return;
     // 1) 本地缓存：离线时照常浏览
     try {
       final cached = await _db.loadItems();
       final cur = int.tryParse(await _db.getKv('cursor') ?? '') ?? 0;
       final pend = (await _db.pending()).length;
+      if (!_current(generation)) return;
       state = state.copyWith(items: {for (final j in cached) j['id'] as int: Item.fromJson(j)}, cursor: cur, pending: pend, loading: cached.isEmpty);
     } catch (e) {
       debugPrint('cache load failed: $e');
     }
+    if (!_current(generation)) return;
     // 2) 网络：首次全量拉取；之后由 WebSocket hello 带 last_seq 补发
     try {
       if (state.cursor == 0 || state.items.isEmpty) {
@@ -120,24 +145,64 @@ class FeedStore extends Notifier<FeedState> {
       }
     } finally {
       // 本地缓存不可用（例如浏览器禁止 Worker / IndexedDB）时也要建立实时连接
-      _connect();
+      if (_current(generation)) _connect();
     }
   }
 
+  Future<void> reconcileErasure() => _erasureSync ??=
+      _reconcileErasure().whenComplete(() => _erasureSync = null);
+
+  Future<void> _reconcileErasure() async {
+    final api = _api, session = ref.read(sessionProvider);
+    final context = await api.captureContext(), generation = context['generation'];
+    if (_disposed || !identical(api, _api)) return;
+    if (generation is! int || context['item_ids'] is! List) {
+      throw const FormatException('Capture generation response invalid');
+    }
+    final key = 'capture_generation:${session.server}|${session.me?.id ?? 'current'}';
+    if (await _db.getKv(key) == '$generation') return;
+    final keep = (context['item_ids'] as List).cast<int>().toSet();
+    _erasedIds.addAll(state.items.keys.where((id) => !keep.contains(id)));
+    final next = {...state.items}..removeWhere((id, _) => !keep.contains(id));
+    state = state.copyWith(items: next);
+    final cleared = await _cache(() async {
+      await _db.retainItems(keep);
+      await _db.setKv(key, '$generation');
+    });
+    if (!cleared) throw StateError('Local cache cleanup failed. Reconnect and retry.');
+  }
+
+  Future<void> forgetPermanently(List<int> ids, int generation) async {
+    _erasedIds.addAll(ids);
+    final next = {...state.items}..removeWhere((id, _) => ids.contains(id));
+    state = state.copyWith(items: next);
+    final cleared = await _cache(() => _db.forgetItems(ids));
+    if (!cleared) throw StateError('Local cache cleanup failed. Reconnect and retry.');
+    await reconcileErasure();
+    await refreshAll();
+  }
+
   Future<void> refreshAll() async {
+    final generation = _sessionGeneration;
     try {
+      await reconcileErasure();
+      if (!_current(generation)) return;
       final all = <int, Item>{};
       String? cursor;
       int syncCursor = state.cursor;
-      for (var page = 0; page < 6; page++) {
-        final f = await _api.feed(cursor: cursor, limit: 100);
-        for (final j in (f['items'] as List)) {
-          final it = Item.fromJson(Map<String, dynamic>.from(j as Map));
-          all[it.id] = it;
+      for (final filter in [null, 'trash']) {
+        cursor = null;
+        for (var page = 0; page < 6; page++) {
+          final f = await _api.feed(cursor: cursor, limit: 100, filter: filter);
+          if (!_current(generation)) return;
+          for (final j in (f['items'] as List)) {
+            final it = Item.fromJson(Map<String, dynamic>.from(j as Map));
+            all[it.id] = it;
+          }
+          syncCursor = max(syncCursor, (f['sync_cursor'] ?? 0) as int);
+          cursor = f['next_cursor'] as String?;
+          if (cursor == null) break;
         }
-        syncCursor = max(syncCursor, (f['sync_cursor'] ?? 0) as int);
-        cursor = f['next_cursor'] as String?;
-        if (cursor == null) break;
       }
       final merged = {...state.items}..removeWhere((k, v) => !all.containsKey(k) && !v.deleted);
       merged.addAll(all);
@@ -147,8 +212,12 @@ class FeedStore extends Notifier<FeedState> {
         await _db.setKv('cursor', '$syncCursor');
       });
     } on ApiException catch (e) {
+      if (!_current(generation)) return;
       state = state.copyWith(loading: false, error: e.message);
-      if (e.status == 401) await ref.read(sessionProvider.notifier).signOut();
+      if (e.status == 401) {
+        await clearLocal();
+        if (_current(generation)) await ref.read(sessionProvider.notifier).signOut();
+      }
     }
   }
 
@@ -204,22 +273,34 @@ class FeedStore extends Notifier<FeedState> {
       case 'welcome':
         _backoff = 1;
         state = state.copyWith(conn: Conn.online, node: m['node'] as String?, lastSync: DateTime.now());
-        flushPending();
+        reconcileErasure().then((_) {
+          if (!_disposed) {
+            flushPending();
+            _scheduleSync();
+          }
+        }).catchError((Object e) { debugPrint('erasure sync failed: $e'); });
         _scheduleSync(); // 兜底：补齐握手期间可能错过的投递
       case 'item' || 'change' || 'reminder':
         _applyItemPayload(m);
+      case 'purged':
+        forgetPermanently((m['item_ids'] as List).cast<int>(), m['generation'] as int)
+            .catchError((Object e) { debugPrint('purge cache failed: $e'); });
       case 'state':
         _applyState(m);
       case 'source_status':
-        _events.add(AppEvent('source_status', m['status'] == 'need_login' ? '「${m['name']}」需要重新登录' : '「${m['name']}」检查失败',
-            m['status'] == 'need_login' ? '登录会话已失效，请到“来源”重新登录' : (m['error'] ?? '').toString(),
-            priority: 'urgent', data: m));
+        _events.add(AppEvent(
+          'source_status',
+          m['status'] == 'need_login' ? '“${m['name']}” needs sign-in again' : '“${m['name']}” check failed',
+          m['status'] == 'need_login' ? 'Session expired. Sign in again under Sources.' : (m['error'] ?? '').toString(),
+          priority: 'urgent',
+          data: m,
+        ));
         _advance(m);
       case 'digest':
         final d = Map<String, dynamic>.from(m['digest'] as Map);
-        _events.add(AppEvent('digest', '今日摘要', '过去 24 小时 ${d['new_count']} 条新事项，${(d['upcoming'] as List).length} 项即将截止', data: d));
+        _events.add(AppEvent('digest', 'Daily digest', 'Past 24 hours: ${d['new_count']} new items, ${(d['upcoming'] as List).length} due soon', data: d));
       case 'transfer':
-        _events.add(AppEvent('transfer', '扫码传输', (m['status'] ?? '').toString(), data: m));
+        _events.add(AppEvent('transfer', 'Scan transfer', (m['status'] ?? '').toString(), data: m));
       case 'resync_hint':
         _scheduleSync();
       case 'item_updated':
@@ -234,13 +315,17 @@ class FeedStore extends Notifier<FeedState> {
     if (j is Map) {
       final incoming = Map<String, dynamic>.from(j);
       final id = incoming['id'] as int;
+      if (_erasedIds.contains(id)) {
+        _advance(m);
+        return;
+      }
       final old = state.items[id];
       final it = old == null ? Item.fromJson(incoming) : old.merge(incoming);
       state = state.copyWith(items: {...state.items, id: it});
       _cache(() => _db.saveItems([it.toJson()]));
       final live = m['replay'] != true && m['silent'] != true;
       if (live && (m['priority'] == 'urgent' || m['type'] == 'reminder' || m['important'] == true)) {
-        final title = m['type'] == 'reminder' ? '截止提醒' : m['type'] == 'change' ? '重要变更' : '新事项';
+        final title = m['type'] == 'reminder' ? 'Deadline reminder' : m['type'] == 'change' ? 'Important change' : 'New item';
         _events.add(AppEvent(m['type'] as String, '$title · ${it.title}', (m['note'] ?? m['text'] ?? it.summary).toString(), itemId: id, priority: 'urgent'));
       } else if (live && m['priority'] == 'normal') {
         _events.add(AppEvent(m['type'] as String, it.title, (m['note'] ?? it.summary).toString(), itemId: id));
@@ -273,10 +358,12 @@ class FeedStore extends Notifier<FeedState> {
 
   /// GET /api/sync?cursor=：取回 cursor 之后的全部投递。
   Future<void> syncNow() async {
+    final generation = _sessionGeneration;
     try {
       var more = true;
       while (more) {
         final r = await _api.sync(state.cursor);
+        if (!_current(generation)) return;
         if (r['reset'] == true) {
           await refreshAll();
           return;
@@ -369,6 +456,17 @@ class FeedStore extends Notifier<FeedState> {
     }
   }
 
+  Future<void> setTrashed(Item item, bool trashed) async {
+    final api = _api;
+    final repository = ref.read(documentLifecycleRepositoryProvider);
+    final next = await repository.setTrashed(item.id, trashed);
+    if (_disposed || !identical(api, _api)) throw StateError('Desk account changed. Please confirm again.');
+    final current = state.items[item.id] ?? item;
+    final value = current.withState(ItemState.fromJson(next));
+    state = state.copyWith(items: {...state.items, item.id: value});
+    await _cache(() => _db.saveItems([value.toJson()]));
+  }
+
   Future<void> markAllRead(Iterable<Item> items) async {
     for (final i in items.where((i) => !i.state.read).toList()) {
       await setState(i, read: true);
@@ -400,6 +498,13 @@ class FeedStore extends Notifier<FeedState> {
     await setState(item, read: true);
   }
 
+  Future<void> setItemLabels(Item item, List<int> labelIds) async {
+    final ids = await _api.putItemLabels(item.id, labelIds);
+    final next = item.withLabelIds(ids);
+    state = state.copyWith(items: {...state.items, item.id: next});
+    await _cache(() => _db.saveItems([next.toJson()]));
+  }
+
   Future<Item> loadDetail(int id) async {
     final it = await _api.item(id);
     final old = state.items[id];
@@ -409,7 +514,7 @@ class FeedStore extends Notifier<FeedState> {
     return merged;
   }
 
-  /// 按类型切换处理状态：待办完成／未完成、日程归档／取消归档、通知已读／未读。
+  /// 按类型切换处理状态：待办完成／未完成、日程归档／Cancel归档、通知已读／未读。
   Future<void> toggleStatus(Item item) => switch (item.type) {
         'todo' => setState(item, todo: item.isDone ? 'todo' : 'done'),
         'event' => setState(item, archived: !item.state.archived),
@@ -423,7 +528,7 @@ class FeedStore extends Notifier<FeedState> {
     _cache(() => _db.saveItems([merged.toJson()]));
   }
 
-  /// 修改字段（需要在线）：与来源版本分开保存，来源更新不会覆盖。
+  /// 修改字段（需要在线）：与来源版本分开Save，来源更新不会覆盖。
   Future<void> editFields(Item item, {Map<String, dynamic> set = const {}, List<String> reset = const []}) async =>
       _put(await _api.patchFields(item.id, set: set, reset: reset));
 

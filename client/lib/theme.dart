@@ -1,38 +1,107 @@
 import 'package:flutter/material.dart';
 
-/// 拾课配色：麦田绿为主色，麦穗金为强调色（呼应 glean“拾穗”的意象）。
 class Brand {
-  static const seed = Color(0xFF2F6B5A);
-  static const wheat = Color(0xFFE0A43A);
-  static const urgent = Color(0xFFD9534F);
+  static const yellow = Color(0xFFE0A43A);
+  static const ink = Color(0xFF121417);
+  static const seed = ink;
+  static const wheat = yellow;
+  static const blue = ink;
+  static const urgent = Color(0xFFD92D20);
   static const ok = Color(0xFF2E9D6A);
+
+  static const dueCritical = Color(0xFFC9891F);
+  static const dueSoon = yellow;
+  static const dueOverdue = Color(0xFF9A7B4A);
+
+  static const canvas = Color(0xFFF7F7F5);
+  static const line = Color(0xFFE6E6E2);
+  static const wash = Color(0xFFFFF6E8);
 
   /// 课程颜色：同一门课在列表、日历中保持同一颜色。
   static const coursePalette = [
-    Color(0xFF3A7BD5),
-    Color(0xFF8E5BD8),
-    Color(0xFFE07A3A),
-    Color(0xFF2EA39B),
-    Color(0xFFD45C8A),
-    Color(0xFF6B8E23),
-    Color(0xFF5C6BC0),
-    Color(0xFFB8862B),
+    ink,
+    Color(0xFF3D3A36),
+    Color(0xFF6B645A),
+    yellow,
+    Color(0xFFC9891F),
+    Color(0xFF5C6B5A),
+    Color(0xFF8A6A3A),
+    Color(0xFF4A5560),
   ];
 
   static Color course(String name) {
-    if (name.isEmpty) return const Color(0xFF7A8C87);
+    if (name.isEmpty) return const Color(0xFF9A9080);
     var h = 0;
     for (final c in name.codeUnits) {
       h = (h * 31 + c) & 0x7fffffff;
     }
     return coursePalette[h % coursePalette.length];
   }
+
+  static const labelPalette = <String>[
+    '#E0A43A',
+    '#D9534F',
+    '#2E9D6A',
+    '#3A7BD5',
+    '#8B5CF6',
+    '#E85D84',
+    '#0F766E',
+    '#5C4A2E',
+  ];
+
+  static Color labelColor(String hex, {Color fallback = yellow}) {
+    if (hex.isEmpty) return fallback;
+    final raw = hex.replaceFirst('#', '');
+    if (raw.length != 6) return fallback;
+    final v = int.tryParse(raw, radix: 16);
+    if (v == null) return fallback;
+    return Color(0xFF000000 | v);
+  }
 }
 
 const _fallback = ['PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'sans-serif'];
+const _muted = Color(0xFF6B645A);
+
+final _lightScheme = ColorScheme(
+  brightness: Brightness.light,
+  primary: Brand.ink,
+  onPrimary: Colors.white,
+  primaryContainer: Color(0xFFEEEEEA),
+  onPrimaryContainer: Brand.ink,
+  secondary: Brand.ink,
+  onSecondary: Colors.white,
+  secondaryContainer: Color(0xFFF0EFEA),
+  onSecondaryContainer: Brand.ink,
+  tertiary: Brand.yellow,
+  onTertiary: Brand.ink,
+  tertiaryContainer: Brand.wash,
+  onTertiaryContainer: Brand.ink,
+  error: Brand.urgent,
+  onError: Colors.white,
+  errorContainer: Color(0xFFFDECEC),
+  onErrorContainer: Color(0xFF7A1A14),
+  surface: Colors.white,
+  onSurface: Brand.ink,
+  onSurfaceVariant: _muted,
+  outline: Color(0xFFD4D2CC),
+  outlineVariant: Brand.line,
+  shadow: Colors.black,
+  scrim: Colors.black,
+  inverseSurface: Brand.ink,
+  onInverseSurface: Colors.white,
+  inversePrimary: Brand.yellow,
+  surfaceTint: Colors.transparent,
+  surfaceContainerLowest: Colors.white,
+  surfaceContainerLow: Colors.white,
+  surfaceContainer: Brand.canvas,
+  surfaceContainerHigh: Color(0xFFEEEEEA),
+  surfaceContainerHighest: Color(0xFFE6E6E2),
+);
+
+final _darkScheme = ColorScheme.fromSeed(seedColor: Brand.ink, brightness: Brightness.dark);
 
 ThemeData buildTheme(Brightness b) {
-  final scheme = ColorScheme.fromSeed(seedColor: Brand.seed, brightness: b, tertiary: Brand.wheat);
+  final scheme = b == Brightness.light ? _lightScheme : _darkScheme;
   final base = ThemeData(colorScheme: scheme, useMaterial3: true, brightness: b);
   final text = base.textTheme.apply(fontFamilyFallback: _fallback);
   return base.copyWith(
@@ -41,7 +110,7 @@ ThemeData buildTheme(Brightness b) {
       titleLarge: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
       titleMedium: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
     ),
-    scaffoldBackgroundColor: scheme.surface,
+    scaffoldBackgroundColor: b == Brightness.light ? Brand.canvas : scheme.surface,
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
@@ -51,9 +120,12 @@ ThemeData buildTheme(Brightness b) {
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      color: scheme.surfaceContainerLow,
+      color: scheme.surface,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
       clipBehavior: Clip.antiAlias,
     ),
     chipTheme: ChipThemeData(
@@ -80,13 +152,13 @@ ThemeData buildTheme(Brightness b) {
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: scheme.surfaceContainer,
+      backgroundColor: scheme.surface,
       indicatorColor: scheme.secondaryContainer,
       labelTextStyle: WidgetStatePropertyAll(text.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
       height: 68,
     ),
     navigationRailTheme: NavigationRailThemeData(
-      backgroundColor: scheme.surfaceContainerLow,
+      backgroundColor: scheme.surface,
       indicatorColor: scheme.secondaryContainer,
       labelType: NavigationRailLabelType.none,
     ),

@@ -30,9 +30,14 @@ class FakeTransport:
         return SafeResponse(200, plan.canonical_url, "text/html", self.body)
 
 
-def system(path=":memory:", count=1, auth_required=True):
+def system(path=":memory:", count=1, auth_required=True, port=8888, host_gap=2, shared_reads=False):
     clock = FakeClock()
-    policy = SitePolicy(origin="http://127.0.0.1:8888", local_test=True)
+    policy = SitePolicy(
+        origin=f"http://127.0.0.1:{port}",
+        local_test=True,
+        host_gap_s=host_gap,
+        concurrent_session_reads=shared_reads,
+    )
     auth = AuthManager(policy, clock)
     c = auth.create(1, "b")
     auth.import_cookies(
@@ -219,3 +224,169 @@ async def test_concurrent_ticks_do_not_overlap_requests():
     await first
     assert len(s.transport.calls) == 1
     s.store.close()
+
+
+async def test_slow_origin_does_not_delay_healthy_origin_receipt():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    slow, healthy = system(), system(port=8889)
+    entered, release = asyncio.Event(), asyncio.Event()
+    received = asyncio.Event()
+
+    async def slow_response():
+        entered.set()
+        await release.wait()
+
+    original_apply = healthy.sink.apply
+
+    async def healthy_receipt(batch):
+        result = await original_apply(batch)
+        received.set()
+        return result
+
+    slow.transport.during = slow_response
+    healthy.sink.apply = healthy_receipt
+    scheduler = SiteScheduler([slow.scheduler, healthy.scheduler])
+    task = asyncio.create_task(scheduler.tick())
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(received.wait(), 1)
+        assert await scheduler.tick() == 0
+    finally:
+        release.set()
+        await task
+        slow.store.close()
+        healthy.store.close()
+    assert task.result() == 2
+
+
+async def test_occupied_session_does_not_use_global_network_slot():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    busy, healthy = system(), system(port=8889)
+    scheduler = SiteScheduler([busy.scheduler, healthy.scheduler], concurrency=1)
+    received = asyncio.Event()
+
+    async def mark():
+        received.set()
+
+    healthy.transport.during = mark
+    async with busy.context.network_lock:
+        task = asyncio.create_task(scheduler.tick())
+        await asyncio.wait_for(received.wait(), 1)
+        assert not busy.transport.calls
+    assert await asyncio.wait_for(task, 1) == 2
+    busy.store.close()
+    healthy.store.close()
+
+
+async def test_shared_quota_resumes_without_a_second_tick():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    a, b = system(), system(port=8889)
+    for item in (a, b):
+        item.clock.utc = __import__("time").time
+        source = item.store.source(item.source.source_id)
+        source.next_due_at = item.clock.utc()
+        item.store.save_source(source)
+    a.store.put_meta("host_not_before", a.clock.utc() + 0.06)
+    dispatcher = SiteScheduler(
+        [a.scheduler, b.scheduler],
+        quota_groups={a.policy.origin: "shared", b.policy.origin: "shared"},
+    )
+    assert await asyncio.wait_for(dispatcher.tick(), 1) == 2
+    a.store.close()
+    b.store.close()
+
+
+@pytest.mark.parametrize(
+    ("authenticated", "opt_in", "expected_peak"),
+    [(False, False, 2), (True, False, 1), (True, True, 2)],
+)
+async def test_opt_in_group_window_shares_spare_capacity_but_preserves_session_lock(
+    authenticated, opt_in, expected_peak
+):
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    site = system(auth_required=authenticated, host_gap=0, shared_reads=opt_in)
+    if opt_in:
+        proof = site.scheduler.adapter.inspect(
+            SafeResponse(200, site.source.canonical_url, "text/html", page())
+        ).principal_key
+        site.auth.verify(await site.auth.acquire(site.context.auth_id), proof)
+    for number in (8, 9, 10):
+        site.store.save_item(
+            number,
+            1,
+            f"{site.policy.origin}/mod/assign/view.php?id={number}",
+            f"moodle:assign:{number}",
+        )
+        site.registry.register(1, [number], "b", site.source.auth_id)
+    active = peak = 0
+
+    async def respond():
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    site.transport.during = respond
+    dispatcher = SiteScheduler(
+        [site.scheduler], concurrency=4, group_limits={site.policy.origin: 2}
+    )
+    try:
+        assert await asyncio.wait_for(dispatcher.tick(), 2) == 4
+        assert peak == expected_peak
+    finally:
+        site.store.close()
+
+
+def test_invalid_group_window_is_rejected_before_dispatch():
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    site = system()
+    try:
+        for limits in ({site.policy.origin: 0}, {site.policy.origin: 9}, {"unregistered": 2}):
+            with pytest.raises(ValueError, match="per-group"):
+                SiteScheduler([site.scheduler], group_limits=limits)
+    finally:
+        site.store.close()
+
+
+async def test_shared_origin_quota_rotates_between_backlogged_routes():
+    import time
+
+    from gleaner.monitoring.scheduler import SiteScheduler
+
+    a, b = system(port=8890, host_gap=0.02), system(port=8891, host_gap=0.02)
+    calls = []
+    for label, site in (("a", a), ("b", b)):
+        site.clock.mono = time.monotonic
+        site.auth.presence("b", 2)
+        for number in (8, 9):
+            site.store.save_item(
+                number,
+                1,
+                site.policy.origin + f"/mod/assign/view.php?id={number}",
+                f"moodle:assign:{number}",
+            )
+            site.registry.register(1, [number], "b", site.source.auth_id)
+
+        async def respond(name=label):
+            calls.append(name)
+            await asyncio.sleep(0.002)
+
+        site.transport.during = respond
+    dispatcher = SiteScheduler(
+        [a.scheduler, b.scheduler],
+        concurrency=4,
+        quota_groups={a.policy.origin: "shared", b.policy.origin: "shared"},
+        group_limits={"shared": 2},
+    )
+    try:
+        assert await asyncio.wait_for(dispatcher.tick(), 2) == 6
+        assert calls == ["a", "b", "a", "b", "a", "b"]
+    finally:
+        a.store.close()
+        b.store.close()

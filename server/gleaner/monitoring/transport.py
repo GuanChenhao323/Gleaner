@@ -10,7 +10,8 @@ import math
 import socket
 import ssl
 import zlib
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
@@ -37,7 +38,37 @@ async def resolve(host: str, port: int) -> list[str]:
     return list(dict.fromkeys(str(x[4][0]) for x in infos))
 
 
+class OriginPacing:
+    """Bound in-flight reads separately from the interval between request starts."""
+
+    def __init__(self, capacity: int = 1) -> None:
+        if type(capacity) is not int or capacity < 1:
+            raise ValueError("invalid origin capacity")
+        self.slots = asyncio.Semaphore(capacity)
+        self.lock = asyncio.Lock()
+        self.next_start = 0.0
+        self.cooldown_until = 0.0
+
+    @asynccontextmanager
+    async def reserve_start(self) -> AsyncIterator[Callable[[], None]]:
+        await self.lock.acquire()
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                self.lock.release()
+
+        try:
+            yield release
+        finally:
+            release()
+
+
 class HTTPXTransport:
+    max_concurrency = 4
+
     def __init__(
         self,
         policy: SitePolicy,
@@ -45,6 +76,7 @@ class HTTPXTransport:
         *,
         clock: Clock | None = None,
         resolver: Resolver | None = None,
+        pacing: OriginPacing | None = None,
         engine: httpx.AsyncBaseTransport | None = None,
         verify: ssl.SSLContext | bool = True,
         get_not_before: Callable[[], float] = lambda: 0,
@@ -87,10 +119,10 @@ class HTTPXTransport:
             registered_target_fallback,
             policy_event,
         )
-        self._lock, self._global = asyncio.Lock(), asyncio.Semaphore(4)
-        self._next_start = 0.0
-        self._robots: tuple[float, RobotsRules] | None = None
-        self._robots_identity: tuple[str, int] | None = None
+        self.pacing = pacing or OriginPacing()
+        self._global = asyncio.Semaphore(self.max_concurrency)
+        self._robots: dict[tuple[str, int] | None, tuple[float, RobotsRules]] = {}
+        self._robots_lock = asyncio.Lock()
         # httpx logs full request URLs at INFO; this component emits a fixed, redacted event instead.
         for name in ("httpx", "httpcore"):
             logging.getLogger(name).setLevel(logging.WARNING)
@@ -105,6 +137,21 @@ class HTTPXTransport:
             timeout=httpx.Timeout(30, connect=connect_timeout),
             trust_env=False,
             follow_redirects=False,
+        )
+
+    def cooldown_until(self) -> float:
+        return max(self.pacing.cooldown_until, self.get_not_before())
+
+    def _check_cooldown(self) -> None:
+        remaining = self.cooldown_until() - self.clock.utc()
+        if remaining > 0:
+            raise MonitorError("rate_limited", retryable=True, retry_after_s=remaining)
+
+    def start_delay(self) -> float:
+        return max(
+            0.0,
+            self.pacing.next_start - self.clock.mono(),
+            self.cooldown_until() - self.clock.utc(),
         )
 
     async def close(self) -> None:
@@ -139,20 +186,19 @@ class HTTPXTransport:
         return urlunsplit((p.scheme, authority, p.path, p.query, "")), p.netloc
 
     async def _one(
-        self, url: str, lease: AuthLease | None, *, kind: str
+        self, url: str, lease: AuthLease | None, *, kind: str, rules: RobotsRules | None = None
     ) -> tuple[int, dict[str, str], bytes]:
         self.policy.canonical(url)
-        if kind == "content" and self._robots:
+        if kind == "content" and rules is not None:
             p = urlsplit(url)
-            if not self._robots[1].allowed(p.path + ("?" + p.query if p.query else "")):
+            if not rules.allowed(p.path + ("?" + p.query if p.query else "")):
                 raise MonitorError("robots_denied")
         # A single policy/transport owns host pacing across robots, pages and redirects.
-        async with self._global, self._lock:
-            left = self.get_not_before() - self.clock.utc()
-            if left > 0:
-                raise MonitorError("rate_limited", retryable=True, retry_after_s=left)
+        async with self._global, self.pacing.slots, self.pacing.reserve_start() as release_start:
+            self._check_cooldown()
             # Pacing belongs to the overall request budget, not the DNS/TCP/TLS budget.
-            await self.clock.sleep(self._next_start - self.clock.mono())
+            await self.clock.sleep(self.pacing.next_start - self.clock.mono())
+            self._check_cooldown()
             headers = {
                 "Host": urlsplit(url).netloc,
                 "User-Agent": "GleanerMonitor/1.0",
@@ -161,7 +207,7 @@ class HTTPXTransport:
                 "Connection": "close",
             }
             headers.update(self.policy.request_headers)
-            crawl_delay = self._robots[1].crawl_delay if self._robots else 0
+            crawl_delay = rules.crawl_delay if rules is not None else 0
             # Resolution has its own bounded budget; preserve the full TCP/TLS budget
             # after an allowed DNS fallback. The outer fetch timeout still covers both.
             pinned, _ = await self._ip(url)
@@ -171,17 +217,27 @@ class HTTPXTransport:
                 started = self.clock.mono()
                 started_utc = self.clock.utc()
                 request_start_observed = False
-                self._next_start = started + max(self.policy.host_gap_s, crawl_delay)
+                self.pacing.next_start = started + max(self.policy.host_gap_s, crawl_delay)
 
                 async def trace(name: str, info: dict[str, Any]) -> None:
                     nonlocal started, started_utc, request_start_observed
                     if name == "http11.send_request_headers.started":
+                        self._check_cooldown()
+                        if lease is not None and self.auth.header(lease, url) != headers["Cookie"]:
+                            raise MonitorError("superseded")
                         started = self.clock.mono()
                         started_utc = self.clock.utc()
                         request_start_observed = True
-                        self._next_start = max(
-                            self._next_start, started + max(self.policy.host_gap_s, crawl_delay)
+                        self.pacing.next_start = max(
+                            self.pacing.next_start,
+                            started + max(self.policy.host_gap_s, crawl_delay),
                         )
+                    if name == "http11.send_request_headers.complete":
+                        self.pacing.next_start = max(
+                            self.pacing.next_start,
+                            self.clock.mono() + max(self.policy.host_gap_s, crawl_delay),
+                        )
+                        release_start()
                     if name == "connection.start_tls.complete" or (
                         urlsplit(url).scheme == "http" and name == "connection.connect_tcp.complete"
                     ):
@@ -213,7 +269,10 @@ class HTTPXTransport:
                 delay = parse_retry_after(response.headers.get("retry-after"), self.clock.utc())
                 if status == 429 or (status == 503 and delay is not None):
                     delay = self.policy.min_interval_s if delay is None else delay
-                    self.set_not_before(max(self.get_not_before(), self.clock.utc() + delay))
+                    self.pacing.cooldown_until = max(
+                        self.cooldown_until(), self.clock.utc() + delay
+                    )
+                    self.set_not_before(self.pacing.cooldown_until)
                     self.event(
                         {
                             "kind": kind,
@@ -308,11 +367,11 @@ class HTTPXTransport:
                 self._client.cookies.clear()
 
     async def _chain(
-        self, url: str, lease: AuthLease | None, *, kind: str
+        self, url: str, lease: AuthLease | None, *, kind: str, rules: RobotsRules | None = None
     ) -> tuple[str, int, dict[str, str], bytes]:
         target_url = url
         for hop in range(4):
-            status, headers, body = await self._one(url, lease, kind=kind)
+            status, headers, body = await self._one(url, lease, kind=kind, rules=rules)
             if status not in (301, 302, 303, 307, 308):
                 return url, status, headers, body
             location = headers.get("location")
@@ -347,71 +406,74 @@ class HTTPXTransport:
             url = nxt
         raise MonitorError("redirect_limit")
 
+    async def _rules_for(self, url: str, auth: AuthLease | None) -> RobotsRules:
+        identity = (auth.auth_id, auth.generation) if auth else None
+        async with self._robots_lock:
+            cached = self._robots.get(identity)
+            if cached and cached[0] > self.clock.mono():
+                return cached[1]
+            try:
+                final, status, headers, body = await self._chain(
+                    self.policy.origin + "/robots.txt", auth, kind="robots"
+                )
+            except MonitorError as error:
+                if error.code != "robots_dashboard_redirect":
+                    raise
+                p = urlsplit(url)
+                target_path = p.path + ("?" + p.query if p.query else "")
+                rules = parse_robots(
+                    f"User-agent: GleanerMonitor\nDisallow: /\nAllow: {target_path}$",
+                    "gleanermonitor",
+                )
+                self.policy_event(
+                    {
+                        "kind": "robots_fallback",
+                        "reason": "dashboard_redirect",
+                        "scope": "one_registered_target",
+                        "utc": self.clock.utc(),
+                    }
+                )
+            else:
+                robots_response = SafeResponse(status, final, headers.get("content-type", ""), body)
+                if status == 401 or (
+                    self.inspect_access
+                    and self.inspect_access(robots_response).state == "auth_required"
+                ):
+                    raise MonitorError("auth_required")
+                if status == 200:
+                    if (
+                        headers.get("content-type", "").split(";")[0].strip().lower()
+                        != "text/plain"
+                    ):
+                        raise MonitorError("robots_unavailable", retryable=True)
+                    try:
+                        rules = parse_robots(body.decode("utf-8-sig"), "gleanermonitor")
+                    except UnicodeDecodeError:
+                        raise MonitorError("robots_unavailable", retryable=True) from None
+                elif 400 <= status < 500:
+                    rules = RobotsRules()
+                else:
+                    raise MonitorError("robots_unavailable", retryable=True)
+            if len(self._robots) >= 128 and identity not in self._robots:
+                del self._robots[min(self._robots, key=lambda k: self._robots[k][0])]
+            self._robots[identity] = (self.clock.mono() + 3600, rules)
+            return rules
+
     async def fetch(self, plan: FetchPlan, auth: AuthLease | None) -> SafeResponse:
         url = self.policy.canonical(plan.canonical_url, target=True)
         if plan.method != "GET" or plan.validators:
             raise MonitorError("unsupported")
         try:
             async with asyncio.timeout(self.total_timeout):
-                identity = (auth.auth_id, auth.generation) if auth else None
-                if (
-                    self._robots is None
-                    or self._robots[0] <= self.clock.mono()
-                    or identity != self._robots_identity
-                ):
-                    try:
-                        final, status, headers, body = await self._chain(
-                            self.policy.origin + "/robots.txt", auth, kind="robots"
-                        )
-                    except MonitorError as error:
-                        if error.code != "robots_dashboard_redirect":
-                            raise
-                        p = urlsplit(url)
-                        target_path = p.path + ("?" + p.query if p.query else "")
-                        rules = parse_robots(
-                            f"User-agent: GleanerMonitor\nDisallow: /\nAllow: {target_path}$",
-                            "gleanermonitor",
-                        )
-                        self.policy_event(
-                            {
-                                "kind": "robots_fallback",
-                                "reason": "dashboard_redirect",
-                                "scope": "one_registered_target",
-                                "utc": self.clock.utc(),
-                            }
-                        )
-                    else:
-                        robots_response = SafeResponse(
-                            status, final, headers.get("content-type", ""), body
-                        )
-                        if status == 401 or (
-                            self.inspect_access
-                            and self.inspect_access(robots_response).state == "auth_required"
-                        ):
-                            raise MonitorError("auth_required")
-                        if status == 200:
-                            if (
-                                headers.get("content-type", "").split(";")[0].strip().lower()
-                                != "text/plain"
-                            ):
-                                raise MonitorError("robots_unavailable", retryable=True)
-                            try:
-                                rules = parse_robots(body.decode("utf-8-sig"), "gleanermonitor")
-                            except UnicodeDecodeError:
-                                raise MonitorError("robots_unavailable", retryable=True) from None
-                        elif 400 <= status < 500:
-                            rules = RobotsRules()
-                        else:
-                            raise MonitorError("robots_unavailable", retryable=True)
-                    self._robots = (self.clock.mono() + 3600, rules)
-                    self._robots_identity = identity
-                rules = self._robots[1]
+                rules = await self._rules_for(url, auth)
                 path = urlsplit(url).path + (
                     "?" + urlsplit(url).query if urlsplit(url).query else ""
                 )
                 if not rules.allowed(path):
                     raise MonitorError("robots_denied")
-                final, status, headers, body = await self._chain(url, auth, kind="content")
+                final, status, headers, body = await self._chain(
+                    url, auth, kind="content", rules=rules
+                )
                 if status == 304:
                     raise MonitorError("missing_baseline")
                 if status == 404:

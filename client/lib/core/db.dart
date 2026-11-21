@@ -81,6 +81,16 @@ class LocalDb extends _$LocalDb {
 
   Future<void> dequeue(Iterable<String> opIds) => (delete(pendingOps)..where((t) => t.opId.isIn(opIds))).go();
 
+  Future<void> retainItems(Set<int> ids) => transaction(() async {
+    await (delete(cachedItems)..where((t)=>t.id.isNotIn(ids))).go();
+    await (delete(pendingOps)..where((t)=>t.itemId.isNotIn(ids))).go();
+  });
+
+  Future<void> forgetItems(Iterable<int> ids) => transaction(() async {
+    await (delete(cachedItems)..where((t)=>t.id.isIn(ids))).go();
+    await (delete(pendingOps)..where((t)=>t.itemId.isIn(ids))).go();
+  });
+
   Future<void> wipe() async {
     await delete(cachedItems).go();
     await delete(kvEntries).go();

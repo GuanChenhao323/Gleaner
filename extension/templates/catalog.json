@@ -1,0 +1,11 @@
+[
+  {"id":"todo","label":"记待办","overrides":{}},
+  {"id":"event","label":"记日程","overrides":{}},
+  {"id":"notice","label":"收通知","overrides":{}},
+  {"id":"reference","label":"存资料","overrides":{}},
+  {"id":"booking","extends":"todo","match":"[itemprop=bookingTime], [data-booking-deadline]","overrides":{"date":"[data-booking-deadline], [itemprop=bookingTime]"}},
+  {"id":"exhibition","extends":"event","match":"[itemprop=startDate]","overrides":{"date":"[itemprop=startDate]"}},
+  {"id":"announcement","extends":"notice","match":"[itemprop=datePublished], article time[pubdate]","overrides":{"date":"[itemprop=datePublished], article time[pubdate]","publisher":"[itemprop=publisher]","text":"[itemprop=articleBody]"}},
+  {"id":"assignment","extends":"todo","match":"body#page-mod-assign-view","overrides":{"title":"#region-main h2","text":"#intro","date":"[data-region=activity-dates] [data-type=due] time"}},
+  {"id":"must-assignment","extends":"assignment","host":"moodle.must.edu.mo","overrides":{"date":"[data-type=due] time, .submissionstatustable [data-field=duedate]"}}
+]

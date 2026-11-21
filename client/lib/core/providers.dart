@@ -7,17 +7,19 @@ import 'store.dart';
 final templatesProvider = FutureProvider<List<SourceTemplate>>((ref) => ref.watch(apiProvider).templates());
 
 final sourcesProvider = FutureProvider<List<Source>>((ref) async {
-  // 来源状态变化（需要重新登录、恢复）时刷新
-  ref.watch(feedProvider.select((s) => s.cursor));
+  // Refresh after a completed sync, not on every WS seq bump (that kept pages on the spinner).
+  ref.watch(feedProvider.select((s) => s.lastSync));
   return ref.watch(apiProvider).sources();
 });
 
 final coursesProvider = FutureProvider<List<Course>>((ref) async {
-  ref.watch(feedProvider.select((s) => s.cursor));
+  ref.watch(feedProvider.select((s) => s.lastSync));
   return ref.watch(apiProvider).courses();
 });
 
 final rulesProvider = FutureProvider<List<Rule>>((ref) => ref.watch(apiProvider).rules());
+
+final labelsProvider = FutureProvider<List<UserLabel>>((ref) => ref.watch(apiProvider).labels());
 
 final versionsProvider = FutureProvider.family<List<ItemVersion>, int>((ref, id) async {
   ref.watch(feedProvider.select((s) => s.items[id]?.version));
