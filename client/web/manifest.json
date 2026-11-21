@@ -1,11 +1,11 @@
 {
-  "name": "拾课 Gleaner",
-  "short_name": "拾课",
+  "name": "Gleaner",
+  "short_name": "Gleaner",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#F7F7F5",
   "theme_color": "#121417",
-  "description": "把散落各处的课程信息拾起来",
+  "description": "Gather course info from Moodle, notices, and school email into one desk.",
   "orientation": "portrait-primary",
   "prefer_related_applications": false,
   "icons": [

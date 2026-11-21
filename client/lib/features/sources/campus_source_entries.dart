@@ -47,13 +47,13 @@ class CampusSourceEntries extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Text('Campus sources', style: Theme.of(context).textTheme.titleLarge),
       const Text(
         'Open the original page, capture matching content with the Chrome extension, preview, then save once. '
         'Previews stay in the local extension; saved items enter the desk. '
-        '拾课 Gleaner and school accounts sign in separately.',
+        'Gleaner and school accounts sign in separately.',
       ),
       for (final source in campusSourceEntries)
         Card(

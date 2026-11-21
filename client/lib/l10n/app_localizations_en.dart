@@ -10,7 +10,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => '拾课 Gleaner';
+  String get appTitle => 'Gleaner';
 
   @override
   String get navDesk => 'Desk';
@@ -103,7 +103,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get privacyAgreeDetail =>
-      '拾课 Gleaner stores Moodle session cookies, not SSO passwords. School mailbox app passwords are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account anytime.';
+      'Gleaner stores Moodle session cookies, not SSO passwords. School mailbox app passwords are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account anytime.';
 
   @override
   String get serverAddress => 'Server URL';
@@ -1317,7 +1317,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get itemNotFound =>
-      'Item missing or not yours. Use the same 拾课 Gleaner account in desk and extension.';
+      'Item missing or not yours. Use the same Gleaner account in desk and extension.';
 
   @override
   String get loginExpired => 'Session expired. Sign in again on the desk.';

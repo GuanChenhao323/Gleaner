@@ -30,7 +30,7 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('same 拾课 Gleaner account'), findsOneWidget);
+      expect(find.textContaining('same Gleaner account'), findsOneWidget);
       expect(find.textContaining('sample@example.test'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       await tester.tap(find.text('Retry'));

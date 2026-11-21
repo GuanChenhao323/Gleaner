@@ -23,7 +23,7 @@ class Notifier2 {
       await _plugin.initialize(
         settings: const InitializationSettings(
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          windows: WindowsInitializationSettings(appName: '拾课 Gleaner', appUserModelId: 'Gleaner.Gleaner.App.1', guid: 'b5e1a3c4-7d2f-4c1a-9e0b-3f6a2d8c1e57'),
+          windows: WindowsInitializationSettings(appName: 'Gleaner', appUserModelId: 'Gleaner.Gleaner.App.1', guid: 'b5e1a3c4-7d2f-4c1a-9e0b-3f6a2d8c1e57'),
           web: WebInitializationSettings(),
         ),
       );
@@ -126,7 +126,7 @@ class MqttService extends Notifier<MqttConn> with WidgetsBindingObserver {
     final online = ref.read(feedProvider).conn == Conn.online;
     // 前台且实时连接正常时由界面内提示，避免重复打扰
     if (_foreground && online && !topic.endsWith('/digest')) return;
-    final title = topic.endsWith('/digest') ? '拾课 · Daily digest' : (j['title'] ?? '拾课 reminder').toString();
+    final title = topic.endsWith('/digest') ? 'Gleaner · Daily digest' : (j['title'] ?? 'Gleaner reminder').toString();
     final body = topic.endsWith('/digest') ? '${j['new_count'] ?? 0} new items' : (j['body'] ?? '').toString();
     ref.read(systemNotifierProvider).show(title, body);
   }

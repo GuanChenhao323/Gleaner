@@ -583,7 +583,7 @@ Future<void> showLogin(BuildContext context, WidgetRef ref, Source s) async {
             ],
             Text(
               useKey
-                  ? 'Use this when the school uses SSO—拾课 never sees your SSO password:\n'
+                  ? 'Use this when the school uses SSO—Gleaner never sees your SSO password:\n'
                       '1. Sign in to Moodle in the browser, open Preferences → Security keys;\n'
                       '2. Copy the Moodle mobile web service key and paste it below.\n'
                       'The key is stored with AES-GCM; reset it in Moodle to revoke anytime.'

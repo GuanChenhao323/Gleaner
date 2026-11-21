@@ -102,7 +102,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'拾课 Gleaner'**
+  /// **'Gleaner'**
   String get appTitle;
 
   /// No description provided for @navDesk.
@@ -282,7 +282,7 @@ abstract class AppLocalizations {
   /// No description provided for @privacyAgreeDetail.
   ///
   /// In en, this message translates to:
-  /// **'拾课 Gleaner stores Moodle session cookies, not SSO passwords. School mailbox app passwords are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account anytime.'**
+  /// **'Gleaner stores Moodle session cookies, not SSO passwords. School mailbox app passwords are encrypted with AES-GCM. Mail keeps only subject, sender, summary, and links. You can delete your account anytime.'**
   String get privacyAgreeDetail;
 
   /// No description provided for @serverAddress.
@@ -2496,7 +2496,7 @@ abstract class AppLocalizations {
   /// No description provided for @itemNotFound.
   ///
   /// In en, this message translates to:
-  /// **'Item missing or not yours. Use the same 拾课 Gleaner account in desk and extension.'**
+  /// **'Item missing or not yours. Use the same Gleaner account in desk and extension.'**
   String get itemNotFound;
 
   /// No description provided for @loginExpired.
